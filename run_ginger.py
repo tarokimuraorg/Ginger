@@ -176,6 +176,11 @@ def load_catalog(path: str):
         
     return {"catalog_name": catalog_name, "types": types, "funcs": funcs}
 
+# GingerとPythonの型をマッピング
+TYPEMAP = {
+    "Int": int
+}
+
 #-------------
 # Evaluator
 #-------------
@@ -205,8 +210,34 @@ def eval_ast(ast, catalog):
         # 引数評価
         values = [eval_ast(a, catalog) for a in args_ast]
 
+        # 引数の型チェック
+        for idx, (type_name, v) in enumerate(zip(spec["args"], values)):
+
+            pytype = TYPEMAP.get(type_name)
+            
+            if pytype is None:
+                raise RuntimeError(f"Unknown type in catalog: {type_name} (in func {func_name})")
+            
+            if not isinstance(v, pytype):
+                raise RuntimeError(
+                    f"{func_name}: arg({idx}) must be {type_name}, got {type(v).__name__}"
+                )
+
         if func_name == "add":
-            return values[0] + values[1]
+            
+            result = values[0] + values[1]
+            ret_pytype = TYPEMAP.get(spec["return"])
+
+            # 戻り値の型チェック
+            if ret_pytype is None:
+                raise RuntimeError(f"Unknown return type in catalog: {spec['return']} (in func {func_name})")
+            
+            if not isinstance(result, ret_pytype):
+                raise RuntimeError(
+                    f"{func_name}: return must be {spec['return']}, got {type(result).__name__}"
+                )
+            
+            return result
         
         raise RuntimeError(f"Function not implemented yet: {func_name}")
     
