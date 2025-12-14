@@ -25,6 +25,7 @@ Ginger において、パーサは主役ではありません。
 `Catalog.ginger` は、Ginger の世界で **何が存在できるか** を定義します。
 
 例：
+```
 catalog Sample
 
 type Int
@@ -33,6 +34,7 @@ fn add
 args: Int, Int
 return: Int
 description: “Adds two integers.”
+```
 
 ### 特徴
 
@@ -72,3 +74,4 @@ add(1, 2)
 TYPEMAP = {
     "Int": int,
 }
+```
