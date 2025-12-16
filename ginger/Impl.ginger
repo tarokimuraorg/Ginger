@@ -1,0 +1,7 @@
+impl Int guarantees Addable {
+  add = builtin core.int.add
+}
+
+impl Float guarantees Addable {
+  add = builtin core.float.add
+}

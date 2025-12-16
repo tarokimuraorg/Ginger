@@ -1,8 +1,0 @@
-catalog Sample
-
-type Int
-
-func add
-    args: Int, Int
-    return: Int
-    description: "Add two integers."
