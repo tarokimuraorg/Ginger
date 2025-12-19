@@ -17,18 +17,29 @@ def main() -> None:
 
     # 単純結合（重複チェックは typecheck 側で行う）
     src = "\n\n".join([catalog, impl, code])
-
     prog = parse(src)
     type_env = typecheck_program(prog)
-    val_env = eval_program(prog)
 
-    print("typecheck OK")
+    print("== typecheck ==")
+
     for k, v in type_env.items():
         print(f"  {k}: {v}")
 
-    print("\neval OK")
-    for k, v in val_env.items():
-        print(f"  {k} = {v}")
+    print("\n== run Code.ginger ==")
+
+    eval_program(prog)
+
+    #type_env = typecheck_program(prog) 
+    #eval_program(prog)
+    #val_env = eval_program(prog)
+
+    #print("typecheck OK")
+    #for k, v in type_env.items():
+    #    print(f"  {k}: {v}")
+
+    #print("\neval OK")
+    #for k, v in val_env.items():
+    #    print(f"  {k} = {v}")
 
 
 if __name__ == "__main__":

@@ -5,3 +5,15 @@ impl Int guarantees Addable {
 impl Float guarantees Addable {
   add = builtin core.float.add
 }
+
+impl Int guarantees Printable {
+  print = builtin core.int.print
+}
+
+impl Float guarantees Printable {
+  print = builtin core.float.print
+}
+
+impl String guarantees Printable {
+  print = builtin core.string.print
+}

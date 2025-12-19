@@ -101,7 +101,7 @@ class FuncDecl:
     params: List[Param]
     ret: TypeRef
     requires: List[RequireClause]
-
+    failure: TypeRef
 
 # ---- code (binding) ----
 

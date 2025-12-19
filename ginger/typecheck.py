@@ -24,6 +24,27 @@ from .ast import (
     ExprStmt,
 )
 
+from .core_guarantees import CORE_GUARANTEES_DECLS
+from .builtin import BUILTINS
+
+# プリミティブ型
+CORE_TYPES = {
+    "Int",
+    "Float",
+    "Bool",
+    "String",
+    "Unit",
+    "Never",
+    "IOErr",
+    "EncodingErr",
+    "Left",
+    "Right",
+    "Flat",
+    "Slope",
+}
+
+CORE_GUARANTEES = set(CORE_GUARANTEES_DECLS.keys())
+
 
 # =====================
 # Errors
@@ -54,6 +75,7 @@ class Symbols:
     type_guarantees: Dict[str, Set[str]]             # type -> {"Addable",...}
     funcs: Dict[str, FuncDecl]                       # name -> decl
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
+    types: set[str]                                  # プリミティブ型
 
 
 def build_symbols(prog: Program) -> Symbols:
@@ -62,17 +84,40 @@ def build_symbols(prog: Program) -> Symbols:
     type_guarantees: Dict[str, Set[str]] = {}
     funcs: Dict[str, FuncDecl] = {}
     impls: Dict[Tuple[str, str, str], str] = {}
+    types: Set[str] = set(CORE_TYPES)
+
+    for gname in CORE_GUARANTEES:
+        guarantees[gname] = CORE_GUARANTEES_DECLS[gname]
 
     for item in prog.items:
         if isinstance(item, GuaranteeDecl):
             if item.name in guarantees:
+                # CORE_GUARANTEESは再宣言禁止
+                if item.name in CORE_GUARANTEES:
+                    raise TypecheckError(
+                        f"'{item.name} is a core guarantee; do not declare it in Catalog'"
+                    )
                 raise TypecheckError(f"duplicate guarantee '{item.name}'")
             guarantees[item.name] = item
 
         elif isinstance(item, TypeGroupDecl):
             if item.name in typegroups:
                 raise TypecheckError(f"duplicate typegroup '{item.name}'")
-            typegroups[item.name] = {t.name for t in item.members}
+            members = {t.name for t in item.members}
+            typegroups[item.name] = members
+
+            # typegroup名は型として存在
+            types.add(item.name)
+
+            # メンバー型も存在扱い
+            types.update(members)
+
+            # typegroup 名も型として存在させる
+            # （そしてメンバー型も存在型として扱う）
+            # ※ CORE_TYPES にない型が member に出る場合もあるので台帳に追加しておく
+            #   ただし本格的には後で「未知型エラー」を入れてもいい
+            #   今は最短で前に進むために追加する
+            # (symsがまだ無いので一旦ローカルで集める)
 
         elif isinstance(item, FuncDecl):
             if item.name in funcs:
@@ -82,9 +127,22 @@ def build_symbols(prog: Program) -> Symbols:
         elif isinstance(item, RegisterDecl):
             t = item.typ.name
             g = item.guarantee
+
+            # guarantee の宣言がある前提（core注入 or catalog）
+            gdecl = guarantees.get(g)
+            if gdecl is None:
+                raise TypecheckError(f"unknown guarantee '{g}'")
+
+            # methods がある guarantee は register 禁止（Printable など）
+            if len(gdecl.methods) > 0:
+                raise TypecheckError(
+                    f"'{g}' requires implementations; use impl, not register"
+                )
+
             if g in type_guarantees.get(t, set()):
                 raise TypecheckError(f"duplicate register: '{t}' guarantees '{g}'")
             type_guarantees.setdefault(t, set()).add(g)
+            types.add(t)
 
         elif isinstance(item, ImplDecl):
             t = item.typ.name
@@ -100,6 +158,9 @@ def build_symbols(prog: Program) -> Symbols:
                         f"duplicate impl for type '{t}', guarantee '{g}', method '{m.name}'"
                     )
                 impls[key] = m.builtin
+            
+            # implされた型も存在
+            types.add(t)
 
         elif isinstance(item, VarDecl):
             pass  # checked later
@@ -110,6 +171,7 @@ def build_symbols(prog: Program) -> Symbols:
         type_guarantees=type_guarantees,
         funcs=funcs,
         impls=impls,
+        types=types,
     )
     _validate_catalog(syms)
     return syms
@@ -184,7 +246,32 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, str]) -> str:
 # =====================
 # Catalog validation
 # =====================
+def _validate_catalog(syms: Symbols) -> None:
+    # 1) impl/register が参照する guarantee は存在するか
+    for t, gs in syms.type_guarantees.items():
+        for g in gs:
+            if g not in syms.guarantees:
+                raise TypecheckError(f"unknown guarantee '{g}' for type '{t}'")
 
+    # 2) guarantee が要求する method が impl に揃ってるか
+    for t, gs in syms.type_guarantees.items():
+        for g in gs:
+            gdecl = syms.guarantees[g]
+            for msig in gdecl.methods:
+                key = (t, g, msig.name)
+                if key not in syms.impls:
+                    raise TypecheckError(
+                        f"type '{t}' guarantees '{g}' but missing impl for method '{msig.name}'"
+                    )
+
+    # 3) builtin 名が BUILTINS に存在するか
+    for (t, g, m), builtin_name in syms.impls.items():
+        if builtin_name not in BUILTINS:
+            raise TypecheckError(
+                f"unknown builtin '{builtin_name}' for impl {t} guarantees {g}.{m}"
+            )
+        
+"""
 def _validate_catalog(syms: Symbols) -> None:
     # register references known guarantees
     for t, gs in syms.type_guarantees.items():
@@ -213,6 +300,7 @@ def _validate_catalog(syms: Symbols) -> None:
                     raise TypecheckError(
                         f"type '{t}' guarantees '{g}' but missing impl for method '{msig.name}'"
                     )
+"""
 
 
 # =====================
@@ -232,6 +320,7 @@ def typecheck_program(prog: Program) -> Dict[str, str]:
 
         # Float x = add(1.3, 1.2)のような構文の場合
         if isinstance(item, VarDecl):
+            """
             expected = item.typ.name
             actual = type_expr(item.expr, expected, env, syms)
 
@@ -242,10 +331,25 @@ def typecheck_program(prog: Program) -> Dict[str, str]:
             
             env[item.name] = expected
             continue
+            """
+            t = type_expr(item.expr, expected=item.typ.name, env=env, syms=syms)
+            env[item.name] = t
+            continue
 
+        # print(x)のような構文の場合
         if isinstance(item, ExprStmt):
-            # print(x)のような構文の場合
+            """
             type_expr(item.expr, None, env, syms)
+            continue
+            """
+            
+            t = type_expr(item.expr, expected=None, env=env, syms=syms)
+
+            if t != "Unit":
+                raise TypecheckError(
+                    f"only Unit expression are allowed as statements, got '{t}"
+                )
+            
             continue
 
         # それ以外（Catalog/Impl/func etc）は型検査対象外

@@ -159,6 +159,7 @@ class Parser:
         # func add(a: T, b: T) -> T
         #   require T in Number
         #   require T guarantees Addable
+        """
         self.eat("KW", "func")
         name = self.eat("IDENT").text
         self.eat("SYM", "(")
@@ -168,10 +169,46 @@ class Parser:
         ret = self.parse_type()
 
         requires: List[RequireClause] = []
+        failure: TypeRef | None = None
+
         while self.match("KW", "require"):
             requires.append(self.parse_require_clause())
 
         return FuncDecl(name=name, params=params, ret=ret, requires=requires)
+        """
+        self.eat("KW", "func")
+        name = self.eat("IDENT").text
+        self.eat("SYM", "(")
+        params = self.parse_params()
+        self.eat("SYM", ")")
+        self.eat("SYM", "->")
+        ret = self.parse_type()
+
+        requires: List[RequireClause] = []
+        failure: TypeRef | None = None
+
+        while True:
+
+            if self.match("KW", "require"):
+                requires.append(self.parse_require_clause())
+                continue
+
+            if self.match("KW", "failure"):
+
+                self.eat("KW", "failure")
+
+                if failure is not None:
+                    raise SyntaxError("duplicate failure")
+                failure = self.parse_type()
+
+                continue
+
+            break
+
+        if failure is None:
+            raise SyntaxError("missing failure")
+
+        return FuncDecl(name=name, params=params, ret=ret, requires=requires, failure=failure)
 
     def parse_require_clause(self) -> RequireClause:
         self.eat("KW", "require")

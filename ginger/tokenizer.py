@@ -13,7 +13,7 @@ class Token:
 
 KEYWORDS = {
     "guarantee", "typegroup", "register", "impl",
-    "func", "require",
+    "func", "require","failure",
     "guarantees", "in",
     "builtin",
 }
