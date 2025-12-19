@@ -3,6 +3,10 @@ guarantee Addable {
   add(self: Self, other: Self) -> Self
 }
 
+guarantee Printable {
+  print(self: Self) -> Unit
+}
+
 // 型の集合（ドメイン）
 typegroup Number = Int | Float
 typegroup PrintErr = IOErr | EncodingErr

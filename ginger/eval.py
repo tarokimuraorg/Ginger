@@ -1,10 +1,17 @@
 #from __future__ import annotations
 
-from dataclasses import dataclass
+#from dataclasses import dataclass
 from typing import Dict, Union
+#from .typecheck import build_symbols, bind_args, Symbols
+from .args import bind_args
+#from .builtin import call_builtin, has_builtin
+from .surface_func import SURFACE_FUNCS
+from .core_funcs import CORE_FUNCS
+from .runtime_dispatch import Dispatcher
+from .symbols_builder import build_symbols
+from .errors import EvalError
 
 from .ast import (
-    Program,
     FuncDecl,
     VarDecl,
     Expr,
@@ -15,20 +22,9 @@ from .ast import (
     ExprStmt,
 )
 
-from .typecheck import build_symbols, bind_args, Symbols
-from .builtin import call_builtin, has_builtin
-
 # =====================
 # Runtime
 # =====================
-
-@dataclass
-class EvalError(Exception):
-    message: str
-    def __str__(self) -> str:
-        return self.message
-
-
 Value = Union[int, float]
 
 
@@ -41,7 +37,7 @@ BUILTINS = {
 }
 """
 
-def eval_program(prog: Program) -> Dict[str, Value]:
+def eval_program(prog) -> Dict[str, Value]:
     """
     Evaluate all top-level VarDecls in order.
     Assumes typecheck already passed (recommended).
@@ -50,6 +46,7 @@ def eval_program(prog: Program) -> Dict[str, Value]:
     env: Dict[str, Value] = {}
 
     for item in prog.items:
+
         if isinstance(item, VarDecl):
             env[item.name] = eval_expr(item.expr, env, syms)
         elif isinstance(item, ExprStmt):
@@ -61,7 +58,8 @@ def eval_program(prog: Program) -> Dict[str, Value]:
     return env
 
 
-def eval_expr(expr: Expr, env: Dict[str, Value], syms: Symbols) -> Value:
+def eval_expr(expr: Expr, env: Dict[str, Value], syms) -> Value:
+
     if isinstance(expr, IntLit):
         return int(expr.value)
 
@@ -78,32 +76,36 @@ def eval_expr(expr: Expr, env: Dict[str, Value], syms: Symbols) -> Value:
 
     raise EvalError(f"unsupported expr node: {expr!r}")
 
-
-def _runtime_type_to_ginger(v: Value) -> str:
-    # minimal runtime type mapping
-    if isinstance(v, bool):
-        # bool is subclass of int in Python; explicitly reject
-        raise EvalError("unsupported runtime type: bool")
-    if isinstance(v, int):
-        return "Int"
-    if isinstance(v, float):
-        return "Float"
-    raise EvalError(f"unsupported runtime type: {type(v).__name__}")
-
-def type_of(v):
-    if isinstance(v, int): return "Int"
-    if isinstance(v, float): return "Float"
-    if isinstance(v, str): return "String"
-    if v is None: return "Unit"
-    raise EvalError(f"unknown runtime value type: {type(v)}")
-
+"""
 def call_impl_method(syms, typ: str, guarantee: str, method: str, receiver):
     key = (typ, guarantee, method)
     if key not in syms.impls:
         raise EvalError(f"missing impl: {typ} guarantees {guarantee}.{method}")
     builtin_name = syms.impls[key]
     return call_builtin(builtin_name, receiver)
+"""
 
+def eval_call(call: CallExpr, env: Dict[str, Value], syms):
+
+    if call.callee not in syms.funcs:
+        raise EvalError(f"unknown function '{call.callee}'")
+    
+    func: FuncDecl = syms.funcs[call.callee]
+    bound = bind_args(call, func)
+
+    args = [eval_expr(bound[p.name], env, syms) for p in func.params]
+
+    dispatch = Dispatcher(syms)
+
+    if func.name in SURFACE_FUNCS:
+        return SURFACE_FUNCS[func.name](args, dispatch)
+    
+    if func.name in CORE_FUNCS:
+        return CORE_FUNCS[func.name](args, dispatch)
+    
+    raise EvalError(f"function '{func.name}' has no runtime implementation yet")
+
+"""
 def eval_call(call: CallExpr, env: Dict[str, Value], syms: Symbols) -> Value:
     if call.callee not in syms.funcs:
         raise EvalError(f"unknown function '{call.callee}'")
@@ -114,14 +116,12 @@ def eval_call(call: CallExpr, env: Dict[str, Value], syms: Symbols) -> Value:
     # 引数を評価（順序は関数定義順）
     args = [eval_expr(bound[p.name], env, syms) for p in func.params]
 
-    # ---- print (builtin function) ----
+    # ---- print ----
     if func.name == "print":
         if len(args) != 1:
             raise EvalError("print expects exactly one argument")
         return call_impl_method(syms=syms, typ=type_of(args[0]), guarantee="Printable", method="print", receiver=args[0])
-        #return call_builtin("core.print", args[0])
-        #return BUILTINS["core.print"](args[0]).
-
+    
     # ---- add (Addable guarantee dispatch) ----
     if func.name == "add":
         if len(args) != 2:
@@ -146,14 +146,13 @@ def eval_call(call: CallExpr, env: Dict[str, Value], syms: Symbols) -> Value:
         
         return call_builtin(builtin_id, a, b)
 
-        """
         if builtin_id not in BUILTINS:
             raise EvalError(f"unknown builtin '{builtin_id}'")
 
         return BUILTINS[builtin_id](a, b)
-        """
         
 
     raise EvalError(
         f"function '{func.name}' has no runtime implementation yet"
     )
+"""

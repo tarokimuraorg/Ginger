@@ -1,229 +1,31 @@
 #from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Optional
+
+#from .core_guarantees import CORE_GUARANTEES_DECLS
+from .args import bind_args
+#from .builtin import BUILTINS
+from .errors import TypecheckError
+from .symbols_builder import build_symbols
 
 from .ast import (
-    Program,
-    GuaranteeDecl,
-    TypeGroupDecl,
-    RegisterDecl,
-    ImplDecl,
-    FuncDecl,
     VarDecl,
     RequireIn,
     RequireGuarantees,
-    TypeRef,
     Expr,
     CallExpr,
     IdentExpr,
     IntLit,
     FloatLit,
-    PosArg,
-    NamedArg,
     ExprStmt,
 )
 
-from .core_guarantees import CORE_GUARANTEES_DECLS
-from .builtin import BUILTINS
-
-# プリミティブ型
-CORE_TYPES = {
-    "Int",
-    "Float",
-    "Bool",
-    "String",
-    "Unit",
-    "Never",
-    "IOErr",
-    "EncodingErr",
-    "Left",
-    "Right",
-    "Flat",
-    "Slope",
-}
-
-CORE_GUARANTEES = set(CORE_GUARANTEES_DECLS.keys())
-
+#CORE_GUARANTEES = set(CORE_GUARANTEES_DECLS.keys())
 
 # =====================
 # Errors
 # =====================
-
-@dataclass
-class TypecheckError(Exception):
-    message: str
-    def __str__(self) -> str:
-        return self.message
-
-
-@dataclass
-class BindError(Exception):
-    message: str
-    def __str__(self) -> str:
-        return self.message
-
-
-# =====================
-# Symbols
-# =====================
-
-@dataclass(frozen=True)
-class Symbols:
-    guarantees: Dict[str, GuaranteeDecl]
-    typegroups: Dict[str, Set[str]]                  # group -> {"Int","Float",...}
-    type_guarantees: Dict[str, Set[str]]             # type -> {"Addable",...}
-    funcs: Dict[str, FuncDecl]                       # name -> decl
-    impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
-    types: set[str]                                  # プリミティブ型
-
-
-def build_symbols(prog: Program) -> Symbols:
-    guarantees: Dict[str, GuaranteeDecl] = {}
-    typegroups: Dict[str, Set[str]] = {}
-    type_guarantees: Dict[str, Set[str]] = {}
-    funcs: Dict[str, FuncDecl] = {}
-    impls: Dict[Tuple[str, str, str], str] = {}
-    types: Set[str] = set(CORE_TYPES)
-
-    for gname in CORE_GUARANTEES:
-        guarantees[gname] = CORE_GUARANTEES_DECLS[gname]
-
-    for item in prog.items:
-        if isinstance(item, GuaranteeDecl):
-            if item.name in guarantees:
-                # CORE_GUARANTEESは再宣言禁止
-                if item.name in CORE_GUARANTEES:
-                    raise TypecheckError(
-                        f"'{item.name} is a core guarantee; do not declare it in Catalog'"
-                    )
-                raise TypecheckError(f"duplicate guarantee '{item.name}'")
-            guarantees[item.name] = item
-
-        elif isinstance(item, TypeGroupDecl):
-            if item.name in typegroups:
-                raise TypecheckError(f"duplicate typegroup '{item.name}'")
-            members = {t.name for t in item.members}
-            typegroups[item.name] = members
-
-            # typegroup名は型として存在
-            types.add(item.name)
-
-            # メンバー型も存在扱い
-            types.update(members)
-
-            # typegroup 名も型として存在させる
-            # （そしてメンバー型も存在型として扱う）
-            # ※ CORE_TYPES にない型が member に出る場合もあるので台帳に追加しておく
-            #   ただし本格的には後で「未知型エラー」を入れてもいい
-            #   今は最短で前に進むために追加する
-            # (symsがまだ無いので一旦ローカルで集める)
-
-        elif isinstance(item, FuncDecl):
-            if item.name in funcs:
-                raise TypecheckError(f"duplicate func '{item.name}'")
-            funcs[item.name] = item
-
-        elif isinstance(item, RegisterDecl):
-            t = item.typ.name
-            g = item.guarantee
-
-            # guarantee の宣言がある前提（core注入 or catalog）
-            gdecl = guarantees.get(g)
-            if gdecl is None:
-                raise TypecheckError(f"unknown guarantee '{g}'")
-
-            # methods がある guarantee は register 禁止（Printable など）
-            if len(gdecl.methods) > 0:
-                raise TypecheckError(
-                    f"'{g}' requires implementations; use impl, not register"
-                )
-
-            if g in type_guarantees.get(t, set()):
-                raise TypecheckError(f"duplicate register: '{t}' guarantees '{g}'")
-            type_guarantees.setdefault(t, set()).add(g)
-            types.add(t)
-
-        elif isinstance(item, ImplDecl):
-            t = item.typ.name
-            g = item.guarantee
-
-            # impl is also a registration
-            type_guarantees.setdefault(t, set()).add(g)
-
-            for m in item.methods:
-                key = (t, g, m.name)
-                if key in impls:
-                    raise TypecheckError(
-                        f"duplicate impl for type '{t}', guarantee '{g}', method '{m.name}'"
-                    )
-                impls[key] = m.builtin
-            
-            # implされた型も存在
-            types.add(t)
-
-        elif isinstance(item, VarDecl):
-            pass  # checked later
-
-    syms = Symbols(
-        guarantees=guarantees,
-        typegroups=typegroups,
-        type_guarantees=type_guarantees,
-        funcs=funcs,
-        impls=impls,
-        types=types,
-    )
-    _validate_catalog(syms)
-    return syms
-
-
-# =====================
-# Arg binding (positional vs named)
-# =====================
-
-def bind_args(call: CallExpr, func: FuncDecl) -> Dict[str, Expr]:
-    """
-    Returns dict[param_name -> Expr]
-    """
-    params = func.params
-    param_names = [p.name for p in params]
-    bound: Dict[str, Expr] = {}
-
-    if call.arg_style == "pos":
-        expected = len(param_names)
-        got = len(call.args)
-        if got != expected:
-            raise BindError(
-                f"argument count mismatch in call to {call.callee}: expected {expected}, got {got}"
-            )
-        for pname, arg in zip(param_names, call.args):
-            assert isinstance(arg, PosArg)
-            bound[pname] = arg.expr
-        return bound
-
-    if call.arg_style == "named":
-        pset = set(param_names)
-
-        for arg in call.args:
-            assert isinstance(arg, NamedArg)
-
-            if arg.name not in pset:
-                raise BindError(
-                    f"unknown named argument '{arg.name}' in call to {call.callee} "
-                    f"(expected: {', '.join(param_names)})"
-                )
-            if arg.name in bound:
-                raise BindError(f"duplicate named argument '{arg.name}' in call to {call.callee}")
-            bound[arg.name] = arg.expr
-
-        missing = [p for p in param_names if p not in bound]
-        if missing:
-            raise BindError(
-                f"missing required argument(s) {', '.join(repr(m) for m in missing)} in call to {call.callee}"
-            )
-        return bound
-
-    raise BindError(f"invalid arg_style '{call.arg_style}' in call to {call.callee}")
 
 
 # =====================
@@ -235,41 +37,13 @@ def is_typevar(name: str) -> bool:
     return len(name) == 1 and name.isalpha() and name.isupper()
 
 
-def resolve_typeref(t: TypeRef, tmap: Dict[str, str]) -> str:
+def resolve_typeref(t, tmap: Dict[str, str]) -> str:
     if is_typevar(t.name):
         if t.name not in tmap:
             raise TypecheckError(f"cannot resolve type variable '{t.name}'")
         return tmap[t.name]
     return t.name
 
-
-# =====================
-# Catalog validation
-# =====================
-def _validate_catalog(syms: Symbols) -> None:
-    # 1) impl/register が参照する guarantee は存在するか
-    for t, gs in syms.type_guarantees.items():
-        for g in gs:
-            if g not in syms.guarantees:
-                raise TypecheckError(f"unknown guarantee '{g}' for type '{t}'")
-
-    # 2) guarantee が要求する method が impl に揃ってるか
-    for t, gs in syms.type_guarantees.items():
-        for g in gs:
-            gdecl = syms.guarantees[g]
-            for msig in gdecl.methods:
-                key = (t, g, msig.name)
-                if key not in syms.impls:
-                    raise TypecheckError(
-                        f"type '{t}' guarantees '{g}' but missing impl for method '{msig.name}'"
-                    )
-
-    # 3) builtin 名が BUILTINS に存在するか
-    for (t, g, m), builtin_name in syms.impls.items():
-        if builtin_name not in BUILTINS:
-            raise TypecheckError(
-                f"unknown builtin '{builtin_name}' for impl {t} guarantees {g}.{m}"
-            )
         
 """
 def _validate_catalog(syms: Symbols) -> None:
@@ -307,7 +81,7 @@ def _validate_catalog(syms: Symbols) -> None:
 # Typechecking
 # =====================
 
-def typecheck_program(prog: Program) -> Dict[str, str]:
+def typecheck_program(prog) -> Dict[str, str]:
     """
     Typecheck all top-level VarDecls.
     Policy: assignment LHS decides generic type variables (e.g., T).
@@ -370,7 +144,7 @@ def typecheck_program(prog: Program) -> Dict[str, str]:
     #return env
 
 
-def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms: Symbols) -> str:
+def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms) -> str:
     # literals
     if isinstance(expr, IntLit):
         if expected is not None and expected != "Int":
@@ -398,7 +172,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms: Sy
     raise TypecheckError(f"unsupported expr node: {expr!r}")
 
 
-def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, str], syms: Symbols) -> str:
+def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, str], syms) -> str:
 
     if call.callee not in syms.funcs:
         raise TypecheckError(f"unknown function '{call.callee}'")

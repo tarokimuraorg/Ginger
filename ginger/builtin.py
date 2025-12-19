@@ -1,6 +1,7 @@
 #from __future__ import annotations
 
 from typing import Callable, Dict, Any
+#from .eval import EvalError
 
 # いまのランタイム値（必要なら ginger/eval.py 側の Value と合わせる）
 Value = Any
@@ -20,6 +21,19 @@ BUILTINS: Dict[str, BuiltinFn] = {
     # "core.float.lt":  lambda a, b: a < b,
     # "core.float.gt":  lambda a, b: a > b,
 }
+
+"""
+def _runtime_type_to_ginger(v: Value) -> str:
+    # minimal runtime type mapping
+    if isinstance(v, bool):
+        # bool is subclass of int in Python; explicitly reject
+        raise EvalError("unsupported runtime type: bool")
+    if isinstance(v, int):
+        return "Int"
+    if isinstance(v, float):
+        return "Float"
+    raise EvalError(f"unsupported runtime type: {type(v).__name__}")
+"""
 
 def has_builtin(builtin_id: str) -> bool:
     return builtin_id in BUILTINS

@@ -1,5 +1,5 @@
 from .ast import GuaranteeDecl, FuncSig, Param, TypeRef
-
+"""
 CORE_GUARANTEES_DECLS = {
     "Printable": GuaranteeDecl(
         name="Printable",
@@ -12,3 +12,5 @@ CORE_GUARANTEES_DECLS = {
         ],
     ),
 }
+
+"""
