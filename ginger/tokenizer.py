@@ -1,12 +1,10 @@
-#from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import List
 
 
 @dataclass(frozen=True)
 class Token:
-    kind: str   # KW, IDENT, SYM, INT, FLOAT, EOF
+    kind: str   # KW, IDENT, SYM, INT, FLOAT, EOF, NEWLINE
     text: str
     pos: int
 
@@ -16,6 +14,7 @@ KEYWORDS = {
     "func", "require","failure",
     "guarantees", "in",
     "builtin",
+    "try", "catch"
 }
 
 SYMBOLS_1 = set("{}():,=")  # one-char
@@ -31,6 +30,12 @@ def tokenize(src: str) -> List[Token]:
 
     while i < n:
         c = src[i]
+
+        # newline
+        if c == "\n":
+            toks.append(Token("NEWLINE", "\\n", i))
+            i += 1
+            continue
 
         # whitespace
         if c.isspace():

@@ -1,5 +1,3 @@
-Float x = add(1.3, 1.2)
-print(x)
-
-Int y = add(1, 2)
-print(y)
+Int x = add(1,2)
+try print(x)
+catch PrintErr breath()

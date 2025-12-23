@@ -1,5 +1,4 @@
 from .builtin import call_builtin, has_builtin
-#from .eval import EvalError
 from .errors import EvalError
 
 def type_of(v):

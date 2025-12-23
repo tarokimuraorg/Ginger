@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Dict
-#from .eval import EvalError
 from .ast import CallExpr, FuncDecl, PosArg, NamedArg, Expr
 
 @dataclass

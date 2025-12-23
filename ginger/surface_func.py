@@ -1,25 +1,8 @@
-#from .builtin import call_builtin
 from .errors import EvalError
-#from .runtime_dispatch import type_of
+from .runtime_failures import RaisedFailure
+from ginger.core.failure_spec import FailureId
 
-"""
-def type_of(v):
-    if isinstance(v, int): return "Int"
-    if isinstance(v, float): return "Float"
-    if isinstance(v, str): return "String"
-    if v is None: return "Unit"
-    raise EvalError(f"unknown runtime value type: {type(v)}")
-"""
-"""
-def call_impl_method(syms, typ: str, guarantee: str, method: str, receiver):
-    key = (typ, guarantee, method)
-    if key not in syms.impls:
-        raise EvalError(f"missing impl: {typ} guarantees {guarantee}.{method}")
-    builtin_name = syms.impls[key]
-    return call_builtin(builtin_name, receiver)
-"""
-
-def surface_print(args, dispatch):
+def print(args, dispatch):
 
     if len(args) != 1:
         raise EvalError("print expects one argument")
@@ -27,8 +10,13 @@ def surface_print(args, dispatch):
     v = args[0]
     typ = dispatch.type_of(v) if hasattr(dispatch, "type_of") else None
 
-    return dispatch.call_impl_method(typ, "Printable", "print", v)
+    try:
+        return dispatch.call_impl_method(typ, "Printable", "print", v)
+    except EvalError as e:
+        # Printable 未実装、型不一致、IO系など「printの失敗」は PrintErr に包む
+        raise RaisedFailure(FailureId("PrintErr")) from e
+
 
 SURFACE_FUNCS = {
-    "print": surface_print,
+    "print": print,
 }

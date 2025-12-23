@@ -1,4 +1,3 @@
-// 保証
 guarantee Addable {
   add(self: Self, other: Self) -> Self
 }
@@ -7,18 +6,13 @@ guarantee Printable {
   print(self: Self) -> Unit
 }
 
-// 型の集合（ドメイン）
-typegroup Number = Int | Float
-typegroup PrintErr = IOErr | EncodingErr
-
-
-// 関数の仕様（足し算）
 func add(a: T, b: T) -> T
-  require T in Number
   require T guarantees Addable
   failure Never
 
-// 値を表示する
 func print(x: T) -> Unit
   require T guarantees Printable
   failure PrintErr
+
+func breath() -> Unit
+  failure Never

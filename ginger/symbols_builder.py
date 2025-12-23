@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, Set, Tuple
 from .builtin import BUILTINS
 from .errors import TypecheckError
+from .core.failure_spec import FailureId, failures, EMPTY_FAILURES, FailureSet
 
 from .ast import (
     Program,
@@ -14,6 +15,7 @@ from .ast import (
 )
 
 # プリミティブ型
+"""
 CORE_TYPES = {
     "Int",
     "Float",
@@ -26,6 +28,7 @@ CORE_TYPES = {
     "Flat",
     "Slope",
 }
+"""
 
 # =====================
 # Symbols
@@ -37,6 +40,7 @@ class Symbols:
     typegroups: Dict[str, Set[str]]                  # group -> {"Int","Float",...}
     type_guarantees: Dict[str, Set[str]]             # type -> {"Addable",...}
     funcs: Dict[str, FuncDecl]                       # name -> decl
+    func_failures: Dict[str, FailureSet]
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     types: set[str]                                  # プリミティブ型
 
@@ -47,25 +51,14 @@ def build_symbols(prog: Program) -> Symbols:
     typegroups: Dict[str, Set[str]] = {}
     type_guarantees: Dict[str, Set[str]] = {}
     funcs: Dict[str, FuncDecl] = {}
+    func_failures: Dict[str, FailureSet] = {}
     impls: Dict[Tuple[str, str, str], str] = {}
-    types: Set[str] = set(CORE_TYPES)
+    types: Set[str] = set()
 
-    """
-    for gname in CORE_GUARANTEES:
-        guarantees[gname] = GuaranteeDecl(name=gname, methods=[])
-    """
-    
     for item in prog.items:
 
         if isinstance(item, GuaranteeDecl):
             if item.name in guarantees:
-                # CORE_GUARANTEESは再宣言禁止
-                """
-                if item.name in CORE_GUARANTEES:
-                    raise TypecheckError(
-                        f"'{item.name} is a core guarantee; do not declare it in Catalog'"
-                    )
-                """ 
                 raise TypecheckError(f"duplicate guarantee '{item.name}'")
             
             guarantees[item.name] = item
@@ -84,19 +77,27 @@ def build_symbols(prog: Program) -> Symbols:
             # メンバー型も存在扱い
             types.update(members)
 
-            # typegroup 名も型として存在させる
-            # （そしてメンバー型も存在型として扱う）
-            # ※ CORE_TYPES にない型が member に出る場合もあるので台帳に追加しておく
-            #   ただし本格的には後で「未知型エラー」を入れてもいい
-            #   今は最短で前に進むために追加する
-            # (symsがまだ無いので一旦ローカルで集める)
-
         elif isinstance(item, FuncDecl):
 
             if item.name in funcs:
                 raise TypecheckError(f"duplicate func '{item.name}'")
             
             funcs[item.name] = item
+            
+            # failure は FuncDecl.failure: TypeRef (Never, PrintErr etc.)
+            fname = item.failure.name if item.failure is not None else "Never"
+
+            if fname == "Never":
+                func_failures[item.name] = EMPTY_FAILURES
+            else:
+                try:
+                    func_failures[item.name] = failures(FailureId(fname))
+                except ValueError:
+                    raise TypecheckError(
+                        f"unknown failure '{fname}' in func '{item.name}'. "
+                        f"use 'Never' or one of: {', '.join([f.value for f in FailureId])}"
+                    )
+                    
 
         elif isinstance(item, RegisterDecl):
 
@@ -147,6 +148,7 @@ def build_symbols(prog: Program) -> Symbols:
         typegroups=typegroups,
         type_guarantees=type_guarantees,
         funcs=funcs,
+        func_failures=func_failures,
         impls=impls,
         types=types,
     )

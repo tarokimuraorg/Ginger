@@ -1,7 +1,4 @@
-#from __future__ import annotations
-
 from typing import List, Optional, Tuple
-
 from .tokenizer import Token, tokenize
 from .ast import (
     Program, TopLevel,
@@ -12,19 +9,24 @@ from .ast import (
     FuncDecl, VarDecl,
     Expr, CallExpr, IdentExpr, IntLit, FloatLit,
     Arg, PosArg, NamedArg,
+    ExprStmt, TryStmt, CatchStmt,
 )
 
-
 class Parser:
+
     def __init__(self, toks: List[Token]):
         self.toks = toks
         self.i = 0
+
+    def skip_newlines(self) -> None:
+        while self.match("NEWLINE"):
+            self.i += 1
 
     def cur(self) -> Token:
         return self.toks[self.i]
 
     def match(self, kind: str, text: Optional[str] = None) -> bool:
-        t = self.cur()
+        t = self.toks[self.i]
         if t.kind != kind:
             return False
         if text is not None and t.text != text:
@@ -43,12 +45,25 @@ class Parser:
 
     def parse_program(self) -> Program:
         items: List[TopLevel] = []
-        while not self.match("EOF"):
+        while True:
+            # 空行はここで全部捨てる(toplevelに入る前)
+            while self.match("NEWLINE"):
+                self.i += 1
+
+            if self.match("EOF"):
+                break
+
             items.append(self.parse_toplevel())
+
         return Program(items)
 
     def parse_toplevel(self) -> TopLevel:
         
+        if self.match("EOF"):
+            # parse_program の while not EOF に戻る設定
+            return ExprStmt(expr=IntLit(0))
+        
+        # --- catalog/decl ---
         if self.match("KW", "guarantee"):
             return self.parse_guarantee()
         if self.match("KW", "typegroup"):
@@ -60,10 +75,55 @@ class Parser:
         if self.match("KW", "func"):
             return self.parse_func()
         
-        # print(x)のような構文を許可
+        """
+        try print(1) 
+        catch PrintErr try print(0) 
+        catch breath()
+        
+        のような構文を禁止する 
+        """
+        
+        # --- try/catch (toplevel statement) ---
+        if self.match("KW", "try"):
+
+            self.i += 1
+            expr = self.parse_expr()
+            return TryStmt(expr=expr)
+        
+        if self.match("KW", "catch"):
+
+            self.i += 1
+            
+            if not self.match("IDENT"):
+                raise SyntaxError("expected failure name after catch")
+            
+            failure_name = self.toks[self.i].text
+            self.i += 1
+
+            handler_tokens = []
+
+            while not self.match("NEWLINE") and not self.match("EOF"):
+                handler_tokens.append(self.toks[self.i])
+                self.i += 1
+            
+            if self.match("NEWLINE"):
+                self.i += 1
+
+            if not handler_tokens:
+                raise SyntaxError("catch must have a handler expression on the same line")
+            
+            # ネスト禁止：handlerの先頭が try/catch ならアウト
+            if handler_tokens[0].kind == "KW" and handler_tokens[0].text in ("try", "catch"):
+                raise SyntaxError("nested try/catch is forbidden in catch body")
+            
+            sub = Parser(handler_tokens + [Token("EOF", "", handler_tokens[-1].pos)])
+            expr = sub.parse_expr()
+
+            return CatchStmt(failure_name=failure_name, expr=expr)
+        
+        # --- ExprStmt ---
         if self.match("IDENT") and self.toks[self.i + 1].kind == "SYM" and self.toks[self.i + 1].text == "(":
             expr = self.parse_expr()
-            from .ast import ExprStmt
             return ExprStmt(expr=expr)
         
         return self.parse_var_decl()
@@ -95,8 +155,13 @@ class Parser:
         name = self.eat("IDENT").text
         self.eat("SYM", "{")
         methods: List[FuncSig] = []
-        while not self.match("SYM", "}"):
+
+        while True:
+            self.skip_newlines()
+            if self.match("SYM", "}"):
+                break
             methods.append(self.parse_method_sig())
+
         self.eat("SYM", "}")
         return GuaranteeDecl(name=name, methods=methods)
 
@@ -144,12 +209,18 @@ class Parser:
 
         self.eat("SYM", "{")
         methods: List[ImplMethod] = []
-        while not self.match("SYM", "}"):
+
+        while True:
+            self.skip_newlines()
+            if self.match("SYM", "}"):
+                break
+
             mname = self.eat("IDENT").text
             self.eat("SYM", "=")
             self.eat("KW", "builtin")
             bname = self.eat("IDENT").text
             methods.append(ImplMethod(name=mname, builtin=bname))
+
         self.eat("SYM", "}")
         return ImplDecl(typ=typ, guarantee=gname, methods=methods)
 
@@ -159,23 +230,6 @@ class Parser:
         # func add(a: T, b: T) -> T
         #   require T in Number
         #   require T guarantees Addable
-        """
-        self.eat("KW", "func")
-        name = self.eat("IDENT").text
-        self.eat("SYM", "(")
-        params = self.parse_params()
-        self.eat("SYM", ")")
-        self.eat("SYM", "->")
-        ret = self.parse_type()
-
-        requires: List[RequireClause] = []
-        failure: TypeRef | None = None
-
-        while self.match("KW", "require"):
-            requires.append(self.parse_require_clause())
-
-        return FuncDecl(name=name, params=params, ret=ret, requires=requires)
-        """
         self.eat("KW", "func")
         name = self.eat("IDENT").text
         self.eat("SYM", "(")
@@ -188,6 +242,8 @@ class Parser:
         failure: TypeRef | None = None
 
         while True:
+
+            self.skip_newlines()
 
             if self.match("KW", "require"):
                 requires.append(self.parse_require_clause())

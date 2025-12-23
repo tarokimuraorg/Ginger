@@ -1,5 +1,3 @@
-#from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import List, Union
 
@@ -21,11 +19,23 @@ TopLevel = Union[
     "FuncDecl",
     "VarDecl",
     "ExprStmt",
+    "TryStmt",
+    "CatchStmt",
 ]
+
+@dataclass(frozen=True)
+class TryStmt:
+    expr: "Expr"
+
+@dataclass(frozen=True)
+class CatchStmt:
+    failure_name: str
+    expr: "Expr"
 
 @dataclass(frozen=True)
 class ExprStmt:
     expr: "Expr"
+
 
 @dataclass(frozen=True)
 class TypeRef:

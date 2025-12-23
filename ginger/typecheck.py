@@ -1,13 +1,9 @@
-#from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Dict, Optional
-
-#from .core_guarantees import CORE_GUARANTEES_DECLS
 from .args import bind_args
-#from .builtin import BUILTINS
 from .errors import TypecheckError
 from .symbols_builder import build_symbols
+from .core.failure_spec import FailureSet, EMPTY_FAILURES, failures, FailureId, union_failures
 
 from .ast import (
     VarDecl,
@@ -19,14 +15,92 @@ from .ast import (
     IntLit,
     FloatLit,
     ExprStmt,
+    TryStmt,
+    CatchStmt,
 )
 
-#CORE_GUARANTEES = set(CORE_GUARANTEES_DECLS.keys())
 
-# =====================
-# Errors
-# =====================
+@dataclass(frozen=True)
+class Typed:
+    ty: object = None
+    eff: FailureSet = EMPTY_FAILURES
 
+@dataclass(frozen=True)
+class FuncSig:
+    failures: FailureSet = EMPTY_FAILURES
+
+def parse_failures(names: list[str]) -> FailureSet:
+    return failures(*[FailureId(n) for n in names])
+
+symtab_funcs: dict[str, FuncSig] = {}
+
+def register_func(decl):
+    # decl.failure_namesが["IOErr"]のように取れる想定
+    sig = FuncSig(failures=parse_failures(decl.failure_names))
+    symtab_funcs[decl.name] = sig
+
+def typecheck_call(name: str, args_typed: list[Typed]) -> Typed:
+    # call.name / call.args は ASTに合わせて読み替え
+    args_typed = [effect_expr(a) for a in effect_call.args]
+    callee_eff = func_failures.get(effect_call.name, EMPTY_FAILURES)
+    sig = symtab_funcs[name]
+    eff = union_failures(sig.failures, *[a.eff for a in args_typed])
+    return Typed(ty=None, eff=eff)
+
+func_failures: dict[str, FailureSet] = {}
+
+def _parse_failures(names: list[str]) -> FailureSet:
+    # ["IOErr", "TimeErr"] -> frozenset({FailureId.IOErr, FailureId.TimeErr})
+    return failures(*[FailureId(n) for n in names])
+
+def register_func_decl(decl) -> None:
+    names: list[str] = getattr(decl, "failure_names", [])
+    func_failures[decl.name] = _parse_failures(names)
+
+def remove_failure(eff: FailureSet, name: str) -> FailureSet:
+    return frozenset(f for f in eff if f.value != name)
+
+def effect_expr(expr: Expr, env: Dict[str, str], syms) -> FailureSet:
+    # literals
+    if isinstance(expr, IntLit):
+        return EMPTY_FAILURES
+    
+    if isinstance(expr, FloatLit):
+        return EMPTY_FAILURES
+    
+    # identifier
+    if isinstance(expr, IdentExpr):
+        return EMPTY_FAILURES
+    
+    # call
+    if isinstance(expr, CallExpr):
+        return effect_call(expr, env, syms)
+    
+    raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
+
+def effect_call(call: CallExpr, env: Dict[str, str], syms) -> FailureSet:
+
+    if call.callee not in syms.funcs:
+        raise TypecheckError(f"unknown function '{call.callee}'")
+    
+    func = syms.funcs[call.callee]
+    bound = bind_args(call, func)
+
+    # 引数側のeffect（再帰）
+    arg_effects: list[FailureSet] = []
+
+    for p in func.params:
+        arg_effects.append(effect_expr(bound[p.name], env, syms))
+
+    # 関数宣言に付いているfailure
+    callee_eff: FailureSet = syms.func_failures.get(call.callee, EMPTY_FAILURES)
+
+    """
+    if isinstance(callee_eff, type):
+        raise TypecheckError(f"func.failures is TYPE for '{func.name}': {callee_eff!r}")
+    """
+
+    return union_failures(callee_eff, *arg_effects)
 
 # =====================
 # Type inference helpers
@@ -44,80 +118,175 @@ def resolve_typeref(t, tmap: Dict[str, str]) -> str:
         return tmap[t.name]
     return t.name
 
-        
-"""
-def _validate_catalog(syms: Symbols) -> None:
-    # register references known guarantees
-    for t, gs in syms.type_guarantees.items():
-        for g in gs:
-            if g not in syms.guarantees:
-                raise TypecheckError(f"type '{t}' references unknown guarantee '{g}'")
-
-    # func require clauses reference known typegroups/guarantees
-    for f in syms.funcs.values():
-        for req in f.requires:
-            if isinstance(req, RequireIn):
-                if req.group_name not in syms.typegroups:
-                    raise TypecheckError(f"func '{f.name}' requires unknown typegroup '{req.group_name}'")
-            elif isinstance(req, RequireGuarantees):
-                if req.guarantee_name not in syms.guarantees:
-                    raise TypecheckError(f"func '{f.name}' requires unknown guarantee '{req.guarantee_name}'")
-
-    # if a type is registered/impl'd as guaranteeing something, it must implement all methods
-    for t, gs in syms.type_guarantees.items():
-        for g in gs:
-            gdecl = syms.guarantees[g]
-            for msig in gdecl.methods:
-                key = (t, g, msig.name)
-                if key not in syms.impls:
-                    # NOTE: If you want "register without impl" allowed, relax here.
-                    raise TypecheckError(
-                        f"type '{t}' guarantees '{g}' but missing impl for method '{msig.name}'"
-                    )
-"""
-
 
 # =====================
 # Typechecking
 # =====================
 
 def typecheck_program(prog) -> Dict[str, str]:
-    """
-    Typecheck all top-level VarDecls.
-    Policy: assignment LHS decides generic type variables (e.g., T).
-    Returns: env mapping var name -> type name.
-    """
+    
     syms = build_symbols(prog)
     env: Dict[str, str] = {}
 
+    i = 0
+
+    while i < len(prog.items):
+
+        item = prog.items[i]
+
+        # --- try/catch (2行セット) ---
+        if isinstance(item, TryStmt):
+            # catch連鎖を集める
+            j = i + 1
+            catches = []
+
+            while j < len(prog.items) and isinstance(prog.items[j], CatchStmt):
+                catches.append(prog.items[j])
+                j += 1
+
+            if not catches:
+                raise TypecheckError("try must be followed by at least one catch")
+            
+            # --- try側 ---
+            t_try = type_expr(item.expr, expected=None, env=env, syms=syms)
+
+            if t_try != "Unit":
+                raise TypecheckError(f"only Unit expression are allowed in try, got '{t_try}'")
+            
+            eff_try = effect_expr(item.expr, env=env, syms=syms)
+
+            # try側から、catchされるfailureを全部消す
+            caught = {c.failure_name for c in catches}
+
+            for name in caught:
+                eff_try = remove_failure(eff_try, name)
+
+            # --- catch側 ---
+            eff_handlers = EMPTY_FAILURES
+
+            for c in catches:
+
+                t_c = type_expr(c.expr, expected=None, env=env, syms=syms)
+
+                if t_c != "Unit":
+                    raise TypecheckError(
+                        f"only Unit expression are allowed in catch, got '{t_c}'"
+                    )
+                
+                e = effect_expr(c.expr, env=env, syms=syms)
+
+                # その catch 自身の failure は中でも握る（ネスト禁止）
+                e = remove_failure(e, c.failure_name)
+                eff_handlers = union_failures(eff_handlers, e)
+
+            eff = union_failures(eff_try, eff_handlers)
+
+            if eff != EMPTY_FAILURES:
+                names = ", ".join(f.value for f in eff)
+                raise TypecheckError(f"unhandled failures: {names}")
+            
+            # TryStmt + 連鎖 CatchStmt を全部消費
+            i = j
+            continue
+            
+        # --- catch 単体は禁止 (try が消費するのは「次行の catch」のみ) ---
+        if isinstance(item, CatchStmt):
+            raise TypecheckError("catch without preceding try.")
+
+        """
+        if i + 1 >= len(prog.items) or not isinstance(prog.items[i + 1], CatchStmt):
+            raise TypecheckError("try must be followed by catch.")
+            
+        c = prog.items[i + 1]
+
+        # try側の型（Unitのみ許可）
+        t_try = type_expr(item.expr, expected=None, env=env, syms=syms)
+
+        if t_try != "Unit":
+            raise TypecheckError(f"only Unit expression are allowed in try, got '{t_try}'")
+            
+        eff_try = effect_expr(item.expr, env=env, syms=syms)
+        eff_try = remove_failure(eff_try, c.failure_name)
+
+        # catch側の型（Unitのみ許可）
+        t_catch = type_expr(c.expr, expected=None, env=env, syms=syms)
+
+        if t_catch != "Unit":
+            raise TypecheckError(f"only Unit expression are allowed in catch, got '{t_catch}'")
+            
+        eff_catch = effect_expr(c.expr, env=env, syms=syms)
+        eff_catch = remove_failure(eff_catch, c.failure_name)
+
+        eff = union_failures(eff_try, eff_catch)
+
+        if eff != EMPTY_FAILURES:
+            names = ", ".join(sorted(f.value for f in eff))
+            raise TypecheckError(f"unhandled failures: {names}")
+            
+        i += 2
+        continue
+        """
+
+        # --- VarDecl ---
+        if isinstance(item, VarDecl):
+
+            t = type_expr(item.expr, expected=item.typ.name, env=env, syms=syms)
+            eff = effect_expr(item.expr, env=env, syms=syms)
+
+            if eff != EMPTY_FAILURES:
+                names = ', '.join(sorted(f.value for f in eff))
+                raise TypecheckError(f"unhandled failures: {names}")
+            
+            env[item.name] = t
+            i += 1
+            continue
+
+        # --- ExprStmt ---
+        if isinstance(item, ExprStmt):
+            
+            t = type_expr(item.expr, expected=None, env=env, syms=syms)
+            eff = effect_expr(item.expr, env=env, syms=syms)
+
+            if eff != EMPTY_FAILURES:
+                names = ', '.join(sorted(f.value for f in eff))
+                raise TypecheckError(f"unhandled failures: {names}")
+            
+            if t != "Unit":
+                raise TypecheckError(f"only Unit expression are allowed as statements, got '{t}'")
+            
+            i += 1
+            continue
+
+        # --- それ以外（Catalog/Impl/func etc.）は型検査対象外 ---
+        i += 1
+
+    return env
+
+    """
     for item in prog.items:
 
         # Float x = add(1.3, 1.2)のような構文の場合
         if isinstance(item, VarDecl):
-            """
-            expected = item.typ.name
-            actual = type_expr(item.expr, expected, env, syms)
-
-            if actual != expected:
-                raise TypecheckError(
-                    f"type mismatch in declaration '{item.name}: expected {expected}, got {actual}"
-                )
             
-            env[item.name] = expected
-            continue
-            """
             t = type_expr(item.expr, expected=item.typ.name, env=env, syms=syms)
+            eff = effect_expr(item.expr, env=env, syms=syms)
+
+            if eff != EMPTY_FAILURES:
+                names = ", ".join(sorted(f.value for f in eff))
+                raise TypecheckError(f"unhandled failures: {names}")
+
             env[item.name] = t
             continue
 
         # print(x)のような構文の場合
         if isinstance(item, ExprStmt):
-            """
-            type_expr(item.expr, None, env, syms)
-            continue
-            """
-            
+
             t = type_expr(item.expr, expected=None, env=env, syms=syms)
+            eff = effect_expr(item.expr, env=env, syms=syms)
+
+            if eff != EMPTY_FAILURES:
+                names = ", ".join(sorted(f.value for f in eff))
+                raise TypecheckError(f"unhandled failures: {names}")
 
             if t != "Unit":
                 raise TypecheckError(
@@ -130,19 +299,7 @@ def typecheck_program(prog) -> Dict[str, str]:
         continue
 
     return env
-
-        
-        #expected = item.typ.name
-        #actual = type_expr(item.expr, expected, env, syms)
-
-        #if actual != expected:
-        #    raise TypecheckError(
-        #        f"type mismatch in declaration '{item.name}': expected {expected}, got {actual}"
-        #    )
-        #env[item.name] = expected
-
-    #return env
-
+    """
 
 def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms) -> str:
     # literals
