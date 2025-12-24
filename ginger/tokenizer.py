@@ -1,27 +1,25 @@
 from dataclasses import dataclass
 from typing import List
 
-
 @dataclass(frozen=True)
 class Token:
     kind: str   # KW, IDENT, SYM, INT, FLOAT, EOF, NEWLINE
     text: str
     pos: int
 
-
 KEYWORDS = {
     "guarantee", "typegroup", "register", "impl",
     "func", "require","failure",
     "guarantees", "in",
     "builtin",
-    "try", "catch"
+    "try", "catch",
 }
 
-SYMBOLS_1 = set("{}():,=")  # one-char
+SYMBOLS_1 = set("{}():,=@")  # one-char
 # special: "->" and "|"
 
-
 def tokenize(src: str) -> List[Token]:
+
     toks: List[Token] = []
     i, n = 0, len(src)
 

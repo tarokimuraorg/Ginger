@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Union
 
 
@@ -112,6 +112,7 @@ class FuncDecl:
     ret: TypeRef
     requires: List[RequireClause]
     failure: TypeRef
+    attrs: list[str] = field(default_factory=list)
 
 # ---- code (binding) ----
 

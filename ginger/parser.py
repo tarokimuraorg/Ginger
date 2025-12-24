@@ -26,6 +26,7 @@ class Parser:
         return self.toks[self.i]
 
     def match(self, kind: str, text: Optional[str] = None) -> bool:
+
         t = self.toks[self.i]
         if t.kind != kind:
             return False
@@ -34,16 +35,27 @@ class Parser:
         return True
 
     def eat(self, kind: str, text: Optional[str] = None) -> Token:
+
         t = self.cur()
         if not self.match(kind, text):
             exp = f"{kind}('{text}')" if text else kind
             raise SyntaxError(f"Expected {exp} but got {t.kind}('{t.text}') at {t.pos}")
         self.i += 1
         return t
+    
+    def parse_attrs(self) -> List[str]:
+        
+        attrs: List[str] = []
+        while self.match("SYM", "@"):
+            self.eat("SYM", "@")
+            attrs.append(self.eat("IDENT").text)
+            self.skip_newlines()
+        return attrs
 
     # ---- program ----
 
     def parse_program(self) -> Program:
+
         items: List[TopLevel] = []
         while True:
             # 空行はここで全部捨てる(toplevelに入る前)
@@ -63,6 +75,9 @@ class Parser:
             # parse_program の while not EOF に戻る設定
             return ExprStmt(expr=IntLit(0))
         
+        # 先頭の @attr を回収
+        attrs = self.parse_attrs()
+        
         # --- catalog/decl ---
         if self.match("KW", "guarantee"):
             return self.parse_guarantee()
@@ -73,7 +88,11 @@ class Parser:
         if self.match("KW", "impl"):
             return self.parse_impl()
         if self.match("KW", "func"):
-            return self.parse_func()
+            return self.parse_func(attrs=attrs)
+        
+        # attrs があるのに func でない場合：エラー
+        if attrs:
+            raise SyntaxError("attributes must precede a func declaration")
         
         """
         try print(1) 
@@ -134,6 +153,7 @@ class Parser:
         return TypeRef(self.eat("IDENT").text)
 
     def parse_params(self) -> List[Param]:
+
         params: List[Param] = []
         if self.match("SYM", ")"):
             return params
@@ -151,6 +171,7 @@ class Parser:
     # ---- guarantee ----
 
     def parse_guarantee(self) -> GuaranteeDecl:
+
         self.eat("KW", "guarantee")
         name = self.eat("IDENT").text
         self.eat("SYM", "{")
@@ -226,7 +247,7 @@ class Parser:
 
     # ---- func ----
 
-    def parse_func(self) -> FuncDecl:
+    def parse_func(self, attrs: Optional[List[str]] = None) -> FuncDecl:
         # func add(a: T, b: T) -> T
         #   require T in Number
         #   require T guarantees Addable
@@ -264,7 +285,14 @@ class Parser:
         if failure is None:
             raise SyntaxError("missing failure")
 
-        return FuncDecl(name=name, params=params, ret=ret, requires=requires, failure=failure)
+        return FuncDecl(
+            name=name, 
+            params=params, 
+            ret=ret, 
+            requires=requires, 
+            failure=failure,
+            attrs=list(attrs or [])
+            )
 
     def parse_require_clause(self) -> RequireClause:
         self.eat("KW", "require")

@@ -19,7 +19,6 @@ from .ast import (
     CatchStmt,
 )
 
-
 @dataclass(frozen=True)
 class Typed:
     ty: object = None
@@ -94,13 +93,15 @@ def effect_call(call: CallExpr, env: Dict[str, str], syms) -> FailureSet:
 
     # 関数宣言に付いているfailure
     callee_eff: FailureSet = syms.func_failures.get(call.callee, EMPTY_FAILURES)
+    eff_args = union_failures(EMPTY_FAILURES, *arg_effects)
 
-    """
-    if isinstance(callee_eff, type):
-        raise TypecheckError(f"func.failures is TYPE for '{func.name}': {callee_eff!r}")
-    """
+    # @noncritical なら callee の failure を落とす（引数の failure は残す）
+    attrs = syms.func_attrs.get(call.callee, set())
 
-    return union_failures(callee_eff, *arg_effects)
+    if "noncritical" in attrs:
+        return eff_args
+
+    return union_failures(callee_eff, eff_args)
 
 # =====================
 # Type inference helpers
@@ -183,7 +184,8 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ", ".join(f.value for f in eff)
-                raise TypecheckError(f"unhandled failures: {names}")
+                #raise TypecheckError(f"unhandled failures: {names}")
+                print(f"warning: unhandled failures: {names}")
             
             # TryStmt + 連鎖 CatchStmt を全部消費
             i = j
@@ -193,40 +195,6 @@ def typecheck_program(prog) -> Dict[str, str]:
         if isinstance(item, CatchStmt):
             raise TypecheckError("catch without preceding try.")
 
-        """
-        if i + 1 >= len(prog.items) or not isinstance(prog.items[i + 1], CatchStmt):
-            raise TypecheckError("try must be followed by catch.")
-            
-        c = prog.items[i + 1]
-
-        # try側の型（Unitのみ許可）
-        t_try = type_expr(item.expr, expected=None, env=env, syms=syms)
-
-        if t_try != "Unit":
-            raise TypecheckError(f"only Unit expression are allowed in try, got '{t_try}'")
-            
-        eff_try = effect_expr(item.expr, env=env, syms=syms)
-        eff_try = remove_failure(eff_try, c.failure_name)
-
-        # catch側の型（Unitのみ許可）
-        t_catch = type_expr(c.expr, expected=None, env=env, syms=syms)
-
-        if t_catch != "Unit":
-            raise TypecheckError(f"only Unit expression are allowed in catch, got '{t_catch}'")
-            
-        eff_catch = effect_expr(c.expr, env=env, syms=syms)
-        eff_catch = remove_failure(eff_catch, c.failure_name)
-
-        eff = union_failures(eff_try, eff_catch)
-
-        if eff != EMPTY_FAILURES:
-            names = ", ".join(sorted(f.value for f in eff))
-            raise TypecheckError(f"unhandled failures: {names}")
-            
-        i += 2
-        continue
-        """
-
         # --- VarDecl ---
         if isinstance(item, VarDecl):
 
@@ -235,7 +203,8 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ', '.join(sorted(f.value for f in eff))
-                raise TypecheckError(f"unhandled failures: {names}")
+                #raise TypecheckError(f"unhandled failures: {names}")
+                print(f"warning: unhandled failures: {names}")
             
             env[item.name] = t
             i += 1
@@ -249,7 +218,8 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ', '.join(sorted(f.value for f in eff))
-                raise TypecheckError(f"unhandled failures: {names}")
+                print(f"warning: unhandled failures: {names}")
+                #raise TypecheckError(f"unhandled failures: {names}")
             
             if t != "Unit":
                 raise TypecheckError(f"only Unit expression are allowed as statements, got '{t}'")
@@ -261,45 +231,6 @@ def typecheck_program(prog) -> Dict[str, str]:
         i += 1
 
     return env
-
-    """
-    for item in prog.items:
-
-        # Float x = add(1.3, 1.2)のような構文の場合
-        if isinstance(item, VarDecl):
-            
-            t = type_expr(item.expr, expected=item.typ.name, env=env, syms=syms)
-            eff = effect_expr(item.expr, env=env, syms=syms)
-
-            if eff != EMPTY_FAILURES:
-                names = ", ".join(sorted(f.value for f in eff))
-                raise TypecheckError(f"unhandled failures: {names}")
-
-            env[item.name] = t
-            continue
-
-        # print(x)のような構文の場合
-        if isinstance(item, ExprStmt):
-
-            t = type_expr(item.expr, expected=None, env=env, syms=syms)
-            eff = effect_expr(item.expr, env=env, syms=syms)
-
-            if eff != EMPTY_FAILURES:
-                names = ", ".join(sorted(f.value for f in eff))
-                raise TypecheckError(f"unhandled failures: {names}")
-
-            if t != "Unit":
-                raise TypecheckError(
-                    f"only Unit expression are allowed as statements, got '{t}"
-                )
-            
-            continue
-
-        # それ以外（Catalog/Impl/func etc）は型検査対象外
-        continue
-
-    return env
-    """
 
 def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms) -> str:
     # literals

@@ -10,6 +10,7 @@ func add(a: T, b: T) -> T
   require T guarantees Addable
   failure Never
 
+@noncritical
 func print(x: T) -> Unit
   require T guarantees Printable
   failure PrintErr

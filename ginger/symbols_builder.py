@@ -14,21 +14,6 @@ from .ast import (
     VarDecl,
 )
 
-# プリミティブ型
-"""
-CORE_TYPES = {
-    "Int",
-    "Float",
-    "Bool",
-    "String",
-    "Unit",
-    "Never",
-    "Left",
-    "Right",
-    "Flat",
-    "Slope",
-}
-"""
 
 # =====================
 # Symbols
@@ -36,11 +21,13 @@ CORE_TYPES = {
 
 @dataclass(frozen=True)
 class Symbols:
+
     guarantees: Dict[str, GuaranteeDecl]
     typegroups: Dict[str, Set[str]]                  # group -> {"Int","Float",...}
     type_guarantees: Dict[str, Set[str]]             # type -> {"Addable",...}
     funcs: Dict[str, FuncDecl]                       # name -> decl
     func_failures: Dict[str, FailureSet]
+    func_attrs: Dict[str, Set[str]]
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     types: set[str]                                  # プリミティブ型
 
@@ -52,6 +39,7 @@ def build_symbols(prog: Program) -> Symbols:
     type_guarantees: Dict[str, Set[str]] = {}
     funcs: Dict[str, FuncDecl] = {}
     func_failures: Dict[str, FailureSet] = {}
+    func_attrs: Dict[str, Set[str]] = {}
     impls: Dict[Tuple[str, str, str], str] = {}
     types: Set[str] = set()
 
@@ -83,6 +71,12 @@ def build_symbols(prog: Program) -> Symbols:
                 raise TypecheckError(f"duplicate func '{item.name}'")
             
             funcs[item.name] = item
+
+            # attrs を保存（@noncritical など）
+            func_attrs[item.name] = set(item.attrs)
+
+            if "noncritical" in func_attrs[item.name] and item.ret.name != "Unit":
+                raise TypecheckError(f"@noncritical function '{item.name} must return Unit")
             
             # failure は FuncDecl.failure: TypeRef (Never, PrintErr etc.)
             fname = item.failure.name if item.failure is not None else "Never"
@@ -149,6 +143,7 @@ def build_symbols(prog: Program) -> Symbols:
         type_guarantees=type_guarantees,
         funcs=funcs,
         func_failures=func_failures,
+        func_attrs=func_attrs,
         impls=impls,
         types=types,
     )
