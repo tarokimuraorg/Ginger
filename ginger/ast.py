@@ -18,6 +18,7 @@ TopLevel = Union[
     "ImplDecl",
     "FuncDecl",
     "VarDecl",
+    "AssignStmt",
     "ExprStmt",
     "TryStmt",
     "CatchStmt",
@@ -118,7 +119,13 @@ class FuncDecl:
 
 @dataclass(frozen=True)
 class VarDecl:
+    mutable: bool
     typ: TypeRef
+    name: str
+    expr: "Expr"
+
+@dataclass(frozen=True)
+class AssignStmt:
     name: str
     expr: "Expr"
 

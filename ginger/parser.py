@@ -6,7 +6,7 @@ from .ast import (
     GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    FuncDecl, VarDecl,
+    FuncDecl, VarDecl,AssignStmt,
     Expr, CallExpr, IdentExpr, IntLit, FloatLit,
     Arg, PosArg, NamedArg,
     ExprStmt, TryStmt, CatchStmt,
@@ -94,6 +94,12 @@ class Parser:
         if attrs:
             raise SyntaxError("attributes must precede a func declaration")
         
+        # --- let/var (toplevel statement) ---
+        if self.match("KW", "let"):
+            return self.parse_let_var_decl(mutable=False)
+        if self.match("KW", "var"):
+            return self.parse_let_var_decl(mutable=True)
+        
         """
         try print(1) 
         catch PrintErr try print(0) 
@@ -140,12 +146,19 @@ class Parser:
 
             return CatchStmt(failure_name=failure_name, expr=expr)
         
+        # --- AssignStmt ---
+        if (self.match("IDENT") and self.toks[self.i + 1].kind == "SYM" and self.toks[self.i + 1].text == "="):
+            return self.parse_assign_stmt()
+        
         # --- ExprStmt ---
         if self.match("IDENT") and self.toks[self.i + 1].kind == "SYM" and self.toks[self.i + 1].text == "(":
             expr = self.parse_expr()
             return ExprStmt(expr=expr)
         
-        return self.parse_var_decl()
+        t = self.cur()
+        raise SyntaxError(f"Unexpected toplevel token {t.kind}('{t.text}') at {t.pos}")
+        
+        #return self.parse_var_decl()
 
     # ---- shared ----
 
@@ -313,8 +326,9 @@ class Parser:
             f"Expected 'in' or 'guarantees' after require, got {t.kind}('{t.text}') at {t.pos}"
         )
 
-    # ---- var decl ----
+    # ---- let/var decl ----
 
+    """
     def parse_var_decl(self) -> VarDecl:
         # Float x = add(1.3, 1.2)
         typ = self.parse_type()
@@ -322,6 +336,28 @@ class Parser:
         self.eat("SYM", "=")
         expr = self.parse_expr()
         return VarDecl(typ=typ, name=name, expr=expr)
+    """
+    
+    def parse_let_var_decl(self, mutable: bool) -> VarDecl:
+
+        if mutable:
+            self.eat("KW", "var")
+        else:
+            self.eat("KW", "let")
+
+        name = self.eat("IDENT").text
+        self.eat("SYM", ":")
+        typ = self.parse_type()
+        self.eat("SYM", "=")
+        expr = self.parse_expr()
+
+        return VarDecl(mutable=mutable, typ=typ, name=name, expr=expr)
+
+    def parse_assign_stmt(self) -> AssignStmt:
+        name = self.eat("IDENT").text
+        self.eat("SYM", "=")
+        expr = self.parse_expr()
+        return AssignStmt(name=name, expr=expr)
 
     # ---- expressions ----
 

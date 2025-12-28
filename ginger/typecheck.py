@@ -7,6 +7,7 @@ from .core.failure_spec import FailureSet, EMPTY_FAILURES, failures, FailureId, 
 
 from .ast import (
     VarDecl,
+    AssignStmt,
     RequireIn,
     RequireGuarantees,
     Expr,
@@ -18,6 +19,11 @@ from .ast import (
     TryStmt,
     CatchStmt,
 )
+
+@dataclass(frozen=True)
+class Binding:
+    ty: str
+    mutable: bool   # let=False, var=True
 
 @dataclass(frozen=True)
 class Typed:
@@ -59,7 +65,7 @@ def register_func_decl(decl) -> None:
 def remove_failure(eff: FailureSet, name: str) -> FailureSet:
     return frozenset(f for f in eff if f.value != name)
 
-def effect_expr(expr: Expr, env: Dict[str, str], syms) -> FailureSet:
+def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
     # literals
     if isinstance(expr, IntLit):
         return EMPTY_FAILURES
@@ -77,7 +83,7 @@ def effect_expr(expr: Expr, env: Dict[str, str], syms) -> FailureSet:
     
     raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
 
-def effect_call(call: CallExpr, env: Dict[str, str], syms) -> FailureSet:
+def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
 
     if call.callee not in syms.funcs:
         raise TypecheckError(f"unknown function '{call.callee}'")
@@ -127,7 +133,7 @@ def resolve_typeref(t, tmap: Dict[str, str]) -> str:
 def typecheck_program(prog) -> Dict[str, str]:
     
     syms = build_symbols(prog)
-    env: Dict[str, str] = {}
+    env: Dict[str, Binding] = {}
 
     i = 0
 
@@ -184,7 +190,6 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ", ".join(f.value for f in eff)
-                #raise TypecheckError(f"unhandled failures: {names}")
                 print(f"warning: unhandled failures: {names}")
             
             # TryStmt + 連鎖 CatchStmt を全部消費
@@ -198,6 +203,9 @@ def typecheck_program(prog) -> Dict[str, str]:
         # --- VarDecl ---
         if isinstance(item, VarDecl):
 
+            if item.name in env:
+                raise TypecheckError(f"variable '{item.name}' already defined")
+
             t = type_expr(item.expr, expected=item.typ.name, env=env, syms=syms)
             eff = effect_expr(item.expr, env=env, syms=syms)
 
@@ -206,7 +214,29 @@ def typecheck_program(prog) -> Dict[str, str]:
                 #raise TypecheckError(f"unhandled failures: {names}")
                 print(f"warning: unhandled failures: {names}")
             
-            env[item.name] = t
+            env[item.name] = Binding(ty=t, mutable=item.mutable)
+            i += 1
+            continue
+
+        # --- AssignStmt ---
+        if isinstance(item, AssignStmt):
+            
+            if item.name not in env:
+                raise TypecheckError(f"unknown identifier '{item.name}'")
+            
+            b = env[item.name]
+
+            if not b.mutable:
+                raise TypecheckError(f"cannot assign to immutable binding '{item.name}'")
+            
+            # 代入先の型に合わせて右辺をチェック
+            t = type_expr(item.expr, expected=b.ty, env=env, syms=syms)
+            eff = effect_expr(item.expr, env=env, syms=syms)
+
+            if eff != EMPTY_FAILURES:
+                names = ", ".join(sorted(f.value for f in eff))
+                print(f"warning: unhandled failures: {names}")
+            
             i += 1
             continue
 
@@ -232,7 +262,7 @@ def typecheck_program(prog) -> Dict[str, str]:
 
     return env
 
-def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms) -> str:
+def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms) -> str:
     # literals
     if isinstance(expr, IntLit):
         if expected is not None and expected != "Int":
@@ -248,7 +278,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms) ->
     if isinstance(expr, IdentExpr):
         if expr.name not in env:
             raise TypecheckError(f"unknown identifier '{expr.name}'")
-        t = env[expr.name]
+        t = env[expr.name].ty
         if expected is not None and t != expected:
             raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
         return t
@@ -260,7 +290,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, str], syms) ->
     raise TypecheckError(f"unsupported expr node: {expr!r}")
 
 
-def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, str], syms) -> str:
+def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms) -> str:
 
     if call.callee not in syms.funcs:
         raise TypecheckError(f"unknown function '{call.callee}'")

@@ -13,6 +13,7 @@ KEYWORDS = {
     "guarantees", "in",
     "builtin",
     "try", "catch",
+    "let","var",
 }
 
 SYMBOLS_1 = set("{}():,=@")  # one-char

@@ -1,6 +1,7 @@
 from typing import Dict, Union
+from dataclasses import dataclass
 from .args import bind_args
-from .surface_func import SURFACE_FUNCS
+from ginger.surface.funcs import SURFACE_FUNCS
 from .base.funcs import BASE_FUNCS
 from .runtime_dispatch import Dispatcher
 from .symbols_builder import build_symbols
@@ -10,6 +11,7 @@ from .runtime_failures import RaisedFailure
 from .ast import (
     FuncDecl,
     VarDecl,
+    AssignStmt,
     Expr,
     CallExpr,
     IdentExpr,
@@ -20,15 +22,22 @@ from .ast import (
     CatchStmt,
 )
 
+
 # =====================
 # Runtime
 # =====================
 Value = Union[int, float]
 
-def eval_program(prog) -> Dict[str, Value]:
+@dataclass
+class Cell:
+    value: Value
+    #value: Union[int, float]
+    mutable: bool   # let=False, var=True
+
+def eval_program(prog) -> Dict[str, Cell]:
     
     syms = build_symbols(prog)
-    env: Dict[str, Value] = {}
+    env: Dict[str, Cell] = {}
 
     i = 0
 
@@ -78,9 +87,21 @@ def eval_program(prog) -> Dict[str, Value]:
         if isinstance(item, CatchStmt):
             raise EvalError("catch without preceding try")
             
+
         if isinstance(item, VarDecl):
             v = eval_expr(item.expr, env=env, syms=syms)
-            env[item.name] = v
+            env[item.name] = Cell(value=v, mutable=item.mutable)
+            i += 1
+            continue
+
+        if isinstance(item, AssignStmt):
+            if item.name not in env:
+                raise EvalError(f"unknown identifier '{item.name}'")
+            cell = env[item.name]
+            if not cell.mutable:
+                raise EvalError(f"cannot assign to immutable binding '{item.name}'")
+            v = eval_expr(item.expr, env=env, syms=syms)
+            env[item.name] = Cell(value=v, mutable=cell.mutable)
             i += 1
             continue
 
@@ -93,7 +114,7 @@ def eval_program(prog) -> Dict[str, Value]:
 
     return env
 
-def eval_expr(expr: Expr, env: Dict[str, Value], syms) -> Value:
+def eval_expr(expr: Expr, env: Dict[str, Cell], syms) -> Value:
 
     if isinstance(expr, IntLit):
         return int(expr.value)
@@ -104,7 +125,7 @@ def eval_expr(expr: Expr, env: Dict[str, Value], syms) -> Value:
     if isinstance(expr, IdentExpr):
         if expr.name not in env:
             raise EvalError(f"unknown identifier '{expr.name}'")
-        return env[expr.name]
+        return env[expr.name].value
 
     if isinstance(expr, CallExpr):
         return eval_call(expr, env, syms)
@@ -112,7 +133,7 @@ def eval_expr(expr: Expr, env: Dict[str, Value], syms) -> Value:
     raise EvalError(f"unsupported expr node: {expr!r}")
 
 
-def eval_call(call: CallExpr, env: Dict[str, Value], syms):
+def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
 
     if call.callee not in syms.funcs:
         raise EvalError(f"unknown function '{call.callee}'")

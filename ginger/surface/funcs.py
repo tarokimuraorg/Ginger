@@ -1,5 +1,5 @@
-from .errors import EvalError
-from .runtime_failures import RaisedFailure
+from ginger.errors import EvalError
+from ginger.runtime_failures import RaisedFailure
 from ginger.core.failure_spec import FailureId
 
 def print(args, dispatch):
