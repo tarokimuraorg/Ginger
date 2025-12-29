@@ -135,12 +135,14 @@ def eval_expr(expr: Expr, env: Dict[str, Cell], syms) -> Value:
 
 def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
 
+    if call.callee == "print" and len(call.args) == 0:
+        return None     #Unit
+
     if call.callee not in syms.funcs:
         raise EvalError(f"unknown function '{call.callee}'")
     
     func: FuncDecl = syms.funcs[call.callee]
     bound = bind_args(call, func)
-
     args = [eval_expr(bound[p.name], env, syms) for p in func.params]
 
     dispatch = Dispatcher(syms)
@@ -150,7 +152,19 @@ def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
     BUILTINS.update(BASE_FUNCS)
     # BUILTINS.update(CORE_FUNCS)
 
+    try:
+        if func.name in BUILTINS:
+            return BUILTINS[func.name](args, dispatch)
+        raise EvalError(f"function '{func.name}' has no runtime implementation yet")
+    except RaisedFailure as rf:
+        attrs = syms.func_attrs.get(func.name, set())
+        if "noncritical" in attrs:
+            return None     # Unitに潰す
+        raise
+
+    """
     if func.name in BUILTINS:
         return BUILTINS[func.name](args, dispatch)
     
     raise EvalError(f"function '{func.name}' has no runtime implementation yet")
+    """

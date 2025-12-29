@@ -25,6 +25,7 @@ class Binding:
     ty: str
     mutable: bool   # let=False, var=True
 
+"""
 @dataclass(frozen=True)
 class Typed:
     ty: object = None
@@ -51,6 +52,7 @@ def typecheck_call(name: str, args_typed: list[Typed]) -> Typed:
     sig = symtab_funcs[name]
     eff = union_failures(sig.failures, *[a.eff for a in args_typed])
     return Typed(ty=None, eff=eff)
+"""
 
 func_failures: dict[str, FailureSet] = {}
 
@@ -84,6 +86,9 @@ def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
     raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
 
 def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
+
+    if call.callee == "print" and len(call.args) == 0:
+        return EMPTY_FAILURES
 
     if call.callee not in syms.funcs:
         raise TypecheckError(f"unknown function '{call.callee}'")
@@ -291,6 +296,9 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
 
 
 def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms) -> str:
+
+    if call.callee == "print" and len(call.args) == 0:
+        return "Unit"
 
     if call.callee not in syms.funcs:
         raise TypecheckError(f"unknown function '{call.callee}'")
