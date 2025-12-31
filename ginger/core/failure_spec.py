@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import FrozenSet, Iterable
+from typing import FrozenSet
 
 class FailureId(str, Enum):
     PrintErr = "PrintErr"

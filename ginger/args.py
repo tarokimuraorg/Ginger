@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict
-from .ast import CallExpr, FuncDecl, PosArg, NamedArg, Expr
+from .ast import CallExpr, SigDecl, FuncDecl, PosArg, NamedArg, Expr
 
 @dataclass
 class BindError(Exception):
@@ -12,11 +12,11 @@ class BindError(Exception):
 # Arg binding (positional vs named)
 # =====================
 
-def bind_args(call: CallExpr, func: FuncDecl) -> Dict[str, Expr]:
+def bind_args(call: CallExpr, sig: SigDecl) -> Dict[str, Expr]:
     """
     Returns dict[param_name -> Expr]
     """
-    params = func.params
+    params = sig.params
     param_names = [p.name for p in params]
     bound: Dict[str, Expr] = {}
 

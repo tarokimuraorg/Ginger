@@ -9,14 +9,14 @@ class Token:
 
 KEYWORDS = {
     "guarantee", "typegroup", "register", "impl",
-    "func", "require","failure",
+    "func", "sig", "require","failure",
     "guarantees", "in",
     "builtin",
     "try", "catch",
     "let","var",
 }
 
-SYMBOLS_1 = set("{}():,=@")  # one-char
+SYMBOLS_1 = set("{}():,=@.")  # one-char
 # special: "->" and "|"
 
 def tokenize(src: str) -> List[Token]:
@@ -83,7 +83,7 @@ def tokenize(src: str) -> List[Token]:
         if c.isalpha() or c == "_":
             start = i
             i += 1
-            while peek().isalnum() or peek() in "._":
+            while peek().isalnum() or peek() in "_":
                 i += 1
             text = src[start:i]
             kind = "KW" if text in KEYWORDS else "IDENT"

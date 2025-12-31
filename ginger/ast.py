@@ -16,6 +16,7 @@ TopLevel = Union[
     "TypeGroupDecl",
     "RegisterDecl",
     "ImplDecl",
+    "SigDecl",
     "FuncDecl",
     "VarDecl",
     "AssignStmt",
@@ -54,6 +55,8 @@ class FuncSig:
     name: str
     params: List[Param]
     ret: TypeRef
+    # body: "Expr"
+    attrs: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,15 @@ class RequireGuarantees:
     type_var: str         # T
     guarantee_name: str   # Addable
 
+@dataclass(frozen=True)
+class SigDecl:
+    name: str
+    params: List[Param]
+    ret: TypeRef
+    requires: List[RequireClause]
+    failure: TypeRef
+    attrs: list[str] = field(default_factory=list)
+
 
 @dataclass(frozen=True)
 class FuncDecl:
@@ -114,6 +126,7 @@ class FuncDecl:
     requires: List[RequireClause]
     failure: TypeRef
     attrs: list[str] = field(default_factory=list)
+    #origin: str = "unknown"     # "catalog" | "code" | "impl" | "unknown"
 
 # ---- code (binding) ----
 

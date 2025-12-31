@@ -6,7 +6,7 @@ from .ast import (
     GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    FuncDecl, VarDecl,AssignStmt,
+    SigDecl, FuncDecl, VarDecl,AssignStmt,
     Expr, CallExpr, IdentExpr, IntLit, FloatLit,
     Arg, PosArg, NamedArg,
     ExprStmt, TryStmt, CatchStmt,
@@ -17,6 +17,7 @@ class Parser:
     def __init__(self, toks: List[Token]):
         self.toks = toks
         self.i = 0
+        #self.origin = origin
 
     def skip_newlines(self) -> None:
         while self.match("NEWLINE"):
@@ -44,12 +45,55 @@ class Parser:
         return t
     
     def parse_attrs(self) -> List[str]:
+        """
+        Parse attribute lines preceding a func declaration.
         
+        Syntax:
+            @attr.<name>
+        
+        Returns:
+            ["io", "handled",...] (the <name> part only)
+        """     
         attrs: List[str] = []
+        
         while self.match("SYM", "@"):
+
+            # Catalog以外で@attrの付与を禁止する
+            """
+            if getattr(self, "origin", "unknown") != "catalog":
+                t = self.cur()
+                raise SyntaxError(
+                    f"@attr is only allowed in Catalog (got '@' at {t.pos})"
+                )
+            """
+            
             self.eat("SYM", "@")
-            attrs.append(self.eat("IDENT").text)
+
+            # must be: attr . NAME
+            ns = self.eat("IDENT").text
+
+            if ns != "attr":
+                raise SyntaxError(f"unknown attribute namespace '@{ns}' (did you mean @attr.<name>?)")
+            
+            # @attr.<name>の'.'がない場合：落とす
+            if not self.match("SYM", "."):
+                t = self.cur()
+                raise SyntaxError(
+                    f"expected '.' after '@attr' (use @attr.<name>), got {t.kind}('{t.text}') at {t.pos}"
+                )
+
+            self.eat("SYM", ".")
+
+            if not self.match("IDENT"):
+                t = self.cur()
+                raise SyntaxError(
+                    f"expected attribute name after '@attr.', got {t.kind}('{t.text}') at {t.pos}"
+                )
+            
+            aname = self.eat("IDENT").text
+            attrs.append(aname)
             self.skip_newlines()
+
         return attrs
 
     # ---- program ----
@@ -89,10 +133,12 @@ class Parser:
             return self.parse_impl()
         if self.match("KW", "func"):
             return self.parse_func(attrs=attrs)
+        if self.match("KW", "sig"):
+            return self.parse_sig(attrs=attrs)
         
         # attrs があるのに func でない場合：エラー
         if attrs:
-            raise SyntaxError("attributes must precede a func declaration")
+            raise SyntaxError("attributes must precede a sig or func declaration")
         
         # --- let/var (toplevel statement) ---
         if self.match("KW", "let"):
@@ -157,10 +203,16 @@ class Parser:
         
         t = self.cur()
         raise SyntaxError(f"Unexpected toplevel token {t.kind}('{t.text}') at {t.pos}")
-        
-        #return self.parse_var_decl()
+    
 
     # ---- shared ----
+    def parse_dotted_name(self) -> str:
+        # IDENT ('.' IDENT)*
+        name = self.eat("IDENT").text
+        while self.match("SYM", "."):
+            self.eat("SYM", ".")
+            name += "." + self.eat("IDENT").text
+        return name
 
     def parse_type(self) -> TypeRef:
         return TypeRef(self.eat("IDENT").text)
@@ -252,11 +304,61 @@ class Parser:
             mname = self.eat("IDENT").text
             self.eat("SYM", "=")
             self.eat("KW", "builtin")
-            bname = self.eat("IDENT").text
+            bname = self.parse_dotted_name()
             methods.append(ImplMethod(name=mname, builtin=bname))
 
         self.eat("SYM", "}")
         return ImplDecl(typ=typ, guarantee=gname, methods=methods)
+    
+
+    # ---- sig ----
+
+    def parse_sig(self, attrs: Optional[List[str]] = None) -> SigDecl:
+        # sig add(a: T, b: T) -> T
+        #   require T in Number
+        #   require T guarantees Addable
+        self.eat("KW", "sig")
+        name = self.eat("IDENT").text
+        self.eat("SYM", "(")
+        params = self.parse_params()
+        self.eat("SYM", ")")
+        self.eat("SYM", "->")
+        ret = self.parse_type()
+
+        requires: List[RequireClause] = []
+        failure: TypeRef | None = None
+
+        while True:
+
+            self.skip_newlines()
+
+            if self.match("KW", "require"):
+                requires.append(self.parse_require_clause())
+                continue
+
+            if self.match("KW", "failure"):
+
+                self.eat("KW", "failure")
+
+                if failure is not None:
+                    raise SyntaxError("duplicate failure")
+                failure = self.parse_type()
+
+                continue
+
+            break
+
+        if failure is None:
+            raise SyntaxError("missing failure")
+
+        return SigDecl(
+            name=name, 
+            params=params, 
+            ret=ret, 
+            requires=requires, 
+            failure=failure,
+            attrs=list(attrs or []),
+            )
 
     # ---- func ----
 
@@ -304,7 +406,8 @@ class Parser:
             ret=ret, 
             requires=requires, 
             failure=failure,
-            attrs=list(attrs or [])
+            attrs=list(attrs or []),
+            #origin=self.origin,
             )
 
     def parse_require_clause(self) -> RequireClause:
@@ -327,17 +430,6 @@ class Parser:
         )
 
     # ---- let/var decl ----
-
-    """
-    def parse_var_decl(self) -> VarDecl:
-        # Float x = add(1.3, 1.2)
-        typ = self.parse_type()
-        name = self.eat("IDENT").text
-        self.eat("SYM", "=")
-        expr = self.parse_expr()
-        return VarDecl(typ=typ, name=name, expr=expr)
-    """
-    
     def parse_let_var_decl(self, mutable: bool) -> VarDecl:
 
         if mutable:

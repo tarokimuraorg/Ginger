@@ -1,16 +1,6 @@
 from ginger.errors import EvalError
-from ginger.runtime_failures import RaisedFailure
+from ginger.runtime.failures import RaisedFailure
 from ginger.core.failure_spec import FailureId
-
-"""
-def _unit(dispatch):
-    # Unitの表現が環境次第なので安全側に寄せる
-    if hasattr(dispatch, "unit"):
-        return dispatch.unit()
-    if hasattr(dispatch, "Unit"):
-        return dispatch.Unit()
-    return None
-"""
 
 def print(args, dispatch):
 

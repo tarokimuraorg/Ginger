@@ -12,6 +12,8 @@ def main() -> None:
 
     # 単純結合（重複チェックは typecheck 側で行う）
     src = "\n\n".join([catalog, impl, code])
+
+    # 実行
     run(src)
     
     

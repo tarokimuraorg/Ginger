@@ -3,12 +3,13 @@ from dataclasses import dataclass
 from .args import bind_args
 from ginger.surface.funcs import SURFACE_FUNCS
 from .base.funcs import BASE_FUNCS
-from .runtime_dispatch import Dispatcher
+from ginger.runtime.dispatch import Dispatcher
 from .symbols_builder import build_symbols
 from .errors import EvalError
-from .runtime_failures import RaisedFailure
+from ginger.runtime.failures import RaisedFailure
 
 from .ast import (
+    SigDecl,
     FuncDecl,
     VarDecl,
     AssignStmt,
@@ -87,7 +88,6 @@ def eval_program(prog) -> Dict[str, Cell]:
         if isinstance(item, CatchStmt):
             raise EvalError("catch without preceding try")
             
-
         if isinstance(item, VarDecl):
             v = eval_expr(item.expr, env=env, syms=syms)
             env[item.name] = Cell(value=v, mutable=item.mutable)
@@ -135,15 +135,23 @@ def eval_expr(expr: Expr, env: Dict[str, Cell], syms) -> Value:
 
 def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
 
+    """
     if call.callee == "print" and len(call.args) == 0:
         return None     #Unit
+    """
+    
+    # sigがない関数は呼べない
+    if call.callee not in syms.sigs:
+        raise EvalError(f"call to undeclared function '{call.callee}'")
 
+    """
     if call.callee not in syms.funcs:
         raise EvalError(f"unknown function '{call.callee}'")
+    """
     
-    func: FuncDecl = syms.funcs[call.callee]
-    bound = bind_args(call, func)
-    args = [eval_expr(bound[p.name], env, syms) for p in func.params]
+    sig = syms.sigs[call.callee]
+    bound = bind_args(call, sig)
+    args = [eval_expr(bound[p.name], env, syms) for p in sig.params]
 
     dispatch = Dispatcher(syms)
 
@@ -152,19 +160,16 @@ def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
     BUILTINS.update(BASE_FUNCS)
     # BUILTINS.update(CORE_FUNCS)
 
+    # 実装の解決（今は名前でbuiltinに直結）
     try:
-        if func.name in BUILTINS:
-            return BUILTINS[func.name](args, dispatch)
-        raise EvalError(f"function '{func.name}' has no runtime implementation yet")
+        if call.callee in BUILTINS:
+            return BUILTINS[call.callee](args, dispatch)
+        # 将来的に、syms.funcs や syms.impls を使って実装を解決する
+        raise EvalError(f"function '{call.callee}' has no runtime implementation yet")
+    
     except RaisedFailure as rf:
-        attrs = syms.func_attrs.get(func.name, set())
-        if "noncritical" in attrs:
+        # 例外を握る
+        attrs = syms.sig_attrs.get(call.callee, set())
+        if "handled" in attrs:
             return None     # Unitに潰す
         raise
-
-    """
-    if func.name in BUILTINS:
-        return BUILTINS[func.name](args, dispatch)
-    
-    raise EvalError(f"function '{func.name}' has no runtime implementation yet")
-    """

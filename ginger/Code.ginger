@@ -1,17 +1,17 @@
-// Int x = add(1,2)
-// print(x)
 var x: Int = add(1, 2)
 x = add(x, 1)
 print(x)
 
-var y: Int = 1
-y = add(y, 1)
-print(y)
+// var y: Int = 1
+// y = add(y, 1)
+// print(y)
 
-let z: Int = add(10, 2)
+// let z: Int = add(10, 2)
 // var x: Int = add(0, 6)
-print(z)
+// print(z)
 
 // z = add(z, 4)
 // print(z)
-print()
+// print()
+
+// print(1)

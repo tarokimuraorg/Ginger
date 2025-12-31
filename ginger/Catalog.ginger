@@ -6,14 +6,19 @@ guarantee Printable {
   print(self: Self) -> Unit
 }
 
-func add(a: T, b: T) -> T
+sig add(a: T, b: T) -> T
   require T guarantees Addable
   failure Never
 
-@noncritical
-func print(x: T) -> Unit
+@attr.io
+@attr.handled
+sig print(x: T) -> Unit
   require T guarantees Printable
   failure PrintErr
 
-func breath() -> Unit
+sig breath() -> Unit
   failure Never
+
+//@attr.handled
+//func bad() -> Int
+//  failure Never
