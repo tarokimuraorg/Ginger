@@ -99,22 +99,11 @@ def build_symbols(prog: Program) -> Symbols:
             if not _is_typevar(item.ret.name):
                 types.add(item.ret.name)
 
-            """
-            if not (len(item.ret.name) == 1 and item.ret.name.isupper()):
-                types.add(item.ret.name)
-            """
-            
             # 引数
             for t in item.params:
                 if not _is_typevar(t.name):
                     types.add(t.name)
 
-            """
-            for p in item.params:
-                if not (len(p.typ.name) == 1 and p.typ.name.isupper()):
-                    types.add(item.typ.name)
-            """
-            
             # attrs を保存（@attr.*）
             attrs = set(getattr(item, "attrs", []) or [])
 
@@ -138,23 +127,24 @@ def build_symbols(prog: Program) -> Symbols:
                     raise TypecheckError(
                         f"@attr.{a} sig '{item.name}' must return {ad.require_return}"
                     )
-            """
-            if "handled" in func_attrs[item.name] and item.ret.name != "Unit":
-                raise TypecheckError(f"@noncritical function '{item.name} must return Unit'")
-            """
-            
-            # failure は SigDecl.failure: TypeRef (Never, PrintErr etc.)
-            fname = item.failure.name if item.failure is not None else "Never"
+                
+            # failure は SigDecl.failures: list[str]
+            fnames = list(getattr(item, "failures", []) or [])
 
-            if fname == "Never":
+            if "Never" in fnames and len(fnames) > 1:
+                raise TypecheckError(f"cannot combine 'Never' with other failures in sig '{item.name}'")
+            #fnames = [n for n in fnames if n != "Never"]
+
+            if not fnames:
                 sig_failures[item.name] = EMPTY_FAILURES
             else:
                 try:
-                    sig_failures[item.name] = failures(FailureId(fname))
+                    sig_failures[item.name] = failures(*[FailureId(n) for n in fnames])
                 except ValueError:
+                    candidates = ", ".join([f.value for f in FailureId])
                     raise TypecheckError(
-                        f"unknown failure '{fname}' in sig '{item.name}'. "
-                        f"use 'Never' or one of: {', '.join([f.value for f in FailureId])}"
+                        f"unknown failure(s) '{', '.join(fnames)}' in sig '{item.name}'. "
+                        f"use none (implicit Never) or one of: {candidates}"
                     )
 
         elif isinstance(item, FuncDecl):
@@ -177,61 +167,6 @@ def build_symbols(prog: Program) -> Symbols:
                 raise TypecheckError(
                     f"func '{item.name} parameter types do not match sig '{item.name}' (order-insensitive)'"
                 )
-
-            # param/ret の一致
-            """
-            if len(item.params) != len(sig.params) or any(
-                (p.typ.name != sp.typ.name) for p, sp in zip(item.params, sig.params)
-            ):
-                raise TypecheckError(f"func '{item.name}' signature does not match its sig")
-            
-            if item.ret.name != sig.ret.name:
-                raise TypecheckError(f"func '{item.name}' return type does not match its sig")
-            """
-            
-            # attrs を保存（@handled など）
-            # attrs = set(getattr(item, "attrs", []) or [])
-
-            # 未知の attr を禁止
-            """
-            for a in attrs:
-                if not is_defined(a):
-                    raise TypecheckError(f"unknown attr '@attr.{a}' on function '{item.name}'")
-            """
-            
-            # func_attrs[item.name] = attrs
-
-            # Catalog以外で @attr の付与を禁止
-            """
-            if attrs and getattr(item, "origin", "unknown") != "catalog":
-                raise TypecheckError(f"@attr is only allowed in Catalog (func '{item.name}')")
-            """
-            
-            # sem attr の制約を適用
-            """
-            for a in attrs:
-                ad = get_attr(a)
-                if ad.require_return is not None and item.ret.name != ad.require_return:
-                    raise TypecheckError(
-                        f"@attr.{a} function '{item.name}' must return {ad.require_return}"
-                    )
-            """
-                   
-            # failure は FuncDecl.failure: TypeRef (Never, PrintErr etc.)
-            # fname = item.failure.name if item.failure is not None else "Never"
-
-            """
-            if fname == "Never":
-                func_failures[item.name] = EMPTY_FAILURES
-            else:
-                try:
-                    func_failures[item.name] = failures(FailureId(fname))
-                except ValueError:
-                    raise TypecheckError(
-                        f"unknown failure '{fname}' in func '{item.name}'. "
-                        f"use 'Never' or one of: {', '.join([f.value for f in FailureId])}"
-                    )
-            """
             
         elif isinstance(item, RegisterDecl):
 

@@ -5,11 +5,23 @@ Value = Any
 BuiltinFn = Callable[..., Value]
 
 BUILTINS: Dict[str, BuiltinFn] = {
+
     "core.int.add":   lambda a, b: a + b,
     "core.float.add": lambda a, b: a + b,
+
+    "core.int.sub":   lambda a, b: a - b,
+    "core.float.sub": lambda a, b: a - b,
+
+    "core.int.mul":   lambda a, b: a * b,
+    "core.float.mul": lambda a, b: a * b,
+
+    "core.int.div":   lambda a, b: a / b,
+    "core.float.div": lambda a, b: a / b,
+
     "core.int.print":     lambda x: (print(x), None)[1],  # Unit は None 表現
     "core.float.print": lambda x: (print(x), None)[1],
     "core.string.print": lambda x: (print(x), None)[1],
+
     # 比較を入れるならここに：
     # "core.int.eq":    lambda a, b: a == b,
     # "core.int.lt":    lambda a, b: a < b,
@@ -18,7 +30,6 @@ BUILTINS: Dict[str, BuiltinFn] = {
     # "core.float.lt":  lambda a, b: a < b,
     # "core.float.gt":  lambda a, b: a > b,
 }
-
 
 def has_builtin(builtin_id: str) -> bool:
     return builtin_id in BUILTINS

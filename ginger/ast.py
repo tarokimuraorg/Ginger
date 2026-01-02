@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Union
+# from ginger.core.failure_spec import FailureSet, EMPTY_FAILURES
 
 
 # =====================
@@ -78,7 +79,6 @@ class FuncSig:
     name: str
     params: List[Param]
     ret: TypeRef
-    # body: "Expr"
     attrs: List[str] = field(default_factory=list)
 
 @dataclass(frozen=True)
@@ -134,19 +134,15 @@ class SigDecl:
     params: List[TypeRef]
     ret: TypeRef
     requires: List[RequireClause]
-    failure: TypeRef
+    failures: list[str] = field(default_factory=list)
     attrs: list[str] = field(default_factory=list)
 
 @dataclass(frozen=True)
 class FuncDecl:
     name: str
     params: List[Param]
-    body: "BlockStmt"
-    #ret: TypeRef
-    #requires: List[RequireClause]
-    #failure: TypeRef
+    body: BlockStmt
     attrs: list[str] = field(default_factory=list)
-    #origin: str = "unknown"     # "catalog" | "code" | "impl" | "unknown"
 
 
 # ---- code (binding) ----

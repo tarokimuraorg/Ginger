@@ -1,0 +1,20 @@
+var x: Int = 1 + 2
+x = x + 1
+print(x)
+
+let y: Int = 1 + 2
+// y = y + 1
+print(y)
+
+sig add(T, T) -> T {
+    require T guarantees Addable
+    failure Never
+}
+
+func add(a: T, b: T) {
+    return a + b
+}
+
+var z: Int = add(1, 2)
+z = add(z, 9)
+print(z)

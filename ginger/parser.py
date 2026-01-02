@@ -344,7 +344,7 @@ class Parser:
         ret = self.parse_type()
 
         requires: List[RequireClause] = []
-        failure: TypeRef | None = None
+        failures: list[str] = []
 
         # ブロック必須：{ ... }
         self.eat("SYM", "{")
@@ -363,27 +363,32 @@ class Parser:
             if self.match("KW", "failure"):
 
                 self.eat("KW", "failure")
+                f = self.parse_type().name
 
-                if failure is not None:
-                    raise SyntaxError("duplicate failure")
-                failure = self.parse_type()
-
+                # Neverは空集合として扱う
+                if f == "Never":
+                    if failures:
+                        raise SyntaxError("cannot combine 'Never' with other failures")
+                    failures.clear()
+                else:
+                    if "Never" in failures:
+                        raise SyntaxError("cannot combine 'Never' with other failures")
+                    if f in failures:
+                        raise SyntaxError(f"duplicate failure '{f}'")
+                    failures.append(f)
                 continue
-
+                
             t = self.cur()
             raise SyntaxError(f"Unexpected token in sig body {t.kind}('{t.text}') at {t.pos}")
         
         self.eat("SYM", "}")
-
-        if failure is None:
-            raise SyntaxError("missing failure")
 
         return SigDecl(
             name=name, 
             params=params, 
             ret=ret, 
             requires=requires, 
-            failure=failure,
+            failures=failures,
             attrs=list(attrs or []),
             )
 
@@ -401,43 +406,11 @@ class Parser:
         self.skip_newlines()
         body = self.parse_block()
 
-        """
-        requires: List[RequireClause] = []
-        failure: TypeRef | None = None
-
-        while True:
-
-            self.skip_newlines()
-
-            if self.match("KW", "require"):
-                requires.append(self.parse_require_clause())
-                continue
-
-            if self.match("KW", "failure"):
-
-                self.eat("KW", "failure")
-
-                if failure is not None:
-                    raise SyntaxError("duplicate failure")
-                failure = self.parse_type()
-
-                continue
-
-            break
-
-        if failure is None:
-            raise SyntaxError("missing failure")
-        """
-
         return FuncDecl(
             name=name, 
             params=params,
             body=body, 
-            #ret=ret, 
-            #requires=requires, 
-            #failure=failure,
             attrs=list(attrs or []),
-            #origin=self.origin,
             )
 
     def parse_require_clause(self) -> RequireClause:
@@ -516,30 +489,6 @@ class Parser:
     def parse_expr(self) -> Expr:
         return self.parse_add()
 
-        """
-        if self.match("IDENT"):
-
-            ident = self.eat("IDENT").text
-
-            if self.match("SYM", "("):
-
-                self.eat("SYM", "(")
-                args, style = self.parse_args()
-                self.eat("SYM", ")")
-
-                return CallExpr(callee=ident, args=args, arg_style=style)
-            
-            return IdentExpr(ident)
-
-        if self.match("INT"):
-            return IntLit(int(self.eat("INT").text))
-        if self.match("FLOAT"):
-            return FloatLit(float(self.eat("FLOAT").text))
-
-        t = self.cur()
-        raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
-        """
-
     def parse_add(self) -> Expr:
 
         # left-associative: a + b + c
@@ -613,7 +562,7 @@ class Parser:
             break
 
         return args, style or "pos"
-
+    
 
 def parse(src: str) -> Program:
     return Parser(tokenize(src)).parse_program()

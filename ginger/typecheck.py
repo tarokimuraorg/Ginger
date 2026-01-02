@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
-#from .args import bind_args
 from .errors import TypecheckError
 from .symbols_builder import build_symbols
-from ginger.core.failure_spec import FailureSet, EMPTY_FAILURES, union_failures
+from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
+from .diagnostics import Diagnostics
 
 from .ast import (
     VarDecl,
@@ -50,11 +50,15 @@ def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
         return effect_call(expr, env, syms)
     
     if isinstance(expr, BinaryExpr):
+        raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
+
+        """
         e1 = effect_expr(expr.left, env, syms)
         e2 = effect_expr(expr.right, env, syms)
         return union_failures(e1, e2)
+        raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
+        """
     
-    raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
 
 def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
 
@@ -111,7 +115,7 @@ def resolve_typeref(t, tmap: Dict[str, str]) -> str:
 # Typechecking
 # =====================
 
-def typecheck_program(prog) -> Dict[str, str]:
+def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
 
     syms = build_symbols(prog)
     typecheck_func_bodies(prog, syms)
@@ -172,8 +176,7 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ", ".join(f.value for f in eff)
-                raise TypecheckError(f"unhandled failures: {names}")
-                # print(f"warning: unhandled failures: {names}")
+                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
             
             # TryStmt + 連鎖 CatchStmt を全部消費
             i = j
@@ -194,8 +197,7 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ', '.join(sorted(f.value for f in eff))
-                raise TypecheckError(f"unhandled failures: {names}")
-                # print(f"warning: unhandled failures: {names}")
+                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
             
             env[item.name] = Binding(ty=t, mutable=item.mutable)
             i += 1
@@ -218,8 +220,7 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ", ".join(sorted(f.value for f in eff))
-                raise TypecheckError(f"unhandled failures: {names}")
-                # print(f"warning: unhandled failures: {names}")
+                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
             
             i += 1
             continue
@@ -232,8 +233,7 @@ def typecheck_program(prog) -> Dict[str, str]:
 
             if eff != EMPTY_FAILURES:
                 names = ', '.join(sorted(f.value for f in eff))
-                # print(f"warning: unhandled failures: {names}")
-                raise TypecheckError(f"unhandled failures: {names}")
+                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
             
             if t != "Unit":
                 raise TypecheckError(f"only Unit expression are allowed as statements, got '{t}'")
@@ -335,7 +335,9 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
     if isinstance(expr, BinaryExpr):
-        
+        raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
+
+        """
         if expr.op != "+":
             raise TypecheckError(f"unsupported operator '{expr.op}'")
         
@@ -366,7 +368,8 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         return tL
     
     raise TypecheckError(f"unsupported expr node: {expr!r}")
-
+        """
+        
         
 def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
 

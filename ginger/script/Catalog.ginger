@@ -18,7 +18,3 @@ sig print(x: T) -> Unit
 
 sig breath() -> Unit
   failure Never
-
-//@attr.handled
-//func bad() -> Int
-//  failure Never

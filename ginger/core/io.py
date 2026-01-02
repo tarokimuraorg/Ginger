@@ -43,7 +43,7 @@ def core_items():
             params=[TypeRef("T")],
             ret=TypeRef("Unit"),
             requires=[RequireGuarantees(type_var="T", guarantee_name="Printable")],
-            failure=TypeRef("Never"),
+            failures=[],
             attrs=[],
         ),
     ]

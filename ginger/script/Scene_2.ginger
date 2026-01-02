@@ -1,0 +1,35 @@
+sig add(T, T) -> T {
+    require T guarantees Addable
+    failure Never
+}
+
+sig sub(T, T) -> T {
+    require T guarantees Subtractable
+    failure Never
+}
+
+sig mul(T, T) -> T {
+    require T guarantees Multipliable
+    failure Never
+}
+
+sig div(T, T) -> T {
+    require T guarantees Divisible
+    failure DivideByZero
+}
+
+func add(a: T, b: T) {
+    return a + b
+}
+
+func sub(a: T, b: T) {
+    return a - b
+}
+
+func mul(a: T, b: T) {
+    return a * b
+}
+
+func div(a: T, b: T) {
+    return a / b
+}
