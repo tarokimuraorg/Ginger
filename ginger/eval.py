@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 from dataclasses import dataclass
 from .args import bind_args
 from ginger.surface.funcs import SURFACE_FUNCS
@@ -18,9 +18,13 @@ from .ast import (
     IdentExpr,
     IntLit,
     FloatLit,
+    BinaryExpr,
+    BlockStmt,
+    ReturnStmt,
     ExprStmt,
     TryStmt,
     CatchStmt,
+    BinaryExpr,
 )
 
 
@@ -34,6 +38,10 @@ class Cell:
     value: Value
     #value: Union[int, float]
     mutable: bool   # let=False, var=True
+
+@dataclass
+class ReturnSignal(Exception):
+    value: "Value"
 
 def eval_program(prog) -> Dict[str, Cell]:
     
@@ -123,17 +131,31 @@ def eval_expr(expr: Expr, env: Dict[str, Cell], syms) -> Value:
         return float(expr.value)
 
     if isinstance(expr, IdentExpr):
-        if expr.name not in env:
-            raise EvalError(f"unknown identifier '{expr.name}'")
-        return env[expr.name].value
+        if expr.name in env:
+            return env[expr.name].value
+        raise EvalError(f"unknown identifier '{expr.name}'")
 
+    if isinstance(expr, BinaryExpr):
+        
+        if expr.op != "+":
+            raise EvalError(f"unsupported operator '{expr.op}'")
+        
+        lv = eval_expr(expr.left, env=env, syms=syms)
+        rv = eval_expr(expr.right, env=env, syms=syms)
+
+        dispach = Dispatcher(syms)
+        typ = dispach.type_of(lv)
+
+        # Addable の impl に降ろす
+        return dispach.call_impl_method(typ, "Addable", "add", lv, rv)
+        
     if isinstance(expr, CallExpr):
         return eval_call(expr, env, syms)
 
     raise EvalError(f"unsupported expr node: {expr!r}")
 
 
-def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
+def eval_call(call: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None):
 
     """
     if call.callee == "print" and len(call.args) == 0:
@@ -150,8 +172,18 @@ def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
     """
     
     sig = syms.sigs[call.callee]
-    bound = bind_args(call, sig)
-    args = [eval_expr(bound[p.name], env, syms) for p in sig.params]
+    
+    #bound = bind_args(call, sig)
+    #args = [eval_expr(bound[p.name], env, syms) for p in sig.params]
+
+    # sigは引数名がないので、name args禁止
+    if call.arg_style != "pos":
+        return EvalError(
+            f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
+        )
+    
+    # 引数を位置で評価
+    arg_values = [eval_expr(a.expr, env=env, syms=syms) for a in call.args]
 
     dispatch = Dispatcher(syms)
 
@@ -160,16 +192,61 @@ def eval_call(call: CallExpr, env: Dict[str, Cell], syms):
     BUILTINS.update(BASE_FUNCS)
     # BUILTINS.update(CORE_FUNCS)
 
-    # 実装の解決（今は名前でbuiltinに直結）
+    # func実装があればそれを実行
+    if call.callee in syms.funcs:
+        
+        fdecl = syms.funcs[call.callee]
+
+        # func側の引数名で束縛（位置）
+        if len(fdecl.params) != len(arg_values):
+            # build_symbols/typecheck で弾かれる想定だが保険として
+            raise EvalError(
+                f"internal: func '{fdecl.name}' arity mismatch: "
+                f"expected {len(fdecl.params)}, got {len(arg_values)}"
+            )
+        
+        local: Dict[str, Cell] = {}
+
+        for p, v in zip(fdecl.params, arg_values):
+            local[p.name] = Cell(value=v, mutable=False)
+
+        try:
+            eval_block(fdecl.body, env=local, syms=syms, outer=outer)
+            return None     # Unitの代替
+        except ReturnSignal as rs:
+            return rs.value
+        except RaisedFailure as rf:
+            # @attr.handledなら潰す
+            attrs = syms.sig_attrs.get(call.callee, set())
+            if "handled" in attrs:
+                return None
+            raise
+
+    # func実装がなければ builtin を探す
     try:
         if call.callee in BUILTINS:
-            return BUILTINS[call.callee](args, dispatch)
+            return BUILTINS[call.callee](arg_values, dispatch)
         # 将来的に、syms.funcs や syms.impls を使って実装を解決する
         raise EvalError(f"function '{call.callee}' has no runtime implementation yet")
     
     except RaisedFailure as rf:
-        # 例外を握る
+        # @attr.handlrdなら潰す
         attrs = syms.sig_attrs.get(call.callee, set())
         if "handled" in attrs:
             return None     # Unitに潰す
         raise
+
+def eval_block(block: BlockStmt, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None) -> None:
+        
+    for st in block.stmts:
+        # return
+        if isinstance(st, ReturnStmt):
+            v = eval_expr(st.expr, env=env, syms=syms)
+            raise ReturnSignal(v)
+        
+        # 今は ExprStmt のみ対応
+        if isinstance(st, ExprStmt):
+            eval_expr(st.expr, env=env, syms=syms, outer=outer)
+            continue
+
+        raise EvalError(f"unsupported statement in func body: {st!r}")

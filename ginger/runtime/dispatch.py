@@ -1,5 +1,5 @@
-from ..builtin import call_builtin, has_builtin
-from ..errors import EvalError
+from ginger.builtin import call_builtin, has_builtin
+from ginger.errors import EvalError
 
 def type_of(v):
 

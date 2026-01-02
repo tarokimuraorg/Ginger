@@ -25,6 +25,26 @@ TopLevel = Union[
     "CatchStmt",
 ]
 
+
+# --- statements ---
+
+Stmt = Union[
+    "VarDecl", 
+    "AssignStmt",
+    "ExprStmt", 
+    "TryStmt",
+    "CatchStmt",
+    "ReturnStmt", 
+    ]
+
+@dataclass(frozen=True)
+class BlockStmt:
+    stmts: List[Stmt]
+
+@dataclass(frozen=True)
+class ReturnStmt:
+    expr: "Expr"
+
 @dataclass(frozen=True)
 class TryStmt:
     expr: "Expr"
@@ -39,16 +59,19 @@ class ExprStmt:
     expr: "Expr"
 
 
+# ---types ---
+
 @dataclass(frozen=True)
 class TypeRef:
     name: str  # Int, Float, String, Self, T, Number, etc.
-
 
 @dataclass(frozen=True)
 class Param:
     name: str
     typ: TypeRef
 
+
+# --- guarantee/typegroup/register ---
 
 @dataclass(frozen=True)
 class FuncSig:
@@ -58,18 +81,15 @@ class FuncSig:
     # body: "Expr"
     attrs: List[str] = field(default_factory=list)
 
-
 @dataclass(frozen=True)
 class GuaranteeDecl:
     name: str
     methods: List[FuncSig]  # signatures inside guarantee
 
-
 @dataclass(frozen=True)
 class TypeGroupDecl:
     name: str
     members: List[TypeRef]  # Int | Float | ...
-
 
 @dataclass(frozen=True)
 class RegisterDecl:
@@ -77,13 +97,12 @@ class RegisterDecl:
     guarantee: str
 
 
-# ---- impl ----
+# ---- impl (legacy: builtin mapping) ----
 
 @dataclass(frozen=True)
 class ImplMethod:
     name: str        # add
     builtin: str     # core.int.add
-
 
 @dataclass(frozen=True)
 class ImplDecl:
@@ -96,37 +115,39 @@ class ImplDecl:
 
 RequireClause = Union["RequireIn", "RequireGuarantees"]
 
-
 @dataclass(frozen=True)
 class RequireIn:
     type_var: str     # T
     group_name: str   # Number
-
 
 @dataclass(frozen=True)
 class RequireGuarantees:
     type_var: str         # T
     guarantee_name: str   # Addable
 
+
+# --- sig / func ---
+
 @dataclass(frozen=True)
 class SigDecl:
     name: str
-    params: List[Param]
+    params: List[TypeRef]
     ret: TypeRef
     requires: List[RequireClause]
     failure: TypeRef
     attrs: list[str] = field(default_factory=list)
-
 
 @dataclass(frozen=True)
 class FuncDecl:
     name: str
     params: List[Param]
-    ret: TypeRef
-    requires: List[RequireClause]
-    failure: TypeRef
+    body: "BlockStmt"
+    #ret: TypeRef
+    #requires: List[RequireClause]
+    #failure: TypeRef
     attrs: list[str] = field(default_factory=list)
     #origin: str = "unknown"     # "catalog" | "code" | "impl" | "unknown"
+
 
 # ---- code (binding) ----
 
@@ -145,37 +166,42 @@ class AssignStmt:
 
 # ---- expressions ----
 
-Expr = Union["CallExpr", "IdentExpr", "IntLit", "FloatLit"]
-
+Expr = Union[
+    "CallExpr", 
+    "IdentExpr", 
+    "IntLit", 
+    "FloatLit", 
+    "BinaryExpr",
+    ]
 
 @dataclass(frozen=True)
 class IdentExpr:
     name: str
 
-
 @dataclass(frozen=True)
 class IntLit:
     value: int
-
 
 @dataclass(frozen=True)
 class FloatLit:
     value: float
 
+@dataclass(frozen=True)
+class BinaryExpr:
+    op: str     # { + | - | * | / }
+    left: Expr
+    right: Expr
 
 @dataclass(frozen=True)
 class PosArg:
     expr: Expr
-
 
 @dataclass(frozen=True)
 class NamedArg:
     name: str
     expr: Expr
 
-
 Arg = Union[PosArg, NamedArg]
-
 
 @dataclass(frozen=True)
 class CallExpr:

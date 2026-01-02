@@ -1,9 +1,11 @@
 from dataclasses import dataclass
-from typing import Dict, Set, Tuple
+from typing import Dict, Tuple
+from collections import Counter
 from .builtin import BUILTINS
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, failures, EMPTY_FAILURES, FailureSet
 from .attrs import is_defined, get_attr
+from ginger.core.prelude import prelude_items
 
 from .ast import (
     Program,
@@ -25,11 +27,11 @@ from .ast import (
 class Symbols:
 
     guarantees: Dict[str, GuaranteeDecl]
-    typegroups: Dict[str, Set[str]]                  # group -> {"Int","Float",...}
-    type_guarantees: Dict[str, Set[str]]             # type -> {"Addable",...}
+    typegroups: Dict[str, set[str]]                  # group -> {"Int","Float",...}
+    type_guarantees: Dict[str, set[str]]             # type -> {"Addable",...}
     sigs: Dict[str, SigDecl]
     sig_failures: Dict[str, FailureSet]
-    sig_attrs: Dict[str, Set[str]]
+    sig_attrs: Dict[str, set[str]]
     funcs: Dict[str, FuncDecl]                       # name -> decl
     # func_failures: Dict[str, FailureSet]
     # func_attrs: Dict[str, Set[str]]
@@ -37,21 +39,33 @@ class Symbols:
     types: set[str]                                  # プリミティブ型
 
 
+def _is_typevar(name: str) -> bool:
+    # T, Uのような1文字大文字を型変数扱い
+    return len(name) == 1 and name.isupper()
+
+def _type_multiset_from_sig(sig: SigDecl) -> Counter:
+    return Counter([t.name for t in sig.params])
+
+def _type_multiset_from_func(func: FuncDecl) -> Counter:
+    return Counter([p.typ.name for p in func.params])
+
+
 def build_symbols(prog: Program) -> Symbols:
 
     guarantees: Dict[str, GuaranteeDecl] = {}
-    typegroups: Dict[str, Set[str]] = {}
-    type_guarantees: Dict[str, Set[str]] = {}
+    typegroups: Dict[str, set[str]] = {}
+    type_guarantees: Dict[str, set[str]] = {}
     sigs: Dict[str, SigDecl] = {}
     sig_failures: Dict[str, FailureSet] = {}
-    sig_attrs: Dict[str, Set[str]] = {}
+    sig_attrs: Dict[str, set[str]] = {}
     funcs: Dict[str, FuncDecl] = {}
-    #func_failures: Dict[str, FailureSet] = {}
-    #func_attrs: Dict[str, Set[str]] = {}
     impls: Dict[Tuple[str, str, str], str] = {}
-    types: Set[str] = set()
+    types: set[str] = set()
 
-    for item in prog.items:
+    items = prelude_items()
+    items += list(prog.items)
+
+    for item in items:
 
         if isinstance(item, GuaranteeDecl):
             if item.name in guarantees:
@@ -82,15 +96,26 @@ def build_symbols(prog: Program) -> Symbols:
 
             # sigに現れた具象型を types に登録
             # 戻り値
+            if not _is_typevar(item.ret.name):
+                types.add(item.ret.name)
+
+            """
             if not (len(item.ret.name) == 1 and item.ret.name.isupper()):
                 types.add(item.ret.name)
+            """
             
             # 引数
+            for t in item.params:
+                if not _is_typevar(t.name):
+                    types.add(t.name)
+
+            """
             for p in item.params:
                 if not (len(p.typ.name) == 1 and p.typ.name.isupper()):
                     types.add(item.typ.name)
-
-            # attrs を保存（@handled など）
+            """
+            
+            # attrs を保存（@attr.*）
             attrs = set(getattr(item, "attrs", []) or [])
 
             # 未知の attr を禁止
@@ -146,7 +171,15 @@ def build_symbols(prog: Program) -> Symbols:
             # func が sig と食い違っていないことを確認
             sig = sigs[item.name]
 
+            # sig と func の引数型は順不同で可
+            # 型の種類と個数が一致していることのみを確認
+            if _type_multiset_from_func(item) != _type_multiset_from_sig(sig):
+                raise TypecheckError(
+                    f"func '{item.name} parameter types do not match sig '{item.name}' (order-insensitive)'"
+                )
+
             # param/ret の一致
+            """
             if len(item.params) != len(sig.params) or any(
                 (p.typ.name != sp.typ.name) for p, sp in zip(item.params, sig.params)
             ):
@@ -154,7 +187,8 @@ def build_symbols(prog: Program) -> Symbols:
             
             if item.ret.name != sig.ret.name:
                 raise TypecheckError(f"func '{item.name}' return type does not match its sig")
-
+            """
+            
             # attrs を保存（@handled など）
             # attrs = set(getattr(item, "attrs", []) or [])
 

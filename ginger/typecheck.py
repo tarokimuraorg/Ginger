@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
-from .args import bind_args
+#from .args import bind_args
 from .errors import TypecheckError
 from .symbols_builder import build_symbols
-from ginger.core.failure_spec import FailureSet, EMPTY_FAILURES, failures, FailureId, union_failures
+from ginger.core.failure_spec import FailureSet, EMPTY_FAILURES, union_failures
 
 from .ast import (
     VarDecl,
@@ -18,6 +18,10 @@ from .ast import (
     ExprStmt,
     TryStmt,
     CatchStmt,
+    FuncDecl,
+    BlockStmt,
+    ReturnStmt,
+    BinaryExpr,
 )
 
 @dataclass(frozen=True)
@@ -25,22 +29,11 @@ class Binding:
     ty: str
     mutable: bool   # let=False, var=True
 
-"""
-func_failures: dict[str, FailureSet] = {}
-
-def _parse_failures(names: list[str]) -> FailureSet:
-    # ["IOErr", "TimeErr"] -> frozenset({FailureId.IOErr, FailureId.TimeErr})
-    return failures(*[FailureId(n) for n in names])
-
-def register_func_decl(decl) -> None:
-    names: list[str] = getattr(decl, "failure_names", [])
-    func_failures[decl.name] = _parse_failures(names)
-"""
-
 def remove_failure(eff: FailureSet, name: str) -> FailureSet:
     return frozenset(f for f in eff if f.value != name)
 
 def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
+
     # literals
     if isinstance(expr, IntLit):
         return EMPTY_FAILURES
@@ -56,34 +49,36 @@ def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
     if isinstance(expr, CallExpr):
         return effect_call(expr, env, syms)
     
+    if isinstance(expr, BinaryExpr):
+        e1 = effect_expr(expr.left, env, syms)
+        e2 = effect_expr(expr.right, env, syms)
+        return union_failures(e1, e2)
+    
     raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
 
 def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
-
-    """
-    if call.callee == "print" and len(call.args) == 0:
-        return EMPTY_FAILURES
-
-    if call.callee not in syms.funcs:
-        raise TypecheckError(f"unknown function '{call.callee}'")
-    
-    func = syms.funcs[call.callee]
-    bound = bind_args(call, func)
-    """
 
     if call.callee not in syms.sigs:
         raise TypecheckError(f"call to undeclared function '{call.callee}'")
     
     sig = syms.sigs[call.callee]
-    bound = bind_args(call, sig)
 
-    # 引数側のeffect（再帰）
+    # sig は引数名がないので named args 禁止
+    if call.arg_style != "pos":
+        raise TypecheckError(f"named arguments are not allowed for calls to sig '{sig.name}'")
+    
+    if len(call.args) != len(sig.params):
+        raise TypecheckError(
+            f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
+            )
+    
+    # 引数側のeffect
     arg_effects: list[FailureSet] = []
 
-    for p in sig.params:
-        arg_effects.append(effect_expr(bound[p.name], env, syms))
+    for a in call.args:
+        # pos only
+        arg_effects.append(effect_expr(a.expr, env, syms))
 
-    # 関数宣言に付いているfailure
     callee_eff: FailureSet = syms.sig_failures.get(call.callee, EMPTY_FAILURES)
     eff_args = union_failures(EMPTY_FAILURES, *arg_effects)
 
@@ -117,8 +112,9 @@ def resolve_typeref(t, tmap: Dict[str, str]) -> str:
 # =====================
 
 def typecheck_program(prog) -> Dict[str, str]:
-    
+
     syms = build_symbols(prog)
+    typecheck_func_bodies(prog, syms)
     env: Dict[str, Binding] = {}
 
     i = 0
@@ -250,7 +246,70 @@ def typecheck_program(prog) -> Dict[str, str]:
 
     return env
 
-def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms) -> str:
+def typecheck_func_bodies(prog, syms) -> None:
+
+    # func の本文を sig に照合する（return型のみ確認）
+    for item in prog.items:
+        
+        if not isinstance(item, FuncDecl):
+            continue
+        
+        if item.name not in syms.sigs:
+            # build_symbols で弾かれている想定だが保険として
+            raise TypecheckError(f"func '{item.name}' has no corresponding sig '{item.name}'")
+        
+        sig = syms.sigs[item.name]
+
+        # sig.requires から「型変数が保証する guarantee」を収集
+        tv_guars: Dict[str, set[str]] = {}
+
+        for req in sig.requires:
+            if isinstance(req, RequireGuarantees):
+                tv_guars.setdefault(req.type_var, set()).add(req.guarantee_name)
+
+        # 関数ローカル環境（引数束縛）
+        fenv: Dict[str, Binding] = {}
+
+        for p in item.params:
+            fenv[p.name] = Binding(ty=p.typ.name, mutable=False)
+
+        # ブロックを走査して return 型を集める
+        ret_types: list[str] = []
+
+        for st in item.body.stmts:
+            if isinstance(st, ReturnStmt):
+                rt = type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
+                ret_types.append(rt)
+            elif isinstance(st, ExprStmt):
+                type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
+            else:
+                # 他のstmtはまだfunc内で未対応
+                raise TypecheckError(f"unsupported statement in func '{item.name}': {st!r}")
+        
+        # returnがない場合は Unit に相当するものを返す
+        if not ret_types:
+            if sig.ret.name != "Unit":
+                raise TypecheckError(f"func '{item.name}' must return '{sig.ret.name}', but has no return (implicit Unit)")
+            # sig が Unit なら OK
+            continue
+        
+        # return がある場合：型が揃っていることを確認（今は return は1種類であることを要求）
+        first = ret_types[0]
+
+        if any(t != first for t in ret_types):
+            raise TypecheckError(f"func '{item.name}' has inconsistent return types: {ret_types}")
+        
+        if first != sig.ret.name:
+            raise TypecheckError(
+                f"func '{item.name}' return type mismatch: sig expects '{sig.ret.name}', got '{first}'"
+            )
+
+
+def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
+
+    if tv_guars is None:
+        tv_guars = {}
+
     # literals
     if isinstance(expr, IntLit):
         if expected is not None and expected != "Int":
@@ -273,30 +332,62 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
 
     # call
     if isinstance(expr, CallExpr):
-        return type_call(expr, expected, env, syms)
+        return type_call(expr, expected, env, syms, tv_guars=tv_guars)
+    
+    if isinstance(expr, BinaryExpr):
+        
+        if expr.op != "+":
+            raise TypecheckError(f"unsupported operator '{expr.op}'")
+        
+        # 左を先に型推論
+        tL = type_expr(expr.left, expected=None, env=env, syms=syms, tv_guars=tv_guars)
 
+        # 右は左に合わせる（Tを揃える）
+        tR = type_expr(expr.right, expected=tL, env=env, syms=syms, tv_guars=tv_guars)
+
+        if tL != tR:
+            raise TypecheckError(f"type mismatch in '+': {tL} vs {tR}")
+        
+        # Addable 制約
+        if is_typevar(tL):
+
+            # 型変数なら「この関数の requires」を見る
+            if "Addable" not in tv_guars.get(tL, set()):
+                raise TypecheckError(
+                    f"type variable '{tL}' does not guarantee Addable (required for '+')"
+                )
+        else:
+            # 具象型なら catalog 登録を見る
+            if "Addable" not in syms.type_guarantees.get(tL, set()):
+                raise TypecheckError(
+                    f"type '{tL}' does not guarantee Addable (required for '+')"
+                )
+
+        return tL
+    
     raise TypecheckError(f"unsupported expr node: {expr!r}")
 
+        
+def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
 
-def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms) -> str:
-
-    """
-    if call.callee == "print" and len(call.args) == 0:
-        return "Unit"
-
-    if call.callee not in syms.funcs:
-        raise TypecheckError(f"unknown function '{call.callee}'")
-
-    func = syms.funcs[call.callee]
-    bound = bind_args(call, func)
-    """
+    if tv_guars is None:
+        tv_guars = {}
 
     if call.callee not in syms.sigs:
         raise TypecheckError(f"call to undeclared sig '{call.callee}'")
     
-    
     sig = syms.sigs[call.callee]
-    bound = bind_args(call, sig)
+
+    # sig は引数名がないので、name args 禁止
+    if call.arg_style != "pos":
+        raise TypecheckError(f"named arguments are not allowed for calls to sig '{sig.name}'")
+    
+    if len(call.args) != len(sig.params):
+        raise TypecheckError(
+            f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
+        )
+
+    #bound = bind_args(call, sig)
     tmap: Dict[str, str] = {}
 
     # ① 代入先で決める（既存）
@@ -314,16 +405,16 @@ def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], 
             raise TypecheckError(
                 f"cannot determine type variable '{sig.ret.name}' in call to {sig.name} (no expected type)"
             )
+        
+    # 引数exprを位置で取り出す
+    arg_exprs = [a.expr for a in call.args]
 
-    # ② 引数から型変数を推論（print(x) を通す）
-    for p in sig.params:
-        if p.name not in bound:
-            raise TypecheckError(f"internal error: param '{p.name}' not bound")
-
-        if is_typevar(p.typ.name) and p.typ.name not in tmap:
-            inferred = type_expr(bound[p.name], None, env, syms)  # expected=None で実型を得る
-            tmap[p.typ.name] = inferred
-
+    # ② 引数から型変数を推論
+    for tref, aexpr in zip(sig.params, arg_exprs):
+        if is_typevar(tref.name) and tref.name not in tmap:
+            inferred = type_expr(aexpr, None, env, syms, tv_guars=tv_guars)
+            tmap[tref.name] = inferred
+    
     # ③ require チェック（既存）
     for req in sig.requires:
         if isinstance(req, RequireIn):
@@ -355,9 +446,9 @@ def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], 
                 )
 
     # ④ 引数型チェック（既存）
-    for p in sig.params:
-        expected_arg = resolve_typeref(p.typ, tmap)
-        type_expr(bound[p.name], expected_arg, env, syms)
+    for tref, aexpr in zip(sig.params, arg_exprs):
+        expected_arg = resolve_typeref(tref, tmap)
+        type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
 
     # return type
     if is_typevar(sig.ret.name):

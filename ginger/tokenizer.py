@@ -9,14 +9,14 @@ class Token:
 
 KEYWORDS = {
     "guarantee", "typegroup", "register", "impl",
-    "func", "sig", "require","failure",
+    "func", "sig", "require","failure", "return",
     "guarantees", "in",
     "builtin",
     "try", "catch",
     "let","var",
 }
 
-SYMBOLS_1 = set("{}():,=@.")  # one-char
+SYMBOLS_1 = set("{}():,=@.+-*/")  # one-char
 # special: "->" and "|"
 
 def tokenize(src: str) -> List[Token]:

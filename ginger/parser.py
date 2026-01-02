@@ -7,6 +7,7 @@ from .ast import (
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
     SigDecl, FuncDecl, VarDecl,AssignStmt,
+    BlockStmt, ReturnStmt, BinaryExpr, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, FloatLit,
     Arg, PosArg, NamedArg,
     ExprStmt, TryStmt, CatchStmt,
@@ -232,6 +233,25 @@ class Parser:
                 continue
             break
         return params
+    
+    def parse_sig_param_types(self) -> List[TypeRef]:
+        
+        tys: List[TypeRef] = []
+
+        if self.match("SYM", ")"):
+            return tys
+        
+        while True:
+
+            tys.append(self.parse_type())   # IDENT -> TypeRef
+
+            if self.match("SYM", ","):
+                self.eat("SYM", ",")
+                continue
+
+            break
+
+        return tys
 
     # ---- guarantee ----
 
@@ -314,13 +334,11 @@ class Parser:
     # ---- sig ----
 
     def parse_sig(self, attrs: Optional[List[str]] = None) -> SigDecl:
-        # sig add(a: T, b: T) -> T
-        #   require T in Number
-        #   require T guarantees Addable
+        # sig add(Int, Int) -> Int { failure Never }
         self.eat("KW", "sig")
         name = self.eat("IDENT").text
         self.eat("SYM", "(")
-        params = self.parse_params()
+        params = self.parse_sig_param_types()
         self.eat("SYM", ")")
         self.eat("SYM", "->")
         ret = self.parse_type()
@@ -328,9 +346,15 @@ class Parser:
         requires: List[RequireClause] = []
         failure: TypeRef | None = None
 
+        # ブロック必須：{ ... }
+        self.eat("SYM", "{")
+
         while True:
 
             self.skip_newlines()
+
+            if self.match("SYM", "}"):
+                break
 
             if self.match("KW", "require"):
                 requires.append(self.parse_require_clause())
@@ -346,7 +370,10 @@ class Parser:
 
                 continue
 
-            break
+            t = self.cur()
+            raise SyntaxError(f"Unexpected token in sig body {t.kind}('{t.text}') at {t.pos}")
+        
+        self.eat("SYM", "}")
 
         if failure is None:
             raise SyntaxError("missing failure")
@@ -363,17 +390,18 @@ class Parser:
     # ---- func ----
 
     def parse_func(self, attrs: Optional[List[str]] = None) -> FuncDecl:
-        # func add(a: T, b: T) -> T
-        #   require T in Number
-        #   require T guarantees Addable
+        # func add(a: Int, b: Int) { return a + b }
         self.eat("KW", "func")
         name = self.eat("IDENT").text
         self.eat("SYM", "(")
         params = self.parse_params()
         self.eat("SYM", ")")
-        self.eat("SYM", "->")
-        ret = self.parse_type()
+        #self.eat("SYM", "->")
+        #ret = self.parse_type()
+        self.skip_newlines()
+        body = self.parse_block()
 
+        """
         requires: List[RequireClause] = []
         failure: TypeRef | None = None
 
@@ -399,13 +427,15 @@ class Parser:
 
         if failure is None:
             raise SyntaxError("missing failure")
+        """
 
         return FuncDecl(
             name=name, 
-            params=params, 
-            ret=ret, 
-            requires=requires, 
-            failure=failure,
+            params=params,
+            body=body, 
+            #ret=ret, 
+            #requires=requires, 
+            #failure=failure,
             attrs=list(attrs or []),
             #origin=self.origin,
             )
@@ -450,17 +480,55 @@ class Parser:
         self.eat("SYM", "=")
         expr = self.parse_expr()
         return AssignStmt(name=name, expr=expr)
+    
+    def parse_block(self) -> BlockStmt:
+
+        self.eat("SYM", "{")
+        stmts: List[Stmt] = []
+
+        while True:
+
+            self.skip_newlines()
+
+            if self.match("SYM", "}"):
+                break
+
+            # return <expr>
+            if self.match("KW", "return"):
+                self.eat("KW", "return")
+                expr = self.parse_expr()
+                stmts.append(ReturnStmt(expr=expr))
+                self.skip_newlines()
+                continue
+
+            # 今は最低限、式分だけ許可
+            expr = self.parse_expr()
+            stmts.append(ExprStmt(expr=expr))
+            self.skip_newlines()
+
+        self.eat("SYM", "}")
+
+        return BlockStmt(stmts=stmts)
+    
 
     # ---- expressions ----
 
     def parse_expr(self) -> Expr:
+        return self.parse_add()
+
+        """
         if self.match("IDENT"):
+
             ident = self.eat("IDENT").text
+
             if self.match("SYM", "("):
+
                 self.eat("SYM", "(")
                 args, style = self.parse_args()
                 self.eat("SYM", ")")
+
                 return CallExpr(callee=ident, args=args, arg_style=style)
+            
             return IdentExpr(ident)
 
         if self.match("INT"):
@@ -468,6 +536,41 @@ class Parser:
         if self.match("FLOAT"):
             return FloatLit(float(self.eat("FLOAT").text))
 
+        t = self.cur()
+        raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
+        """
+
+    def parse_add(self) -> Expr:
+
+        # left-associative: a + b + c
+        expr = self.parse_primary()
+
+        while self.match("SYM", "+"):
+            self.eat("SYM", "+")
+            right = self.parse_primary()
+            expr = BinaryExpr(op="+", left=expr, right=right)
+
+        return expr
+    
+    def parse_primary(self) -> Expr:
+
+        if self.match("IDENT"):
+
+            ident = self.eat("IDENT").text
+
+            if self.match("SYM", "("):
+                self.eat("SYM", "(")
+                args, style = self.parse_args()
+                self.eat("SYM", ")")
+                return CallExpr(callee=ident, args=args, arg_style=style)
+            
+            return IdentExpr(ident)
+        
+        if self.match("INT"):
+            return IntLit(int(self.eat("INT").text))
+        if self.match("FLOAT"):
+            return FloatLit(float(self.eat("FLOAT").text))
+        
         t = self.cur()
         raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
 
