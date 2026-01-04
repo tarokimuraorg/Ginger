@@ -1,0 +1,13 @@
+// var x: Int = -1
+// print(x)
+// var y: Float = -1.0
+// print(y)
+
+var a: Int = neg(1)
+print(a)
+
+var b: Float = neg(1.0)
+print(b)
+
+var c: Int = neg(neg(1))
+print(c)

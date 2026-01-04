@@ -21,7 +21,6 @@ from .ast import (
     FuncDecl,
     BlockStmt,
     ReturnStmt,
-    BinaryExpr,
 )
 
 @dataclass(frozen=True)
@@ -49,15 +48,10 @@ def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
     if isinstance(expr, CallExpr):
         return effect_call(expr, env, syms)
     
+    """
     if isinstance(expr, BinaryExpr):
         raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
-
-        """
-        e1 = effect_expr(expr.left, env, syms)
-        e2 = effect_expr(expr.right, env, syms)
-        return union_failures(e1, e2)
-        raise TypecheckError(f"unsupported expr node for effect: {expr!r}")
-        """
+    """
     
 
 def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
@@ -334,42 +328,11 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
     if isinstance(expr, CallExpr):
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
+    """
     if isinstance(expr, BinaryExpr):
         raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
-
-        """
-        if expr.op != "+":
-            raise TypecheckError(f"unsupported operator '{expr.op}'")
-        
-        # 左を先に型推論
-        tL = type_expr(expr.left, expected=None, env=env, syms=syms, tv_guars=tv_guars)
-
-        # 右は左に合わせる（Tを揃える）
-        tR = type_expr(expr.right, expected=tL, env=env, syms=syms, tv_guars=tv_guars)
-
-        if tL != tR:
-            raise TypecheckError(f"type mismatch in '+': {tL} vs {tR}")
-        
-        # Addable 制約
-        if is_typevar(tL):
-
-            # 型変数なら「この関数の requires」を見る
-            if "Addable" not in tv_guars.get(tL, set()):
-                raise TypecheckError(
-                    f"type variable '{tL}' does not guarantee Addable (required for '+')"
-                )
-        else:
-            # 具象型なら catalog 登録を見る
-            if "Addable" not in syms.type_guarantees.get(tL, set()):
-                raise TypecheckError(
-                    f"type '{tL}' does not guarantee Addable (required for '+')"
-                )
-
-        return tL
+    """
     
-    raise TypecheckError(f"unsupported expr node: {expr!r}")
-        """
-        
         
 def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
 

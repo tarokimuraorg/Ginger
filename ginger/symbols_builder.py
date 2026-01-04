@@ -128,6 +128,18 @@ def build_symbols(prog: Program) -> Symbols:
                         f"@attr.{a} sig '{item.name}' must return {ad.require_return}"
                     )
                 
+            # --- builtin (SigDecl.builtin) ---
+            b = getattr(item, "builtin", None)
+
+            if b is not None:
+                # 混線防止：requires と builtin は同時に持てない
+                if item.requires:
+                    raise TypecheckError(
+                        f"sig '{item.name}' cannot have both requires and builtin (choose one dispatch style)"
+                    )
+                if b not in BUILTINS:
+                    raise TypecheckError(f"unknown builtin '{b}' for sig '{item.name}'")
+                
             # failure は SigDecl.failures: list[str]
             fnames = list(getattr(item, "failures", []) or [])
 

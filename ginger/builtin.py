@@ -15,8 +15,13 @@ BUILTINS: Dict[str, BuiltinFn] = {
     "core.int.mul":   lambda a, b: a * b,
     "core.float.mul": lambda a, b: a * b,
 
-    "core.int.div":   lambda a, b: a / b,
+    # "core.int.div":   lambda a, b: a / b,
     "core.float.div": lambda a, b: a / b,
+
+    "core.int.neg": lambda a: -a,
+    "core.float.neg": lambda a:-a,
+    
+    "core.int.toFloat": lambda a: float(a),
 
     "core.int.print":     lambda x: (print(x), None)[1],  # Unit は None 表現
     "core.float.print": lambda x: (print(x), None)[1],

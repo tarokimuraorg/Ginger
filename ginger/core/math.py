@@ -149,5 +149,43 @@ def core_items():
             requires=[RequireGuarantees(type_var="T", guarantee_name="Divisible")],
             failures=["DivideByZero"],
             attrs=[],
-        ),  
+        ),
+        SigDecl(
+            name="toFloat",
+            params=[TypeRef("Int")],
+            ret=TypeRef("Float"),
+            requires=[],
+            failures=[],
+            attrs=[],
+
+        ),
+        GuaranteeDecl(
+            name="Negatable",
+            methods=[
+                FuncSig(
+                    name="neg",
+                    params=[Param("self", TypeRef("Self"))],
+                    ret=TypeRef("Self"),
+                )
+            ],
+        ),
+        ImplDecl(
+            typ=TypeRef("Int"),
+            guarantee="Negatable",
+            methods=[ImplMethod(name="neg", builtin="core.int.neg")],
+        ),
+        ImplDecl(
+            typ=TypeRef("Float"),
+            guarantee="Negatable",
+            methods=[ImplMethod(name="neg", builtin="core.float.neg")],
+        ),
+        SigDecl(
+            name="neg",
+            params=[TypeRef("T")],
+            ret=TypeRef("T"),
+            requires=[RequireGuarantees(type_var="T", guarantee_name="Negatable")],
+            failures=[],
+            attrs=[],
+            #builtin="core.int.neg"
+        ),
     ]

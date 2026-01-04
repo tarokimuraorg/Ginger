@@ -136,6 +136,7 @@ class SigDecl:
     requires: List[RequireClause]
     failures: list[str] = field(default_factory=list)
     attrs: list[str] = field(default_factory=list)
+    builtin: str | None = None
 
 @dataclass(frozen=True)
 class FuncDecl:
@@ -167,7 +168,6 @@ Expr = Union[
     "IdentExpr", 
     "IntLit", 
     "FloatLit", 
-    "BinaryExpr",
     ]
 
 @dataclass(frozen=True)

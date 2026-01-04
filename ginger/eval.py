@@ -21,7 +21,6 @@ from .ast import (
     IdentExpr,
     IntLit,
     FloatLit,
-    BinaryExpr,
     BlockStmt,
     ReturnStmt,
     ExprStmt,
@@ -140,8 +139,10 @@ def eval_expr(expr: Expr, env: Dict[str, Cell], syms, outer: Optional[Dict[str, 
             return outer[expr.name].value
         raise EvalError(f"unknown identifier '{expr.name}'")
 
+    """
     if isinstance(expr, BinaryExpr):
         raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
+    """
         
     if isinstance(expr, CallExpr):
         return eval_call(expr, env, syms, outer=outer)
@@ -215,6 +216,14 @@ def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[s
     if expr.callee in syms.sigs:
         
         sig = syms.sigs[expr.callee]
+
+        # sig に builtin が直結していたら、それを呼ぶ（requires不要）
+        if getattr(sig, "builtin", None) is not None:
+            try:
+                return call_builtin(sig.builtin, *args)
+            except ZeroDivisionError:
+                raise RaisedFailure(FailureId.DivideByZero)
+
         req_guars = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
 
         if len(req_guars) != 1:
@@ -243,74 +252,6 @@ def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[s
     
     raise EvalError(f"function '{expr.callee}' has no runtime implementation yet")
     
-    """
-    # sigがない関数は呼べない
-    if call.callee not in syms.sigs:
-        raise EvalError(f"call to undeclared function '{call.callee}'")
-
-    sig = syms.sigs[call.callee]
-    
-    # sigは引数名がないので、name args禁止
-    if call.arg_style != "pos":
-        return EvalError(
-            f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
-        )
-    
-    # 引数を位置で評価
-    arg_values = [eval_expr(a.expr, env=env, syms=syms) for a in call.args]
-
-    dispatch = Dispatcher(syms)
-
-    BUILTINS = {}
-    BUILTINS.update(SURFACE_FUNCS)
-    BUILTINS.update(BASE_FUNCS)
-    # BUILTINS.update(CORE_FUNCS)
-
-    # func実装があればそれを実行
-    if call.callee in syms.funcs:
-        
-        fdecl = syms.funcs[call.callee]
-
-        # func側の引数名で束縛（位置）
-        if len(fdecl.params) != len(arg_values):
-            # build_symbols/typecheck で弾かれる想定だが保険として
-            raise EvalError(
-                f"internal: func '{fdecl.name}' arity mismatch: "
-                f"expected {len(fdecl.params)}, got {len(arg_values)}"
-            )
-        
-        local: Dict[str, Cell] = {}
-
-        for p, v in zip(fdecl.params, arg_values):
-            local[p.name] = Cell(value=v, mutable=False)
-
-        try:
-            eval_block(fdecl.body, env=local, syms=syms, outer=outer)
-            return None     # Unitの代替
-        except ReturnSignal as rs:
-            return rs.value
-        except RaisedFailure as rf:
-            # @attr.handledなら潰す
-            attrs = syms.sig_attrs.get(call.callee, set())
-            if "handled" in attrs:
-                return None
-            raise
-
-    # func実装がなければ builtin を探す
-    try:
-        if call.callee in BUILTINS:
-            return BUILTINS[call.callee](arg_values, dispatch)
-        # 将来的に、syms.funcs や syms.impls を使って実装を解決する
-        raise EvalError(f"function '{call.callee}' has no runtime implementation yet")
-    
-    except RaisedFailure as rf:
-        # @attr.handlrdなら潰す
-        attrs = syms.sig_attrs.get(call.callee, set())
-        if "handled" in attrs:
-            return None     # Unitに潰す
-        raise
-    """
-
 
 def eval_block(block: BlockStmt, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None) -> None:
         

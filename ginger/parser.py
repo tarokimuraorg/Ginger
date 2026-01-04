@@ -6,12 +6,20 @@ from .ast import (
     GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    SigDecl, FuncDecl, VarDecl,AssignStmt,
-    BlockStmt, ReturnStmt, BinaryExpr, Stmt,
+    SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr,
+    BlockStmt, ReturnStmt, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, FloatLit,
     Arg, PosArg, NamedArg,
     ExprStmt, TryStmt, CatchStmt,
 )
+
+# 演算子の優先順位
+_PRECEDENCE = {
+    "+": 10,
+    "-": 10,
+    "*": 20,
+    "/": 20,
+}
 
 class Parser:
 
@@ -334,7 +342,7 @@ class Parser:
     # ---- sig ----
 
     def parse_sig(self, attrs: Optional[List[str]] = None) -> SigDecl:
-        # sig add(Int, Int) -> Int { failure Never }
+
         self.eat("KW", "sig")
         name = self.eat("IDENT").text
         self.eat("SYM", "(")
@@ -345,8 +353,8 @@ class Parser:
 
         requires: List[RequireClause] = []
         failures: list[str] = []
+        builtin: str | None = None
 
-        # ブロック必須：{ ... }
         self.eat("SYM", "{")
 
         while True:
@@ -365,32 +373,40 @@ class Parser:
                 self.eat("KW", "failure")
                 f = self.parse_type().name
 
-                # Neverは空集合として扱う
                 if f == "Never":
                     if failures:
                         raise SyntaxError("cannot combine 'Never' with other failures")
-                    failures.clear()
+                    # failures は空のまま
                 else:
-                    if "Never" in failures:
-                        raise SyntaxError("cannot combine 'Never' with other failures")
                     if f in failures:
                         raise SyntaxError(f"duplicate failure '{f}'")
                     failures.append(f)
                 continue
+
+            if self.match("KW", "builtin"):
+
+                self.eat("KW", "builtin")
+
+                if builtin is not None:
+                    raise SyntaxError("duplicate builtin")
                 
+                builtin = self.parse_dotted_name()
+                continue
+
             t = self.cur()
             raise SyntaxError(f"Unexpected token in sig body {t.kind}('{t.text}') at {t.pos}")
-        
+
         self.eat("SYM", "}")
 
         return SigDecl(
-            name=name, 
-            params=params, 
-            ret=ret, 
-            requires=requires, 
+            name=name,
+            params=params,
+            ret=ret,
+            requires=requires,
             failures=failures,
             attrs=list(attrs or []),
-            )
+            builtin=builtin,
+        )
 
     # ---- func ----
 
@@ -486,9 +502,107 @@ class Parser:
 
     # ---- expressions ----
 
-    def parse_expr(self) -> Expr:
-        return self.parse_add()
+    def _is_op(self) -> bool:
+        return self.match("SYM") and self.cur().text in _PRECEDENCE
 
+    def parse_expr(self) -> Expr:
+        # 演算子式は必ず '(' から始まる
+        if self.match("SYM", "("):
+            return self.parse_paren_infix_expr()
+        
+        # それ以外は「operand（原子）」しか許さない
+        expr = self.parse_operand()
+
+        # operand の直後に演算子が見えたらルール違反
+        if self._is_op():
+            t = self.cur()
+            raise SyntaxError(
+                f"infix operator '{t.text}' is only allowed inside '(...)' at {t.pos}"
+            )
+        return expr
+
+    def parse_paren_infix_expr(self) -> Expr:
+        # '(' <infix-expr> ')' だが、ただの(operand)は禁止
+        lpar = self.eat("SYM", "(")
+
+        expr, saw_op = self.parse_infix(min_prec=0)
+
+        self.eat("SYM", ")")
+
+        if not saw_op:
+            # (1) や (div(1,2)) を禁止
+            raise SyntaxError(
+                f"parentheses are only for infix expressions; "
+                f"remove '(...)' or write an operator inside at {lpar.pos}"
+            )
+        return expr
+
+    def parse_infix(self, min_prec: int) -> tuple[Expr, bool]:
+        # left operand
+        left = self.parse_operand()
+        saw_op = False
+
+        while self._is_op():
+            op = self.cur().text
+            prec = _PRECEDENCE[op]
+            if prec < min_prec:
+                break
+
+            self.eat("SYM", op)
+            right, right_saw = self.parse_infix(min_prec=prec + 1)
+
+            saw_op = True or saw_op
+            saw_op = saw_op or right_saw
+
+            left = BinaryExpr(op=op, left=left, right=right)
+
+        return left, saw_op
+
+    def parse_operand(self) -> Expr:
+        
+        # unary '-' はどこでも禁止（neg(x)に固定）
+        if self.match("SYM", "-"):
+            t = self.cur()
+            raise SyntaxError(f"unary '-' is forbidden; use neg(x) at {t.pos}")
+
+        # infix-group は operand 扱いできる（入れ子OK）
+        if self.match("SYM", "("):
+            return self.parse_paren_infix_expr()
+
+        if self.match("IDENT"):
+            ident = self.eat("IDENT").text
+            if self.match("SYM", "("):
+                self.eat("SYM", "(")
+                args, style = self.parse_args()
+                self.eat("SYM", ")")
+                return CallExpr(callee=ident, args=args, arg_style=style)
+            return IdentExpr(ident)
+
+        if self.match("INT"):
+            return IntLit(int(self.eat("INT").text))
+        if self.match("FLOAT"):
+            return FloatLit(float(self.eat("FLOAT").text))
+
+        t = self.cur()
+        raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
+
+    """
+    def parse_expr(self) -> Expr:
+        
+        expr = self.parse_primary()
+
+        if self.match("SYM") and self.cur().text in ("+", "-", "*", "/"):
+            t = self.cur()
+            op = t.text
+            sug = {"+": "add", "-": "sub", "*": "mul", "/": "div"}[op]
+            raise SyntaxError(
+                f"operator '{op}' is forbidden; use {sug}(x, y) instead (got '+' at {t.pos})"
+            )
+        
+        return expr
+    """
+
+    """
     def parse_add(self) -> Expr:
 
         # left-associative: a + b + c
@@ -500,8 +614,41 @@ class Parser:
             expr = BinaryExpr(op="+", left=expr, right=right)
 
         return expr
+    """
     
     def parse_primary(self) -> Expr:
+
+        if self.match("SYM", "-"):
+            
+            t = self.cur()
+
+            def tok(i):
+                if 0 <= i < len(self.toks):
+                    return self.toks[i]
+                return None
+            
+            t_m1 = tok(self.i - 1)
+            t_m2 = tok(self.i - 2)
+
+            if (
+                t_m1 is not None and t_m1.kind == "SYM" and t_m1.text == "(" and
+                t_m2 is not None and t_m2.kind == "IDENT" and t_m2.text == "neg"
+            ):
+                raise SyntaxError(
+                    f"unary '-' is forbidden inside neg(...); write neg(neg(x)) instead at {t.pos}"
+                )
+            
+            raise SyntaxError(
+                f"unary '-' is forbidden; use neg(x) at {t.pos}"
+            )
+
+        """
+        if self.match("SYM", "-"):
+            t = self.cur()
+            raise SyntaxError(
+                f"unary '-' is forbidden; use neg(x) (at {t.pos})"
+            )
+        """
 
         if self.match("IDENT"):
 

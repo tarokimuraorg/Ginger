@@ -8,14 +8,7 @@ from ginger.eval import eval_program
 def main() -> None:
 
     root = Path(__file__).parent
-    #src = (root / "script/Scene_1.ginger").read_text(encoding="utf-8")
-    src = """
-    var x: Int = 1 + 2
-    x = x + 3
-    print(x)
-    try print(div(1.0,0.0))
-    catch DivideByZero print(999)
-    """
+    src = (root / "script/Scene_4.ginger").read_text(encoding="utf-8")
     
     # 実行
     run(src)
