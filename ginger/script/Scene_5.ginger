@@ -1,0 +1,10 @@
+var x: Float = div(1.0, 2.0)
+print(x)
+
+// var x: Float = div(4.0, 2.0)
+// print(x)
+
+// x = div(4, 2)
+x = div(4.0,2.0)
+print(x)
+// x = div(x, 0.0)

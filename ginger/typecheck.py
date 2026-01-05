@@ -328,11 +328,6 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
     if isinstance(expr, CallExpr):
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
-    """
-    if isinstance(expr, BinaryExpr):
-        raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
-    """
-    
         
 def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
 
@@ -410,11 +405,26 @@ def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], 
                     f"requirement not satisfied in call to {sig.name}: "
                     f"{concrete} does not guarantee {req.guarantee_name}"
                 )
-
-    # ④ 引数型チェック（既存）
+            
+    # ④ 引数型チェック（enhanced error for div）
     for tref, aexpr in zip(sig.params, arg_exprs):
         expected_arg = resolve_typeref(tref, tmap)
-        type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
+        try:
+            type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
+        except TypecheckError as e:
+            # Make division errors actionable:
+            # div expects Float operands, so guide the user to write 1.0/2.0 or toFloat(...)
+            if call.callee == "div":
+                raise TypecheckError(
+                    "division expects Float operands. "
+                    "Write 1.0/2.0 (Float literals) or convert with toFloat(...)."
+                ) from e
+            raise
+
+    # ④ 引数型チェック（既存）
+    """for tref, aexpr in zip(sig.params, arg_exprs):
+        expected_arg = resolve_typeref(tref, tmap)
+        type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)"""
 
     # return type
     if is_typevar(sig.ret.name):

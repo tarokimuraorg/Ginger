@@ -66,6 +66,60 @@ def tokenize(src: str) -> List[Token]:
             continue
 
         # number: int or float
+        # rule:
+        #   - default Int
+        #   - if '.' appears, it must be followed by at least one digit => Float
+        #   - disallow "1." (enforce "1.0" style)
+        if c.isdigit():
+            start = i
+            while peek().isdigit():
+                i += 1
+
+            if peek() == ".":
+                # enforce at least one digit after '.'
+                if not peek(1).isdigit():
+                    # e.g. "1." -> error (don't let it become INT + '.')
+                    raise SyntaxError(
+                        f"Float literal requires digits after '.' (use '{src[start:i]}.0') at {start}"
+                    )
+
+                i += 1  # consume '.'
+                while peek().isdigit():
+                    i += 1
+                toks.append(Token("FLOAT", src[start:i], start))
+                continue
+
+            toks.append(Token("INT", src[start:i], start))
+            continue
+
+        # number: int or float
+        # rule: default Int. If there's a '.', it must be followed by at least one digit => Float.
+        # disallow "1." to enforce "1.0" style and avoid INT + '.' splitting.
+        """if c.isdigit():
+            start = i
+            while peek().isdigit():
+                i += 1
+
+            # float?
+            if peek() == ".":
+                # "1." is not allowed (enforce 1.0, 0.1, etc.)
+                if not peek(1).isdigit():
+                    raise SyntaxError(
+                        f"Float literal requires digits after '.' (use '{src[start:i]}.0') at {start}"
+                    )
+
+                i += 1  # consume '.'
+                while peek().isdigit():
+                    i += 1
+                toks.append(Token("FLOAT", src[start:i], start))
+                continue
+
+            toks.append(Token("INT", src[start:i], start))
+            continue"""
+
+
+        # number: int or float
+        """
         if c.isdigit():
             start = i
             while peek().isdigit():
@@ -78,6 +132,7 @@ def tokenize(src: str) -> List[Token]:
             else:
                 toks.append(Token("INT", src[start:i], start))
             continue
+        """
 
         # identifier / keyword
         if c.isalpha() or c == "_":
