@@ -1,0 +1,2 @@
+var o: Ordering = cmp(2,1)
+print(o)

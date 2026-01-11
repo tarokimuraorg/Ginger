@@ -26,7 +26,6 @@ class Parser:
     def __init__(self, toks: List[Token]):
         self.toks = toks
         self.i = 0
-        #self.origin = origin
 
     def skip_newlines(self) -> None:
         while self.match("NEWLINE"):
@@ -417,8 +416,6 @@ class Parser:
         self.eat("SYM", "(")
         params = self.parse_params()
         self.eat("SYM", ")")
-        #self.eat("SYM", "->")
-        #ret = self.parse_type()
         self.skip_newlines()
         body = self.parse_block()
 
@@ -586,36 +583,7 @@ class Parser:
         t = self.cur()
         raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
 
-    """
-    def parse_expr(self) -> Expr:
-        
-        expr = self.parse_primary()
 
-        if self.match("SYM") and self.cur().text in ("+", "-", "*", "/"):
-            t = self.cur()
-            op = t.text
-            sug = {"+": "add", "-": "sub", "*": "mul", "/": "div"}[op]
-            raise SyntaxError(
-                f"operator '{op}' is forbidden; use {sug}(x, y) instead (got '+' at {t.pos})"
-            )
-        
-        return expr
-    """
-
-    """
-    def parse_add(self) -> Expr:
-
-        # left-associative: a + b + c
-        expr = self.parse_primary()
-
-        while self.match("SYM", "+"):
-            self.eat("SYM", "+")
-            right = self.parse_primary()
-            expr = BinaryExpr(op="+", left=expr, right=right)
-
-        return expr
-    """
-    
     def parse_primary(self) -> Expr:
 
         if self.match("SYM", "-"):
@@ -641,14 +609,6 @@ class Parser:
             raise SyntaxError(
                 f"unary '-' is forbidden; use neg(x) at {t.pos}"
             )
-
-        """
-        if self.match("SYM", "-"):
-            t = self.cur()
-            raise SyntaxError(
-                f"unary '-' is forbidden; use neg(x) (at {t.pos})"
-            )
-        """
 
         if self.match("IDENT"):
 

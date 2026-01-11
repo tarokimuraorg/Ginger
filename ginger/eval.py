@@ -1,4 +1,4 @@
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, Any
 from dataclasses import dataclass
 from .args import bind_args
 from ginger.surface.funcs import SURFACE_FUNCS
@@ -33,12 +33,12 @@ from .ast import (
 # =====================
 # Runtime
 # =====================
-Value = Union[int, float]
+#Value = Union[int, float]
+Value = Any
 
 @dataclass
 class Cell:
     value: Value
-    #value: Union[int, float]
     mutable: bool   # let=False, var=True
 
 @dataclass
@@ -139,11 +139,6 @@ def eval_expr(expr: Expr, env: Dict[str, Cell], syms, outer: Optional[Dict[str, 
             return outer[expr.name].value
         raise EvalError(f"unknown identifier '{expr.name}'")
 
-    """
-    if isinstance(expr, BinaryExpr):
-        raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
-    """
-        
     if isinstance(expr, CallExpr):
         return eval_call(expr, env, syms, outer=outer)
 
@@ -158,6 +153,11 @@ def _runtime_type(v):
         return "Float"
     if isinstance(v, str):
         return "String"
+    if (isinstance(v, tuple) 
+        and len(v) == 2 
+        and v[0] == "Ordering"
+        and v[1] in ("Left", "Flat", "Right")):
+        return "Ordering"
     if v is None:
         return "Unit"
     raise EvalError(f"unknown runtime value type: {type(v)}")

@@ -33,8 +33,6 @@ class Symbols:
     sig_failures: Dict[str, FailureSet]
     sig_attrs: Dict[str, set[str]]
     funcs: Dict[str, FuncDecl]                       # name -> decl
-    # func_failures: Dict[str, FailureSet]
-    # func_attrs: Dict[str, Set[str]]
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     types: set[str]                                  # プリミティブ型
 
@@ -232,8 +230,6 @@ def build_symbols(prog: Program) -> Symbols:
         sig_failures=sig_failures,
         sig_attrs=sig_attrs,
         funcs=funcs,
-        #func_failures=func_failures,
-        #func_attrs=func_attrs,
         impls=impls,
         types=types,
     )

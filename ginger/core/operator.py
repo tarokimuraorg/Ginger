@@ -10,6 +10,7 @@ from ginger.ast import (
 )
 
 def core_items():
+
     return [
         GuaranteeDecl(
             name="Addable",
@@ -161,4 +162,38 @@ def core_items():
             failures=[],
             attrs=[],
         ),
+
+        # --- Ordering / cmp ---
+        GuaranteeDecl(
+            name="Ord",
+            methods=[
+                FuncSig(
+                    name="cmp",
+                    params=[
+                        Param("self", typ=TypeRef("Self")),
+                        Param("other", typ=TypeRef("Self")),
+                    ],
+                    ret=TypeRef("Ordering"),
+                )
+            ],
+        ),
+        ImplDecl(
+            typ=TypeRef("Int"),
+            guarantee="Ord",
+            methods=[ImplMethod(name="cmp", builtin="core.int.cmp")],
+
+        ),
+        ImplDecl(
+            typ=TypeRef("Float"),
+            guarantee="Ord",
+            methods=[ImplMethod(name="cmp", builtin="core.float.cmp")],
+        ),
+        SigDecl(
+            name="cmp",
+            params=[TypeRef("T"), TypeRef("T")],
+            ret=TypeRef("Ordering"),
+            requires=[RequireGuarantees(type_var="T", guarantee_name="Ord")],
+            attrs=[],
+        ),
+
     ]

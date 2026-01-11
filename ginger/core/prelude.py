@@ -1,7 +1,8 @@
-from ginger.core import math, io
+from ginger.core import io
+from ginger.core import operator
 
 def prelude_items():
     items = []
-    items += math.core_items()
+    items += operator.core_items()
     items += io.core_items()
     return items

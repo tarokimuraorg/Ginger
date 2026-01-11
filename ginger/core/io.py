@@ -37,6 +37,13 @@ def core_items():
             methods=[ImplMethod(name="print", builtin="core.string.print")],
         ),
 
+        # --- Ordering ---
+        ImplDecl(
+            typ=TypeRef("Ordering"),
+            guarantee="Printable",
+            methods=[ImplMethod(name="print", builtin="core.ordering.print")],
+        ),
+
         # --- sig print(T) -> Unit ---
         SigDecl(
             name="print",

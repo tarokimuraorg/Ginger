@@ -48,12 +48,7 @@ def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
     if isinstance(expr, CallExpr):
         return effect_call(expr, env, syms)
     
-    """
-    if isinstance(expr, BinaryExpr):
-        raise TypecheckError("internal error: BinaryExpr should have been lowered to CallExpr")
-    """
     
-
 def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
 
     if call.callee not in syms.sigs:
@@ -420,11 +415,6 @@ def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], 
                     "Write 1.0/2.0 (Float literals) or convert with toFloat(...)."
                 ) from e
             raise
-
-    # ④ 引数型チェック（既存）
-    """for tref, aexpr in zip(sig.params, arg_exprs):
-        expected_arg = resolve_typeref(tref, tmap)
-        type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)"""
 
     # return type
     if is_typevar(sig.ret.name):
