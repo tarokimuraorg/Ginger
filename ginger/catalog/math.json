@@ -1,0 +1,152 @@
+{
+  "guarantees": [
+    {
+      "name": "Addable",
+      "methods": [
+        {
+          "name": "add",
+          "params": [
+            { "name": "self", "type": { "ref": "Self" } },
+            { "name": "other", "type": { "ref": "Self" } }
+          ],
+          "ret": { "ref": "Self" }
+        }
+      ]
+    },
+    {
+      "name": "Subtractable",
+      "methods": [
+        {
+          "name": "sub",
+          "params": [
+            { "name": "self", "type": { "ref": "Self" } },
+            { "name": "other", "type": { "ref": "Self" } }
+          ],
+          "ret": { "ref": "Self" }
+        }
+      ]
+    },
+    {
+      "name": "Multipliable",
+      "methods": [
+        {
+          "name": "mul",
+          "params": [
+            { "name": "self", "type": { "ref": "Self" } },
+            { "name": "other", "type": { "ref": "Self" } }
+          ],
+          "ret": { "ref": "Self" }
+        }
+      ]
+    },
+    {
+      "name": "Negatable",
+      "methods": [
+        {
+          "name": "neg",
+          "params": [
+            { "name": "self", "type": { "ref": "Self" } }
+          ],
+          "ret": { "ref": "Self" }
+        }
+      ]
+    }
+  ],
+  "impls": [
+    {
+      "type": { "ref": "Int" },
+      "guarantee": "Addable",
+      "methods": [{ "name": "add", "builtin": "core.int.add" }]
+    },
+    {
+      "type": { "ref": "Float" },
+      "guarantee": "Addable",
+      "methods": [{ "name": "add", "builtin": "core.float.add" }]
+    },
+    {
+      "type": { "ref": "Int" },
+      "guarantee": "Subtractable",
+      "methods": [{ "name": "sub", "builtin": "core.int.sub" }]
+    },
+    {
+      "type": { "ref": "Float" },
+      "guarantee": "Subtractable",
+      "methods": [{ "name": "sub", "builtin": "core.float.sub" }]
+    },
+    {
+      "type": { "ref": "Int" },
+      "guarantee": "Multipliable",
+      "methods": [{ "name": "mul", "builtin": "core.int.mul" }]
+    },
+    {
+      "type": { "ref": "Float" },
+      "guarantee": "Multipliable",
+      "methods": [{ "name": "mul", "builtin": "core.float.mul" }]
+    },
+    {
+      "type": { "ref": "Int" },
+      "guarantee": "Negatable",
+      "methods": [{ "name": "neg", "builtin": "core.int.neg" }]
+    },
+    {
+      "type": { "ref": "Float" },
+      "guarantee": "Negatable",
+      "methods": [{ "name": "neg", "builtin": "core.float.neg" }]
+    }
+  ],
+  "sigs": [
+    {
+      "name": "add",
+      "params": [{ "ref": "T" }, { "ref": "T" }],
+      "ret": { "ref": "T" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Addable" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    },
+    {
+      "name": "sub",
+      "params": [{ "ref": "T" }, { "ref": "T" }],
+      "ret": { "ref": "T" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Subtractable" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    },
+    {
+      "name": "mul",
+      "params": [{ "ref": "T" }, { "ref": "T" }],
+      "ret": { "ref": "T" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Multipliable" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    },
+    {
+      "name": "div",
+      "params": [{ "ref": "Float" }, { "ref": "Float" }],
+      "ret": { "ref": "Float" },
+      "requires": [],
+      "failures": [],
+      "attrs": [],
+      "builtin": "core.float.div"
+    },
+    {
+      "name": "neg",
+      "params": [{ "ref": "T" }],
+      "ret": { "ref": "T" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Negatable" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    }
+  ]
+}

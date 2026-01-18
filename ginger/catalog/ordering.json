@@ -1,0 +1,42 @@
+{
+  "guarantees": [
+    {
+      "name": "Ord",
+      "methods": [
+        {
+          "name": "cmp",
+          "params": [
+            { "name": "self", "type": { "ref": "Self" } },
+            { "name": "other", "type": { "ref": "Self" } }
+          ],
+          "ret": { "ref": "Ordering" }
+        }
+      ]
+    }
+  ],
+  "impls": [
+    {
+      "type": { "ref": "Int" },
+      "guarantee": "Ord",
+      "methods": [{ "name": "cmp", "builtin": "core.int.cmp" }]
+    },
+    {
+      "type": { "ref": "Float" },
+      "guarantee": "Ord",
+      "methods": [{ "name": "cmp", "builtin": "core.float.cmp" }]
+    }
+  ],
+  "sigs": [
+    {
+      "name": "cmp",
+      "params": [{ "ref": "T" }, { "ref": "T" }],
+      "ret": { "ref": "Ordering" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    }
+  ]
+}

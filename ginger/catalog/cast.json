@@ -1,0 +1,13 @@
+{
+    "sigs":[
+        {
+            "name": "toFloat",
+            "params": [{ "ref": "Int" }],
+            "ret": { "ref": "Float" },
+            "requires": [],
+            "failures": [],
+            "attrs": [],
+            "builtin": "core.int.toFloat"
+        }
+    ]
+}
