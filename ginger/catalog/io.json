@@ -1,0 +1,47 @@
+{
+    "guarantees": [
+        {
+            "name": "Printable",
+            "methods": [
+                {
+                    "name": "print",
+                    "params": [
+                        { "name": "self", "type": { "ref": "Self" } }
+                    ],
+                    "ret": { "ref": "Unit" }
+                }
+            ]
+        }
+    ],
+    "impls": [
+        {
+            "type": { "ref": "Int" },
+            "guarantee": "Printable",
+            "methods": [{ "name": "print", "builtin": "core.int.print" }]
+        },
+        {
+            "type": { "ref": "Float" },
+            "guarantee": "Printable",
+            "methods": [{ "name": "print", "builtin": "core.float.print" }]
+        },
+        {
+            "type": { "ref": "Ordering" },
+            "guarantee": "Printable",
+            "methods": [{ "name": "print", "builtin": "core.ordering.print" }]
+        }
+
+    ],
+    "sigs": [
+        {
+            "name": "print",
+            "params": [{ "ref": "T" }],
+            "ret": { "ref": "Unit" },
+            "requires": [
+                { "kind": "guarantees", "type_var": "T", "guarantee": "Printable" }
+            ],
+            "failures": [],
+            "attrs": [],
+            "builtin": null
+        }
+    ]
+}

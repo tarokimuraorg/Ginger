@@ -1,5 +1,4 @@
 from pathlib import Path
-from ginger.core import io
 from ginger.core.catalog_loader import load_core_catalog_json
 
 def _core_items(name: str):
@@ -12,5 +11,5 @@ def prelude_items():
     items += _core_items("math")
     items += _core_items("cast")
     items += _core_items("ordering")
-    items += io.core_items()
+    items += _core_items("io")
     return items

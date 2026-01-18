@@ -1,3 +1,4 @@
+"""
 from ginger.ast import (
     GuaranteeDecl, 
     FuncSig,
@@ -54,3 +55,4 @@ def core_items():
             attrs=[],
         ),
     ]
+"""
