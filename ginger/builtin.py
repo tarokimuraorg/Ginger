@@ -33,17 +33,20 @@ BUILTINS: Dict[str, BuiltinFn] = {
     "core.float.print": lambda x: (print(x), None)[1],
     "core.string.print": lambda x: (print(x), None)[1],
     "core.ordering.print": lambda o: (print(o[1]), None)[1],
+    "core.bool.print": lambda x: (print(str(x).lower()), None)[1],
 
     # --- cmp (Ordering) ---
     "core.int.cmp": lambda a, b: ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right"),
     "core.float.cmp": lambda a, b: ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right"),
 
-    # "core.int.eq":    lambda a, b: a == b,
-    # "core.int.lt":    lambda a, b: a < b,
-    # "core.int.gt":    lambda a, b: a > b,
-    # "core.float.eq":  lambda a, b: a == b,
-    # "core.float.lt":  lambda a, b: a < b,
-    # "core.float.gt":  lambda a, b: a > b,
+    # --- eq (via cmp) ---
+    "core.int.eq":   lambda a, b: (_cmp_result(a, b)[1] == "Flat"),
+    "core.float.eq": lambda a, b: (_cmp_result(a, b)[1] == "Flat"),
+
+    # --- lt (via cmp) ---
+    "core.int.lt":   lambda a, b: (_cmp_result(a, b)[1] == "Right"),
+    "core.float.lt": lambda a, b: (_cmp_result(a, b)[1] == "Right"),
+
 }
 
 def has_builtin(builtin_id: str) -> bool:
@@ -55,3 +58,10 @@ def call_builtin(builtin_id: str, *args: Value) -> Value:
     except KeyError as e:
         raise KeyError(f"unknown builtin '{builtin_id}'") from e
     return fn(*args)
+
+def _cmp_result(a, b):
+    if isinstance(a, int):
+        return BUILTINS["core.int.cmp"](a, b)
+    if isinstance(a, float):
+        return BUILTINS["core.float.cmp"](a, b)
+    raise TypeError("unsupported type for cmp")

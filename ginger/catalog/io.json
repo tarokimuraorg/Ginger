@@ -28,6 +28,11 @@
             "type": { "ref": "Ordering" },
             "guarantee": "Printable",
             "methods": [{ "name": "print", "builtin": "core.ordering.print" }]
+        },
+        {
+            "type":{ "ref": "Bool" },
+            "guarantee": "Printable",
+            "methods": [{ "name": "print", "builtin": "core.bool.print" }]
         }
 
     ],

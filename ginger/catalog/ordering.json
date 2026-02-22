@@ -18,12 +18,20 @@
     {
       "type": { "ref": "Int" },
       "guarantee": "Ord",
-      "methods": [{ "name": "cmp", "builtin": "core.int.cmp" }]
+      "methods": [
+        { "name": "cmp", "builtin": "core.int.cmp" },
+        { "name": "eq",  "builtin": "core.int.eq"  },
+        { "name": "lt",  "builtin": "core.int.lt"  }
+      ]
     },
     {
       "type": { "ref": "Float" },
       "guarantee": "Ord",
-      "methods": [{ "name": "cmp", "builtin": "core.float.cmp" }]
+      "methods": [
+        { "name": "cmp", "builtin": "core.float.cmp" },
+        { "name": "eq",  "builtin": "core.float.eq"  },
+        { "name": "lt",  "builtin": "core.float.lt"  }
+      ]
     }
   ],
   "sigs": [
@@ -31,6 +39,28 @@
       "name": "cmp",
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Ordering" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    },
+    {
+      "name": "eq",
+      "params": [{ "ref": "T" }, { "ref": "T" }],
+      "ret": { "ref": "Bool" },
+      "requires": [
+        { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
+      ],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    },
+    {
+      "name": "lt",
+      "params": [{ "ref": "T" }, { "ref": "T" }],
+      "ret": { "ref": "Bool" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
