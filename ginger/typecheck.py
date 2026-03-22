@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 from .errors import TypecheckError
 from .symbols_builder import build_symbols
 from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
@@ -21,12 +21,20 @@ from .ast import (
     FuncDecl,
     BlockStmt,
     ReturnStmt,
+    TypeRef,
 )
 
 @dataclass(frozen=True)
 class Binding:
-    ty: str
+    ty: TypeRef
     mutable: bool   # let=False, var=True
+
+def same_type(a: TypeRef, b: TypeRef) -> bool:
+    if a.name != b.name:
+        return False
+    if len(a.args) != len(b.args):
+        return False
+    return all(same_type(x, y) for x, y in zip(a.args, b.args))
 
 def remove_failure(eff: FailureSet, name: str) -> FailureSet:
     return frozenset(f for f in eff if f.value != name)
@@ -91,13 +99,19 @@ def is_typevar(name: str) -> bool:
     # minimal rule: single uppercase letter is a type var (T, U, V...)
     return len(name) == 1 and name.isalpha() and name.isupper()
 
-
-def resolve_typeref(t, tmap: Dict[str, str]) -> str:
+def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
     if is_typevar(t.name):
         if t.name not in tmap:
             raise TypecheckError(f"cannot resolve type variable '{t.name}'")
         return tmap[t.name]
-    return t.name
+    return t
+
+# def resolve_typeref(t, tmap: Dict[str, TypeRef]) -> TypeRef:
+#     if is_typevar(t.name):
+#         if t.name not in tmap:
+#             raise TypecheckError(f"cannot resolve type variable '{t.name}'")
+#         return tmap[t.name]
+#     return t
 
 
 # =====================
@@ -132,7 +146,8 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
             # --- try側 ---
             t_try = type_expr(item.expr, expected=None, env=env, syms=syms)
 
-            if t_try != "Unit":
+            #if t_try != "Unit":
+            if not same_type(t_try, TypeRef("Unit")):
                 raise TypecheckError(f"only Unit expression are allowed in try, got '{t_try}'")
             
             eff_try = effect_expr(item.expr, env=env, syms=syms)
@@ -150,7 +165,8 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
 
                 t_c = type_expr(c.expr, expected=None, env=env, syms=syms)
 
-                if t_c != "Unit":
+                #if t_c != "Unit":
+                if not same_type(t_c, TypeRef("Unit")):
                     raise TypecheckError(
                         f"only Unit expression are allowed in catch, got '{t_c}'"
                     )
@@ -181,7 +197,7 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
             if item.name in env:
                 raise TypecheckError(f"variable '{item.name}' already defined")
 
-            t = type_expr(item.expr, expected=item.typ.name, env=env, syms=syms)
+            t = type_expr(item.expr, expected=item.typ, env=env, syms=syms)
             eff = effect_expr(item.expr, env=env, syms=syms)
 
             if eff != EMPTY_FAILURES:
@@ -223,9 +239,10 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
             if eff != EMPTY_FAILURES:
                 names = ', '.join(sorted(f.value for f in eff))
                 diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
-            
-            if t != "Unit":
-                raise TypecheckError(f"only Unit expression are allowed as statements, got '{t}'")
+
+            if not same_type(t, TypeRef("Unit")):
+            # if t != "Unit":
+                 raise TypecheckError(f"only Unit expression are allowed as statements, got '{t}'")
             
             i += 1
             continue
@@ -293,98 +310,160 @@ def typecheck_func_bodies(prog, syms) -> None:
                 f"func '{item.name}' return type mismatch: sig expects '{sig.ret.name}', got '{first}'"
             )
 
+def to_typeref(x):
+    return x if isinstance(x, TypeRef) else TypeRef(x)
 
-def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
+def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
 
     if tv_guars is None:
         tv_guars = {}
 
     # literals
     if isinstance(expr, IntLit):
-        if expected is not None and expected != "Int":
-            raise TypecheckError(f"type mismatch: expected {expected}, got Int")
-        return "Int"
+    
+        t = TypeRef("Int")
+
+        if expected is not None and not same_type(t, expected):
+            raise TypecheckError(...)
+
+        return t
 
     if isinstance(expr, FloatLit):
-        if expected is not None and expected != "Float":
-            raise TypecheckError(f"type mismatch: expected {expected}, got Float")
-        return "Float"
+        
+        t = TypeRef("Float")
+
+        if expected is not None and not same_type(t, expected):
+            raise TypecheckError(...)
+
+        return t
 
     # identifier
     if isinstance(expr, IdentExpr):
+        
         if expr.name not in env:
             raise TypecheckError(f"unknown identifier '{expr.name}'")
+        
         t = env[expr.name].ty
-        if expected is not None and t != expected:
-            raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
+
+        if expected is not None and not same_type(t, expected):
+            raise TypecheckError(...)
+    
         return t
 
     # call
     if isinstance(expr, CallExpr):
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
-        
-def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> str:
+def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding],syms,tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
 
     if tv_guars is None:
         tv_guars = {}
 
+    # =====================
+    # special: thunk
+    # =====================
+    if call.callee == "thunk":
+        arg_expr = call.args[0].expr
+
+        inner_expected = None
+        if isinstance(expected, TypeRef) and expected.name == "Thunk":
+            inner_expected = expected.args[0]
+
+        t = type_expr(arg_expr, inner_expected, env, syms, tv_guars)
+        return TypeRef("Thunk", [t])
+
+    # =====================
+    # special: force
+    # =====================
+    if call.callee == "force":
+        arg_expr = call.args[0].expr
+        t = type_expr(arg_expr, None, env, syms, tv_guars)
+
+        if t.name != "Thunk":
+            raise TypecheckError("force expects Thunk")
+
+        return t.args[0]
+
+    # =====================
+    # normal sig call
+    # =====================
     if call.callee not in syms.sigs:
         raise TypecheckError(f"call to undeclared sig '{call.callee}'")
-    
+
     sig = syms.sigs[call.callee]
 
-    # sig は引数名がないので、name args 禁止
+    # 引数スタイルチェック
     if call.arg_style != "pos":
-        raise TypecheckError(f"named arguments are not allowed for calls to sig '{sig.name}'")
-    
-    if len(call.args) != len(sig.params):
         raise TypecheckError(
-            f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
+            f"named arguments are not allowed for calls to sig '{sig.name}'"
         )
 
-    #bound = bind_args(call, sig)
-    tmap: Dict[str, str] = {}
+    if len(call.args) != len(sig.params):
+        raise TypecheckError(
+            f"argument count mismatch in call to {sig.name}: "
+            f"expected {len(sig.params)}, got {len(call.args)}"
+        )
 
-    # ① 代入先で決める（既存）
+    tmap: Dict[str, TypeRef] = {}
+
+    # =====================
+    # ① expected から型決定
+    # =====================
     if expected is not None:
         if is_typevar(sig.ret.name):
             tmap[sig.ret.name] = expected
         else:
-            if sig.ret.name != expected:
+            if not same_type(TypeRef(sig.ret.name), to_typeref(expected)):
                 raise TypecheckError(
-                    f"type mismatch in call to {sig.name}: expected {expected}, got {sig.ret.name}"
+                    f"type mismatch in call to {sig.name}: "
+                    f"expected {expected}, got {sig.ret.name}"
                 )
     else:
         if is_typevar(sig.ret.name):
-            # 代入先がなく、戻り値が型変数だと決められない（既存方針）
             raise TypecheckError(
-                f"cannot determine type variable '{sig.ret.name}' in call to {sig.name} (no expected type)"
+                f"cannot determine type variable '{sig.ret.name}' "
+                f"in call to {sig.name} (no expected type)"
             )
-        
-    # 引数exprを位置で取り出す
+
+    # =====================
+    # 引数抽出
+    # =====================
     arg_exprs = [a.expr for a in call.args]
 
-    # ② 引数から型変数を推論
+    # =====================
+    # ② 引数から型変数推論
+    # =====================
     for tref, aexpr in zip(sig.params, arg_exprs):
         if is_typevar(tref.name) and tref.name not in tmap:
-            inferred = type_expr(aexpr, None, env, syms, tv_guars=tv_guars)
+            inferred = type_expr(
+                aexpr,
+                tmap.get(tref.name),
+                env,
+                syms,
+                tv_guars=tv_guars
+            )
             tmap[tref.name] = inferred
-    
-    # ③ require チェック（既存）
+
+    # =====================
+    # ③ requireチェック
+    # =====================
     for req in sig.requires:
+
         if isinstance(req, RequireIn):
             if req.type_var not in tmap:
                 raise TypecheckError(
                     f"cannot check requirement '{req.type_var} in {req.group_name}': "
                     f"type variable '{req.type_var}' not determined in call to {sig.name}"
                 )
+
             concrete = tmap[req.type_var]
             allowed = syms.typegroups.get(req.group_name, set())
-            if concrete not in allowed:
+
+            if concrete.name not in allowed:
                 raise TypecheckError(
                     f"requirement not satisfied in call to {sig.name}: "
-                    f"{req.type_var} in {req.group_name} required, but {req.type_var} = {concrete}"
+                    f"{req.type_var} in {req.group_name} required, "
+                    f"but {req.type_var} = {concrete}"
                 )
 
         elif isinstance(req, RequireGuarantees):
@@ -393,30 +472,148 @@ def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], 
                     f"cannot check requirement '{req.type_var} guarantees {req.guarantee_name}': "
                     f"type variable '{req.type_var}' not determined in call to {sig.name}"
                 )
+
             concrete = tmap[req.type_var]
-            has = syms.type_guarantees.get(concrete, set())
+            has = syms.type_guarantees.get(concrete.name, set())
+
             if req.guarantee_name not in has:
                 raise TypecheckError(
                     f"requirement not satisfied in call to {sig.name}: "
                     f"{concrete} does not guarantee {req.guarantee_name}"
                 )
-            
-    # ④ 引数型チェック（enhanced error for div）
+
+    # =====================
+    # ④ 引数型チェック
+    # =====================
     for tref, aexpr in zip(sig.params, arg_exprs):
         expected_arg = resolve_typeref(tref, tmap)
+
         try:
             type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
         except TypecheckError as e:
-            # Make division errors actionable:
-            # div expects Float operands, so guide the user to write 1.0/2.0 or toFloat(...)
             if call.callee == "div":
                 raise TypecheckError(
                     "division expects Float operands. "
-                    "Write 1.0/2.0 (Float literals) or convert with toFloat(...)."
+                    "Write 1.0/2.0 or use toFloat(...)."
                 ) from e
             raise
 
-    # return type
+    # =====================
+    # return型
+    # =====================
     if is_typevar(sig.ret.name):
         return tmap[sig.ret.name]
-    return sig.ret.name
+
+    return TypeRef(sig.ret.name)
+    
+
+# def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
+
+#     if call.callee == "thunk":
+#         arg_expr = call.args[0].expr
+
+#         inner_expected = None
+
+#         # expected が Thunk[T] なら T を取り出す
+#         if isinstance(expected, TypeRef) and expected.name == "Thunk":
+#             inner_expected = expected.args[0]
+
+#         t = type_expr(arg_expr, inner_expected, env, syms, tv_guars)
+
+#         return TypeRef("Thunk", [t])
+
+#     if tv_guars is None:
+#         tv_guars = {}
+
+#     if call.callee not in syms.sigs:
+#         raise TypecheckError(f"call to undeclared sig '{call.callee}'")
+    
+#     sig = syms.sigs[call.callee]
+
+#     # sig は引数名がないので、name args 禁止
+#     if call.arg_style != "pos":
+#         raise TypecheckError(f"named arguments are not allowed for calls to sig '{sig.name}'")
+    
+#     if len(call.args) != len(sig.params):
+#         raise TypecheckError(
+#             f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
+#         )
+
+#     #bound = bind_args(call, sig)
+#     tmap: Dict[str, TypeRef] = {}
+
+#     # ① 代入先 or 特殊推論で決める
+#     if call.callee == "force":
+#         # force は引数から型が決まるのでスキップ
+#         pass
+
+#     elif expected is not None:
+#         if is_typevar(sig.ret.name):
+#             tmap[sig.ret.name] = expected
+#         else:
+#             if not same_type(TypeRef(sig.ret.name), to_typeref(expected)):
+#                 raise TypecheckError(...)
+
+#     else:
+#         if is_typevar(sig.ret.name):
+#             raise TypecheckError(
+#                 f"cannot determine type variable '{sig.ret.name}' in call to {sig.name} (no expected type)"
+#             )
+        
+#     # 引数exprを位置で取り出す
+#     arg_exprs = [a.expr for a in call.args]
+
+#     # ② 引数から型変数を推論
+#     for tref, aexpr in zip(sig.params, arg_exprs):
+#         if is_typevar(tref.name) and tref.name not in tmap:
+#             inferred = type_expr(aexpr, tmap.get(tref.name), env, syms, tv_guars=tv_guars)
+#             tmap[tref.name] = inferred
+    
+#     # ③ require チェック（既存）
+#     for req in sig.requires:
+#         if isinstance(req, RequireIn):
+#             if req.type_var not in tmap:
+#                 raise TypecheckError(
+#                     f"cannot check requirement '{req.type_var} in {req.group_name}': "
+#                     f"type variable '{req.type_var}' not determined in call to {sig.name}"
+#                 )
+#             concrete = tmap[req.type_var]
+#             allowed = syms.typegroups.get(req.group_name, set())
+#             if concrete.name not in allowed:
+#                 raise TypecheckError(
+#                     f"requirement not satisfied in call to {sig.name}: "
+#                     f"{req.type_var} in {req.group_name} required, but {req.type_var} = {concrete}"
+#                 )
+            
+#         elif isinstance(req, RequireGuarantees):
+#             if req.type_var not in tmap:
+#                 raise TypecheckError(...)
+
+#             concrete = tmap[req.type_var]
+#             has = syms.type_guarantees.get(concrete.name, set())
+
+#             if req.guarantee_name not in has:
+#                 raise TypecheckError(
+#                     f"requirement not satisfied in call to {sig.name}: "
+#                     f"{concrete} does not guarantee {req.guarantee_name}"
+#                 )
+            
+#     # ④ 引数型チェック（enhanced error for div）
+#     for tref, aexpr in zip(sig.params, arg_exprs):
+#         expected_arg = resolve_typeref(tref, tmap)
+#         try:
+#             type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
+#         except TypecheckError as e:
+#             # Make division errors actionable:
+#             # div expects Float operands, so guide the user to write 1.0/2.0 or toFloat(...)
+#             if call.callee == "div":
+#                 raise TypecheckError(
+#                     "division expects Float operands. "
+#                     "Write 1.0/2.0 (Float literals) or convert with toFloat(...)."
+#                 ) from e
+#             raise
+
+#     # return type
+#     if is_typevar(sig.ret.name):
+#         return tmap[sig.ret.name]
+#     return TypeRef(sig.ret.name)

@@ -221,9 +221,30 @@ class Parser:
             self.eat("SYM", ".")
             name += "." + self.eat("IDENT").text
         return name
-
+    
     def parse_type(self) -> TypeRef:
-        return TypeRef(self.eat("IDENT").text)
+    
+        name = self.eat("IDENT").text
+
+        if self.match("SYM", "["):
+            self.eat("SYM", "[")
+            args = []
+
+            while True:
+                args.append(self.parse_type())
+
+                if self.match("SYM", ","):
+                    self.eat("SYM", ",")
+                    continue
+                break
+
+            self.eat("SYM", "]")
+            return TypeRef(name, tuple(args))
+    
+        return TypeRef(name)
+
+    # def parse_type(self) -> TypeRef:
+    #     return TypeRef(self.eat("IDENT").text)
 
     def parse_params(self) -> List[Param]:
 

@@ -12,4 +12,5 @@ def prelude_items():
     items += _core_items("cast")
     items += _core_items("ordering")
     items += _core_items("io")
+    items += _core_items("lazy")
     return items

@@ -1,11 +1,13 @@
 from ginger.builtin import call_builtin, has_builtin
 from ginger.errors import EvalError
+from ginger.runtime.thunk import ThunkValue
 
 def type_of(v):
 
     if isinstance(v, int): return "Int"
     if isinstance(v, float): return "Float"
     if isinstance(v, str): return "String"
+    if isinstance(v, ThunkValue): return "Thunk"
     if v is None: return "Unit"
     raise EvalError(f"unknown runtime value type: {type(v)}")
 

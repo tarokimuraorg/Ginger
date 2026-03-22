@@ -8,6 +8,7 @@ from .symbols_builder import build_symbols
 from .errors import EvalError, TypecheckError
 from ginger.runtime.failures import RaisedFailure, FailureId
 from .builtin import call_builtin
+from ginger.runtime.thunk import ThunkValue
 
 from .ast import (
     SigDecl,
@@ -206,6 +207,22 @@ def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[s
     if expr.arg_style != "pos":
         raise EvalError(f"named args not supported at runtime for '{expr.callee}'")
     
+    # --- thunk (遅延)---
+    if expr.callee == "thunk":
+        if len(expr.args) != 1:
+            raise EvalError("thunk expects exactly 1 argument")
+        arg_expr = expr.args[0].expr
+        return ThunkValue(arg_expr, env.copy(), outer)
+    
+    # --- force (強制実行)---
+    if expr.callee == "force":
+        if len(expr.args) != 1:
+            raise EvalError("force expects exactly 1 argument")
+        v = eval_expr(expr.args[0].expr, env, syms, outer)
+        if not isinstance(v, ThunkValue):
+            raise EvalError("force expects Thunk")
+        return eval_expr(v.expr, v.env, syms, v.outer)
+
     args = [eval_expr(a.expr, env, syms, outer) for a in expr.args]
 
     # user func があればそちらで対応（既存の仕様があれば維持）

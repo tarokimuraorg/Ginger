@@ -16,7 +16,7 @@ KEYWORDS = {
     "let","var",
 }
 
-SYMBOLS_1 = set("{}():,=@.+-*/")  # one-char
+SYMBOLS_1 = set("{}():,=@.+-*/[]")  # one-char
 # special: "->" and "|"
 
 def tokenize(src: str) -> List[Token]:

@@ -1,0 +1,4 @@
+print(_type_ref({
+    "ref": "Thunk",
+    "args": [{"ref": "Int"}]
+}))

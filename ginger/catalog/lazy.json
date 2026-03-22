@@ -1,0 +1,24 @@
+{
+  "sigs": [
+    {
+      "name": "thunk",
+      "params": [{ "ref": "T" }],
+      "ret": { "ref": "Thunk", "args": [{ "ref": "T" }] },
+      "requires": [],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    },
+    {
+      "name": "force",
+      "params": [
+        { "ref": "Thunk", "args": [{ "ref": "T" }] }
+      ],
+      "ret": { "ref": "T" },
+      "requires": [],
+      "failures": [],
+      "attrs": [],
+      "builtin": null
+    }
+  ]
+}
