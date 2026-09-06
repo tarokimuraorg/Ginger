@@ -277,10 +277,10 @@ def typecheck_func_bodies(prog, syms) -> None:
         fenv: Dict[str, Binding] = {}
 
         for p in item.params:
-            fenv[p.name] = Binding(ty=p.typ.name, mutable=False)
+            fenv[p.name] = Binding(ty=p.typ, mutable=False)
 
         # ブロックを走査して return 型を集める
-        ret_types: list[str] = []
+        ret_types: list[TypeRef] = []
 
         for st in item.body.stmts:
             if isinstance(st, ReturnStmt):
@@ -302,10 +302,10 @@ def typecheck_func_bodies(prog, syms) -> None:
         # return がある場合：型が揃っていることを確認（今は return は1種類であることを要求）
         first = ret_types[0]
 
-        if any(t != first for t in ret_types):
+        if any(not same_type(t, first) for t in ret_types):
             raise TypecheckError(f"func '{item.name}' has inconsistent return types: {ret_types}")
         
-        if first != sig.ret.name:
+        if not same_type(first, sig.ret):
             raise TypecheckError(
                 f"func '{item.name}' return type mismatch: sig expects '{sig.ret.name}', got '{first}'"
             )
@@ -324,7 +324,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         t = TypeRef("Int")
 
         if expected is not None and not same_type(t, expected):
-            raise TypecheckError(...)
+            raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
 
         return t
 
@@ -333,7 +333,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         t = TypeRef("Float")
 
         if expected is not None and not same_type(t, expected):
-            raise TypecheckError(...)
+            raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
 
         return t
 
@@ -346,7 +346,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         t = env[expr.name].ty
 
         if expected is not None and not same_type(t, expected):
-            raise TypecheckError(...)
+            raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
     
         return t
 
@@ -363,6 +363,10 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
     # special: thunk
     # =====================
     if call.callee == "thunk":
+        if len(call.args) != 1:
+            raise TypecheckError(
+                f"argument count mismatch in call to thunk: expected 1, got {len(call.args)}"
+            )
         arg_expr = call.args[0].expr
 
         inner_expected = None
@@ -376,13 +380,21 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
     # special: force
     # =====================
     if call.callee == "force":
+        if len(call.args) != 1:
+            raise TypecheckError(
+                f"argument count mismatch in call to force: expected 1, got {len(call.args)}"
+            )
         arg_expr = call.args[0].expr
         t = type_expr(arg_expr, None, env, syms, tv_guars)
 
         if t.name != "Thunk":
             raise TypecheckError("force expects Thunk")
 
-        return t.args[0]
+        result_type = t.args[0]
+        if expected is not None and not same_type(result_type, expected):
+            raise TypecheckError(f"type mismatch: expected {expected}, got {result_type}")
+
+        return result_type
 
     # =====================
     # normal sig call
