@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Dict, Tuple
-from collections import Counter
 from .builtin import BUILTINS
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, failures, EMPTY_FAILURES, FailureSet
@@ -9,6 +8,7 @@ from ginger.core.prelude import prelude_items
 
 from .ast import (
     Program,
+    TypeRef,
     GuaranteeDecl,
     TypeGroupDecl,
     RegisterDecl,
@@ -41,11 +41,12 @@ def _is_typevar(name: str) -> bool:
     # T, Uのような1文字大文字を型変数扱い
     return len(name) == 1 and name.isupper()
 
-def _type_multiset_from_sig(sig: SigDecl) -> Counter:
-    return Counter([t.name for t in sig.params])
-
-def _type_multiset_from_func(func: FuncDecl) -> Counter:
-    return Counter([p.typ.name for p in func.params])
+def _same_type(a: TypeRef, b: TypeRef) -> bool:
+    if a.name != b.name:
+        return False
+    if len(a.args) != len(b.args):
+        return False
+    return all(_same_type(x, y) for x, y in zip(a.args, b.args))
 
 
 def build_symbols(prog: Program) -> Symbols:
@@ -171,11 +172,12 @@ def build_symbols(prog: Program) -> Symbols:
             # func が sig と食い違っていないことを確認
             sig = sigs[item.name]
 
-            # sig と func の引数型は順不同で可
-            # 型の種類と個数が一致していることのみを確認
-            if _type_multiset_from_func(item) != _type_multiset_from_sig(sig):
+            # 引数数と各位置の型（型引数を含む）が一致することを確認
+            if len(item.params) != len(sig.params) or any(
+                not _same_type(p.typ, t) for p, t in zip(item.params, sig.params)
+            ):
                 raise TypecheckError(
-                    f"func '{item.name} parameter types do not match sig '{item.name}' (order-insensitive)'"
+                    f"func '{item.name}' parameter count or positional types do not match sig '{item.name}'"
                 )
             
         elif isinstance(item, RegisterDecl):
