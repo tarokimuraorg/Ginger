@@ -142,9 +142,14 @@ def build_symbols(prog: Program) -> Symbols:
             # failure は SigDecl.failures: list[str]
             fnames = list(getattr(item, "failures", []) or [])
 
+            seen_failures = set()
+            for name in fnames:
+                if name in seen_failures:
+                    raise TypecheckError(f"duplicate failure '{name}' in sig '{item.name}'")
+                seen_failures.add(name)
             if "Never" in fnames and len(fnames) > 1:
                 raise TypecheckError(f"cannot combine 'Never' with other failures in sig '{item.name}'")
-            #fnames = [n for n in fnames if n != "Never"]
+            fnames = [n for n in fnames if n != "Never"]
 
             if not fnames:
                 sig_failures[item.name] = EMPTY_FAILURES

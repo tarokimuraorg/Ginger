@@ -391,16 +391,16 @@ class Parser:
             if self.match("KW", "failure"):
 
                 self.eat("KW", "failure")
-                f = self.parse_type().name
-
-                if f == "Never":
-                    if failures:
-                        raise SyntaxError("cannot combine 'Never' with other failures")
-                    # failures は空のまま
-                else:
-                    if f in failures:
-                        raise SyntaxError(f"duplicate failure '{f}'")
-                    failures.append(f)
+                failure_type = self.parse_type()
+                if failure_type.args:
+                    raise SyntaxError("failure names cannot have type arguments")
+                f = failure_type.name
+                if f in failures:
+                    raise SyntaxError(f"duplicate failure '{f}'")
+                if failures and (f == "Never" or "Never" in failures):
+                    raise SyntaxError("cannot combine 'Never' with other failures")
+                # Preserve Never until symbols_builder normalizes source/catalog alike.
+                failures.append(f)
                 continue
 
             if self.match("KW", "builtin"):

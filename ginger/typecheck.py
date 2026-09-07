@@ -121,7 +121,7 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
 def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
 
     syms = build_symbols(prog)
-    typecheck_func_bodies(prog, syms)
+    typecheck_func_bodies(prog, syms, diags)
     env: Dict[str, Binding] = {}
 
     i = 0
@@ -150,7 +150,18 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
             if not same_type(t_try, TypeRef("Unit")):
                 raise TypecheckError(f"only Unit expression are allowed in try, got '{t_try}'")
             
-            eff_try = effect_expr(item.expr, env=env, syms=syms)
+            original_try_effects = effect_expr(item.expr, env=env, syms=syms)
+            for c in catches:
+                try:
+                    fid = FailureId(c.failure_name)
+                except ValueError:
+                    raise TypecheckError(f"unknown failure '{c.failure_name}' in catch") from None
+                if fid not in original_try_effects:
+                    raise TypecheckError(
+                        f"cannot catch '{c.failure_name}': try expression has no declared or inferred "
+                        f"{c.failure_name} failure"
+                    )
+            eff_try = original_try_effects
 
             # try側から、catchされるfailureを全部消す
             caught = {c.failure_name for c in catches}
@@ -252,7 +263,7 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
 
     return env
 
-def typecheck_func_bodies(prog, syms) -> None:
+def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> None:
 
     # func の本文を sig に照合する（return型のみ確認）
     for item in prog.items:
@@ -308,6 +319,80 @@ def typecheck_func_bodies(prog, syms) -> None:
         if not same_type(first, sig.ret):
             raise TypecheckError(
                 f"func '{item.name}' return type mismatch: sig expects '{sig.ret.name}', got '{first}'"
+            )
+
+    # Keep all existing type checks (including unreachable statements) ahead of effects.
+    typecheck_func_failures(syms, diags)
+
+
+def reachable_body_exprs(func):
+    """Only ReturnStmt/ExprStmt are supported by the preceding body typecheck."""
+    for stmt in func.body.stmts:
+        yield stmt.expr
+        if isinstance(stmt, ReturnStmt):
+            break
+
+
+def has_thunk_type(typ: TypeRef) -> bool:
+    return typ.name == "Thunk" or any(has_thunk_type(arg) for arg in typ.args)
+
+
+def failure_contract_boundaries(fname, syms, visited=None) -> set[str]:
+    """Do not certify handled/latent effects, including transitive dependencies.
+
+    Other builtin declarations remain trusted contracts, not inferred Python effects.
+    This traversal records validation limits only; it does not change call effects.
+    """
+    if visited is None:
+        visited = set()
+    if fname in visited:
+        return set()
+    visited.add(fname)
+    sig = syms.sigs[fname]
+    func = syms.funcs.get(fname)
+    reasons = set()
+    if "handled" in sig.attrs or (func is not None and "handled" in func.attrs):
+        reasons.add(f"handled: {fname}")
+    if fname in ("thunk", "force") or any(
+        has_thunk_type(typ) for typ in [sig.ret, *sig.params]
+    ):
+        reasons.add(f"Thunk: {fname}")
+
+    def visit_expr(expr):
+        if isinstance(expr, CallExpr):
+            reasons.update(failure_contract_boundaries(expr.callee, syms, visited))
+            for arg in expr.args:
+                visit_expr(arg.expr)
+
+    if func is not None:
+        for expr in reachable_body_exprs(func):
+            visit_expr(expr)
+    return reasons
+
+
+def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
+    for fname, func in syms.funcs.items():
+        boundaries = failure_contract_boundaries(fname, syms)
+        if boundaries:
+            if diags is not None:
+                diags.note(
+                    "FAILURE_CONTRACT_DEFERRED",
+                    f"failure upper-bound validation deferred for func '{fname}': "
+                    + ", ".join(sorted(boundaries)),
+                )
+            continue
+        env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
+        inferred_failures = union_failures(
+            *(effect_expr(expr, env, syms) for expr in reachable_body_exprs(func))
+        )
+        declared_failures = syms.sig_failures[fname]
+        missing = inferred_failures - declared_failures
+        if missing:
+            names = ", ".join(sorted(f.value for f in missing))
+            declared = ", ".join(sorted(f.value for f in declared_failures)) or "Never"
+            raise TypecheckError(
+                f"func '{fname}' may propagate undeclared failures: {names}; "
+                f"declared failures: {declared}"
             )
 
 def to_typeref(x):
