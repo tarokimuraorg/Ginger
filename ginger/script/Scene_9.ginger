@@ -1,2 +1,0 @@
-var t: Thunk[Int] = thunk(add(1,2))
-print(force(t))

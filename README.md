@@ -241,3 +241,36 @@ python3 -B -m unittest discover -s tests -v
 この README は現時点の実装状況の記録です。未確定事項はコードや README のどちらかを正と決めつけず、設計判断を先に行います。
 
 古い `catalog` / `fn` / `args:` 構文、`run_ginger.py` による起動、Catalog / Code の自動分離は現行の使い方ではありません。`script/` の古いサンプルやコメントにも不一致があります。既存ファイルの存在だけを、対応機能や互換性の保証とは扱わないでください。
+
+### failureset（第1段階）
+
+既存の FailureId 集合に名前を付け、sig の failure 宣言で参照できます。
+
+```ginger
+failureset CalculationFailure {
+    DivideByZero
+    IOErr
+}
+sig calculate() -> Float {
+    failure CalculationFailure
+}
+func calculate() {
+    return div(1.0, 2.0)
+}
+```
+
+symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の failure
+契約検証を適用します。通常の failure 宣言と併用でき、展開後の重なりは集合の和に
+なります。同じ名前を sig に繰り返し記述する既存の重複エラーは維持します。
+定義位置にかかわらず参照でき、catalog JSON の既存の `failures` 配列からも、
+同じプログラム内の source failureset を参照できます。catalog 単独での解決には
+その定義が必要です。新しい catalog JSON 形式は追加していません。
+
+要素は直接の既知 FailureId に限定します。未知の要素、要素の重複、`Never`、
+集合名の重複、ネスト（自己参照を含む）はエラーです。空の定義は現段階では未対応として
+拒否します。FailureId および `Never` と同名の集合は曖昧になるため禁止し、
+type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
+
+集合名自体は FailureId ではなく、catch には使用できません。catch の対象は従来どおり
+try 対象から静的に発生しうる個別の FailureId です。Thunk、latent failure、集合演算、
+`@attr.handled` の仕様は変更していません。

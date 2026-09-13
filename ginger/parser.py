@@ -3,7 +3,7 @@ from .tokenizer import Token, tokenize
 from .ast import (
     Program, TopLevel,
     TypeRef, Param, FuncSig,
-    GuaranteeDecl, TypeGroupDecl, RegisterDecl,
+    FailureSetDecl, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
     SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr,
@@ -130,6 +130,11 @@ class Parser:
         # 先頭の @attr を回収
         attrs = self.parse_attrs()
         
+        if self.match("KW", "failureset"):
+            if attrs:
+                raise SyntaxError("attributes must precede a sig or func declaration")
+            return self.parse_failureset()
+
         # --- catalog/decl ---
         if self.match("KW", "guarantee"):
             return self.parse_guarantee()
@@ -280,6 +285,18 @@ class Parser:
             break
 
         return tys
+
+    def parse_failureset(self) -> FailureSetDecl:
+        self.eat("KW", "failureset")
+        name = self.eat("IDENT").text
+        self.eat("SYM", "{")
+        members: List[str] = []
+        self.skip_newlines()
+        while not self.match("SYM", "}"):
+            members.append(self.eat("IDENT").text)
+            self.skip_newlines()
+        self.eat("SYM", "}")
+        return FailureSetDecl(name=name, members=members)
 
     # ---- guarantee ----
 

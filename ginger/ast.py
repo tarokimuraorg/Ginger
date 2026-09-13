@@ -13,6 +13,7 @@ class Program:
 
 
 TopLevel = Union[
+    "FailureSetDecl",
     "GuaranteeDecl",
     "TypeGroupDecl",
     "RegisterDecl",
@@ -81,6 +82,12 @@ class FuncSig:
     params: List[Param]
     ret: TypeRef
     attrs: List[str] = field(default_factory=list)
+
+@dataclass(frozen=True)
+class FailureSetDecl:
+    name: str
+    members: List[str]  # Preserve duplicates for symbol validation.
+
 
 @dataclass(frozen=True)
 class GuaranteeDecl:

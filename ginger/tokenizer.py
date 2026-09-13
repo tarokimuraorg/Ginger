@@ -9,7 +9,7 @@ class Token:
 
 KEYWORDS = {
     "guarantee", "typegroup", "register", "impl",
-    "func", "sig", "require","failure", "return",
+    "failureset", "func", "sig", "require","failure", "return",
     "guarantees", "in",
     "builtin",
     "try", "catch",

@@ -2,13 +2,14 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 from .builtin import BUILTINS
 from .errors import TypecheckError
-from ginger.core.failure_spec import FailureId, failures, EMPTY_FAILURES, FailureSet
+from ginger.core.failure_spec import FailureId, EMPTY_FAILURES, FailureSet
 from .attrs import is_defined, get_attr
 from ginger.core.prelude import prelude_items
 
 from .ast import (
     Program,
     TypeRef,
+    FailureSetDecl,
     GuaranteeDecl,
     TypeGroupDecl,
     RegisterDecl,
@@ -31,6 +32,7 @@ class Symbols:
     type_guarantees: Dict[str, set[str]]             # type -> {"Addable",...}
     sigs: Dict[str, SigDecl]
     sig_failures: Dict[str, FailureSet]
+    failuresets: Dict[str, FailureSet]
     sig_attrs: Dict[str, set[str]]
     funcs: Dict[str, FuncDecl]                       # name -> decl
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
@@ -49,6 +51,44 @@ def _same_type(a: TypeRef, b: TypeRef) -> bool:
     return all(_same_type(x, y) for x, y in zip(a.args, b.args))
 
 
+def _build_failuresets(items) -> Dict[str, FailureSet]:
+    declarations: Dict[str, FailureSetDecl] = {}
+    reserved = {fid.value for fid in FailureId} | {"Never"}
+    for item in items:
+        if not isinstance(item, FailureSetDecl):
+            continue
+        if item.name in declarations:
+            raise TypecheckError(f"duplicate failureset definition '{item.name}'")
+        if item.name in reserved:
+            raise TypecheckError(f"failureset name '{item.name}' conflicts with a failure name")
+        declarations[item.name] = item
+
+    resolved: Dict[str, FailureSet] = {}
+    for name, decl in declarations.items():
+        if not decl.members:
+            raise TypecheckError(f"empty failureset is not supported: '{name}'")
+        seen = set()
+        members = set()
+        for member in decl.members:
+            if member in seen:
+                raise TypecheckError(f"duplicate failure in failureset '{name}': '{member}'")
+            seen.add(member)
+            if member == "Never":
+                raise TypecheckError(f"Never is not allowed in failureset '{name}'")
+            if member in declarations:
+                raise TypecheckError(
+                    f"nested failureset is not supported in failureset '{name}': '{member}'"
+                )
+            try:
+                members.add(FailureId(member))
+            except ValueError:
+                raise TypecheckError(
+                    f"unknown failure in failureset '{name}': '{member}'"
+                ) from None
+        resolved[name] = frozenset(members)
+    return resolved
+
+
 def build_symbols(prog: Program) -> Symbols:
 
     guarantees: Dict[str, GuaranteeDecl] = {}
@@ -63,6 +103,9 @@ def build_symbols(prog: Program) -> Symbols:
 
     items = prelude_items()
     items += list(prog.items)
+
+    # Resolve named sets before sig normalization, including catalog sigs.
+    failuresets = _build_failuresets(items)
 
     for item in items:
 
@@ -155,7 +198,13 @@ def build_symbols(prog: Program) -> Symbols:
                 sig_failures[item.name] = EMPTY_FAILURES
             else:
                 try:
-                    sig_failures[item.name] = failures(*[FailureId(n) for n in fnames])
+                    expanded = set()
+                    for name in fnames:
+                        if name in failuresets:
+                            expanded.update(failuresets[name])
+                        else:
+                            expanded.add(FailureId(name))
+                    sig_failures[item.name] = frozenset(expanded)
                 except ValueError:
                     candidates = ", ".join([f.value for f in FailureId])
                     raise TypecheckError(
@@ -235,6 +284,7 @@ def build_symbols(prog: Program) -> Symbols:
         type_guarantees=type_guarantees,
         sigs=sigs,
         sig_failures=sig_failures,
+        failuresets=failuresets,
         sig_attrs=sig_attrs,
         funcs=funcs,
         impls=impls,

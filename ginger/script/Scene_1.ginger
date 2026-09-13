@@ -1,20 +1,10 @@
-var x: Int = 1 + 2
-x = x + 1
+let initial: Int = 1
+var x: Int = (initial + 2)
+x = (x * 3)
 print(x)
 
-let y: Int = 1 + 2
-// y = y + 1
+var y: Float = div(toFloat(x), 2.0)
 print(y)
 
-sig add(T, T) -> T {
-    require T guarantees Addable
-    failure Never
-}
-
-func add(a: T, b: T) {
-    return a + b
-}
-
-var z: Int = add(1, 2)
-z = add(z, 9)
-print(z)
+var negative: Int = neg(x)
+print(negative)
