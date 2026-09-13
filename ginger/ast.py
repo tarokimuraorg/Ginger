@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Union, Tuple
-# from ginger.core.failure_spec import FailureSet, EMPTY_FAILURES
+from ginger.core.failure_spec import FailureSet
 
 
 # =====================
@@ -67,6 +67,9 @@ class ExprStmt:
 class TypeRef:
     name: str  # Int, Float, String, Self, T, Number, etc.
     args: Tuple["TypeRef",...] = ()
+    # Source names are resolved before type checking; args contain only result types.
+    failure_specs: Tuple[str, ...] | None = None
+    latent_failures: FailureSet | None = None
 
 @dataclass(frozen=True)
 class Param:

@@ -23,7 +23,8 @@ def _type_ref(obj: Any) -> TypeRef:
     if isinstance(obj, dict) and "ref" in obj and isinstance(obj["ref"], str):
         name = obj["ref"]
         args = [_type_ref(a) for a in obj.get("args", [])]
-        return TypeRef(name, args)
+        return TypeRef(name, tuple(args),
+                       tuple(obj["failures"]) if "failures" in obj else None)
 
     raise ValueError(f"Invalid type ref: {obj!r}")
 

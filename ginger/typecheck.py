@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .errors import TypecheckError
-from .symbols_builder import build_symbols
+from .symbols_builder import build_symbols, normalize_types
 from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from .diagnostics import Diagnostics
 
@@ -30,11 +30,20 @@ class Binding:
     mutable: bool   # let=False, var=True
 
 def same_type(a: TypeRef, b: TypeRef) -> bool:
+    if a.latent_failures != b.latent_failures:
+        return False
     if a.name != b.name:
         return False
     if len(a.args) != len(b.args):
         return False
     return all(same_type(x, y) for x, y in zip(a.args, b.args))
+
+def compatible(actual, declared):
+    if actual.name == declared.name == "Thunk":
+        return (same_type(actual.args[0], declared.args[0])
+                and actual.latent_failures <= declared.latent_failures)
+    return same_type(actual, declared)
+
 
 def remove_failure(eff: FailureSet, name: str) -> FailureSet:
     return frozenset(f for f in eff if f.value != name)
@@ -63,6 +72,15 @@ def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
         raise TypecheckError(f"call to undeclared function '{call.callee}'")
     
     sig = syms.sigs[call.callee]
+    if call.callee == "thunk":
+        return EMPTY_FAILURES
+    if call.callee == "force":
+        arg = call.args[0].expr
+        # Use the type checked with its original context, including generic calls.
+        typ = syms.expression_types.get(id(arg))
+        if typ is None:
+            typ = type_expr(arg, None, env, syms)
+        return union_failures(effect_expr(arg, env, syms), typ.latent_failures)
 
     # sig は引数名がないので named args 禁止
     if call.arg_style != "pos":
@@ -104,7 +122,8 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
         if t.name not in tmap:
             raise TypecheckError(f"cannot resolve type variable '{t.name}'")
         return tmap[t.name]
-    return t
+    return TypeRef(t.name, tuple(resolve_typeref(a, tmap) for a in t.args),
+                   latent_failures=t.latent_failures)
 
 # def resolve_typeref(t, tmap: Dict[str, TypeRef]) -> TypeRef:
 #     if is_typevar(t.name):
@@ -121,6 +140,7 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
 def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
 
     syms = build_symbols(prog)
+    prog = normalize_types(prog, syms.failuresets)
     typecheck_func_bodies(prog, syms, diags)
     env: Dict[str, Binding] = {}
 
@@ -146,10 +166,6 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
             # --- try側 ---
             t_try = type_expr(item.expr, expected=None, env=env, syms=syms)
 
-            #if t_try != "Unit":
-            if not same_type(t_try, TypeRef("Unit")):
-                raise TypecheckError(f"only Unit expression are allowed in try, got '{t_try}'")
-            
             original_try_effects = effect_expr(item.expr, env=env, syms=syms)
             for c in catches:
                 try:
@@ -215,7 +231,7 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
                 names = ', '.join(sorted(f.value for f in eff))
                 diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
             
-            env[item.name] = Binding(ty=t, mutable=item.mutable)
+            env[item.name] = Binding(ty=item.typ, mutable=item.mutable)
             i += 1
             continue
 
@@ -266,7 +282,7 @@ def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
 def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> None:
 
     # func の本文を sig に照合する（return型のみ確認）
-    for item in prog.items:
+    for item in syms.funcs.values():
         
         if not isinstance(item, FuncDecl):
             continue
@@ -316,7 +332,7 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
         if any(not same_type(t, first) for t in ret_types):
             raise TypecheckError(f"func '{item.name}' has inconsistent return types: {ret_types}")
         
-        if not same_type(first, sig.ret):
+        if not compatible(first, sig.ret):
             raise TypecheckError(
                 f"func '{item.name}' return type mismatch: sig expects '{sig.ret.name}', got '{first}'"
             )
@@ -333,12 +349,8 @@ def reachable_body_exprs(func):
             break
 
 
-def has_thunk_type(typ: TypeRef) -> bool:
-    return typ.name == "Thunk" or any(has_thunk_type(arg) for arg in typ.args)
-
-
 def failure_contract_boundaries(fname, syms, visited=None) -> set[str]:
-    """Do not certify handled/latent effects, including transitive dependencies.
+    """Do not certify handled effects, including transitive dependencies.
 
     Other builtin declarations remain trusted contracts, not inferred Python effects.
     This traversal records validation limits only; it does not change call effects.
@@ -353,10 +365,6 @@ def failure_contract_boundaries(fname, syms, visited=None) -> set[str]:
     reasons = set()
     if "handled" in sig.attrs or (func is not None and "handled" in func.attrs):
         reasons.add(f"handled: {fname}")
-    if fname in ("thunk", "force") or any(
-        has_thunk_type(typ) for typ in [sig.ret, *sig.params]
-    ):
-        reasons.add(f"Thunk: {fname}")
 
     def visit_expr(expr):
         if isinstance(expr, CallExpr):
@@ -398,7 +406,14 @@ def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
 def to_typeref(x):
     return x if isinstance(x, TypeRef) else TypeRef(x)
 
-def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
+def type_expr(expr, expected, env, syms, tv_guars=None):
+    typ = _type_expr(expr, expected, env, syms, tv_guars)
+    if expected is not None and not compatible(typ, expected):
+        raise TypecheckError(f"type mismatch: expected {expected}, got {typ}")
+    syms.expression_types[id(expr)] = typ
+    return typ
+
+def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
 
     if tv_guars is None:
         tv_guars = {}
@@ -408,7 +423,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
     
         t = TypeRef("Int")
 
-        if expected is not None and not same_type(t, expected):
+        if expected is not None and not compatible(t, expected):
             raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
 
         return t
@@ -417,7 +432,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         
         t = TypeRef("Float")
 
-        if expected is not None and not same_type(t, expected):
+        if expected is not None and not compatible(t, expected):
             raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
 
         return t
@@ -430,7 +445,7 @@ def type_expr(expr: Expr, expected: Optional[str], env: Dict[str, Binding], syms
         
         t = env[expr.name].ty
 
-        if expected is not None and not same_type(t, expected):
+        if expected is not None and not compatible(t, expected):
             raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
     
         return t
@@ -443,6 +458,9 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
 
     if tv_guars is None:
         tv_guars = {}
+
+    if call.callee in ("thunk", "force") and call.arg_style != "pos":
+        raise TypecheckError("named arguments are not allowed for thunk/force")
 
     # =====================
     # special: thunk
@@ -459,7 +477,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             inner_expected = expected.args[0]
 
         t = type_expr(arg_expr, inner_expected, env, syms, tv_guars)
-        return TypeRef("Thunk", [t])
+        return TypeRef("Thunk", (t,), latent_failures=effect_expr(arg_expr, env, syms))
 
     # =====================
     # special: force
@@ -476,7 +494,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             raise TypecheckError("force expects Thunk")
 
         result_type = t.args[0]
-        if expected is not None and not same_type(result_type, expected):
+        if expected is not None and not compatible(result_type, expected):
             raise TypecheckError(f"type mismatch: expected {expected}, got {result_type}")
 
         return result_type
@@ -510,7 +528,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
         if is_typevar(sig.ret.name):
             tmap[sig.ret.name] = expected
         else:
-            if not same_type(TypeRef(sig.ret.name), to_typeref(expected)):
+            if not compatible(sig.ret, to_typeref(expected)):
                 raise TypecheckError(
                     f"type mismatch in call to {sig.name}: "
                     f"expected {expected}, got {sig.ret.name}"
@@ -601,116 +619,4 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
     if is_typevar(sig.ret.name):
         return tmap[sig.ret.name]
 
-    return TypeRef(sig.ret.name)
-    
-
-# def type_call(call: CallExpr, expected: Optional[str], env: Dict[str, Binding], syms, tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
-
-#     if call.callee == "thunk":
-#         arg_expr = call.args[0].expr
-
-#         inner_expected = None
-
-#         # expected が Thunk[T] なら T を取り出す
-#         if isinstance(expected, TypeRef) and expected.name == "Thunk":
-#             inner_expected = expected.args[0]
-
-#         t = type_expr(arg_expr, inner_expected, env, syms, tv_guars)
-
-#         return TypeRef("Thunk", [t])
-
-#     if tv_guars is None:
-#         tv_guars = {}
-
-#     if call.callee not in syms.sigs:
-#         raise TypecheckError(f"call to undeclared sig '{call.callee}'")
-    
-#     sig = syms.sigs[call.callee]
-
-#     # sig は引数名がないので、name args 禁止
-#     if call.arg_style != "pos":
-#         raise TypecheckError(f"named arguments are not allowed for calls to sig '{sig.name}'")
-    
-#     if len(call.args) != len(sig.params):
-#         raise TypecheckError(
-#             f"argument count mismatch in call to {sig.name}: expected {len(sig.params)}, got {len(call.args)}"
-#         )
-
-#     #bound = bind_args(call, sig)
-#     tmap: Dict[str, TypeRef] = {}
-
-#     # ① 代入先 or 特殊推論で決める
-#     if call.callee == "force":
-#         # force は引数から型が決まるのでスキップ
-#         pass
-
-#     elif expected is not None:
-#         if is_typevar(sig.ret.name):
-#             tmap[sig.ret.name] = expected
-#         else:
-#             if not same_type(TypeRef(sig.ret.name), to_typeref(expected)):
-#                 raise TypecheckError(...)
-
-#     else:
-#         if is_typevar(sig.ret.name):
-#             raise TypecheckError(
-#                 f"cannot determine type variable '{sig.ret.name}' in call to {sig.name} (no expected type)"
-#             )
-        
-#     # 引数exprを位置で取り出す
-#     arg_exprs = [a.expr for a in call.args]
-
-#     # ② 引数から型変数を推論
-#     for tref, aexpr in zip(sig.params, arg_exprs):
-#         if is_typevar(tref.name) and tref.name not in tmap:
-#             inferred = type_expr(aexpr, tmap.get(tref.name), env, syms, tv_guars=tv_guars)
-#             tmap[tref.name] = inferred
-    
-#     # ③ require チェック（既存）
-#     for req in sig.requires:
-#         if isinstance(req, RequireIn):
-#             if req.type_var not in tmap:
-#                 raise TypecheckError(
-#                     f"cannot check requirement '{req.type_var} in {req.group_name}': "
-#                     f"type variable '{req.type_var}' not determined in call to {sig.name}"
-#                 )
-#             concrete = tmap[req.type_var]
-#             allowed = syms.typegroups.get(req.group_name, set())
-#             if concrete.name not in allowed:
-#                 raise TypecheckError(
-#                     f"requirement not satisfied in call to {sig.name}: "
-#                     f"{req.type_var} in {req.group_name} required, but {req.type_var} = {concrete}"
-#                 )
-            
-#         elif isinstance(req, RequireGuarantees):
-#             if req.type_var not in tmap:
-#                 raise TypecheckError(...)
-
-#             concrete = tmap[req.type_var]
-#             has = syms.type_guarantees.get(concrete.name, set())
-
-#             if req.guarantee_name not in has:
-#                 raise TypecheckError(
-#                     f"requirement not satisfied in call to {sig.name}: "
-#                     f"{concrete} does not guarantee {req.guarantee_name}"
-#                 )
-            
-#     # ④ 引数型チェック（enhanced error for div）
-#     for tref, aexpr in zip(sig.params, arg_exprs):
-#         expected_arg = resolve_typeref(tref, tmap)
-#         try:
-#             type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
-#         except TypecheckError as e:
-#             # Make division errors actionable:
-#             # div expects Float operands, so guide the user to write 1.0/2.0 or toFloat(...)
-#             if call.callee == "div":
-#                 raise TypecheckError(
-#                     "division expects Float operands. "
-#                     "Write 1.0/2.0 (Float literals) or convert with toFloat(...)."
-#                 ) from e
-#             raise
-
-#     # return type
-#     if is_typevar(sig.ret.name):
-#         return tmap[sig.ret.name]
-#     return TypeRef(sig.ret.name)
+    return resolve_typeref(sig.ret, tmap)

@@ -101,11 +101,11 @@ print(result)
 
 - 同名の `sig` が `func` より先に存在する必要があります。
 - 引数数が等しく、各位置の型が型名と再帰的な型引数まで一致する必要があります。
-- `Thunk[Int]` と `Thunk[Float]` は異なる型として照合します。
+- `Thunk[Int, Never]` と `Thunk[Float, Never]` は異なる型として照合します。
 - 引数名は照合に使用しません。sig は引数型のみを持ちます。
 - 型変数名の読み替えは行いません。`T` と `U` は同一視しません。
 - 呼び出しは位置引数で、値も位置順に束縛します。同名 sig のオーバーロードはありません。
-- return の型は sig の戻り値と構造比較します。return がなければ Unit を要求します。
+- return の型は sig の戻り値と照合します（Thunkの潜在failureは上限包含を許可）。return がなければ Unit を要求します。
 
 型変数は現在、原則として1文字の大文字で表します。`T → T` の恒等関数は動作しますが、一般的なジェネリクスや型推論は限定実装です。例えば `var x: Int = add(1, 2)` は通りますが、`print(add(1, 2))` は内側の戻り値型を決められず拒否されます。
 
@@ -139,7 +139,7 @@ sig 本体に `failure DivideByZero` などを列挙できます。使える fai
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-通常ユーザー関数では、到達可能な return 式と式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled・Thunk に依存する関数は、後述のとおり上限検証を保留します。
+通常ユーザー関数では、到達可能な return 式と式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled に依存する関数は、後述のとおり上限検証を保留します。
 
 標準 `div` は `DivideByZero` を宣言しています。catch せずにトップレベルで使うと未処理警告の対象になります。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -152,7 +152,8 @@ catch DivideByZero print(0)
 
 現在採用している catch の規則は、try 対象式から静的に発生し得ると宣言・推論された failure だけを捕捉対象として認めることです。すべての catch を、捕捉分を削除する前の元の try 集合に対して検査します。集合外の既知 failure、未知の failure 名、Never は catch できません。実行時にたまたま未宣言の `RaisedFailure` が発生しても、静的集合外の catch を許可する根拠にはしません。
 
-- `try` の後には1個以上の `catch` が必要です。対象は Unit 式に限定され、関数本体内では使えません。
+- `try` 文の対象式は任意の結果型を許可します。正常終了時の結果値は破棄され、`try` 文自体は値を生成しません。将来的な値を返す `try` 式は今回の仕様には含めません。
+- `try` の後には1個以上の `catch` が必要です。catch式はUnitに限定され、関数本体内では使えません。
 - トップレベルでは、捕捉・処理後に静的集合に残る failure を警告します。警告だけでは実行を止めません。これは関数本体の上限契約違反を型エラーにする規則とは別です。
 - 実行時は一致する最初の catch を処理します。未捕捉の `RaisedFailure` は外へ伝播します。
 - 同名 catch の重複は現在も許可します。
@@ -168,7 +169,7 @@ builtin の宣言は静的解析が信頼する契約であり、Python 実装�
 
 既存挙動として、sig の handled は Unit を要求し、呼び出し式の静的集合から callee 自身の failure を除外します。引数評価の failure は残ります。ユーザー関数では本体の `RaisedFailure` を捕捉しますが、builtin 経路や func のみに付けた属性では同じ効果になりません。この不整合は未修正です。handled を理由とする catch 資格の例外もありません。
 
-sig / func の handled、または handled 付き callee に依存する関数は、新しい本体上限検証を保留します。保留は到達可能な呼び出しを通じて間接的な依存先からも伝わります。型検査は継続しますが、本体全体の上限契約を完全に検証済みとは扱いません。Thunk による保留も同様です。
+sig / func の handled、または handled 付き callee に依存する関数は、新しい本体上限検証を保留します。保留は到達可能な呼び出しを通じて間接的な依存先からも伝わります。型検査は継続しますが、本体全体の上限契約を完全に検証済みとは扱いません。Thunk のみを理由とする保留はありません。
 
 保留理由は Diagnostics に `FAILURE_CONTRACT_DEFERRED` の note として記録します。既存 pipeline が表示するのは warning のみなので、この note は通常の実行出力には表示されません。保留を「failure が空」や「契約検証成功」と同一視しないでください。
 
@@ -176,7 +177,7 @@ sig / func の handled、または handled 付き callee に依存する関数�
 
 ```ginger
 var x: Int = 1
-var t: Thunk[Int] = thunk(x)
+var t: Thunk[Int, Never] = thunk(x)
 x = 2
 print(force(t))
 print(x)
@@ -188,11 +189,33 @@ print(x)
 
 現在は環境辞書を浅くコピーし、外側の環境は参照で保持します。トップレベルの再代入は Cell を置き換えるため、上の例では Thunk が作成時の値を読みます。これはすべての値を深くコピーするという保証ではありません。
 
-Thunk の潜在 failure 契約は未確定です。遅延式での実際の failure は force 時に発生しますが、現在の静的解析は thunk の引数式を通常の引数と同様に集計するため、作成側に警告が付く場合があります。保存済み Thunk の failure 情報を force 側で静的に復元できない既知制限があります。
+正式な型形式は `Thunk[結果型, failure指定...]` です。
 
-そのため、`print(force(t))` のように、保存済み Thunk を Unit 式の内部で force する場合でも、捕捉したい failure が静的集合に現れず、catch が拒否される場合があります。`force(thunk(expr))` のように直接書いた場合に引数の解析で failure が残ることはありますが、正式な Thunk failure 仕様として確定していません。
+```ginger
+failureset CalculationFailure { DivideByZero IOErr }
+// 型の例: Thunk[Int, Never], Thunk[Int, DivideByZero], Thunk[Int, CalculationFailure]
+var t: Thunk[Float, CalculationFailure] = thunk(div(1.0, 0.0))
+try force(t)
+catch DivideByZero print(0)
+catch IOErr print(1)
+```
 
-`thunk` / `force` を使う関数、sig の引数・戻り値に Thunk を含む関数、およびそれらに到達可能な呼び出しを通じて依存する関数は、本体の failure 上限検証を保留します。潜在 failure を保持する型表現や実行時情報はまだ導入していません。
+Thunkのfailure指定はforce時に発生しうるfailureの上限契約であり、Thunk作成時のfailureではありません。
+`thunk(expr)` は結果型とexprのfailure集合を保存し、作成式のcurrent failureは空です。
+`force(t)` は保存された契約をcurrent failureへ復元します。引数を評価するfailureも合算し、
+`print(force(t))` にも通常の引数effect伝播で届きます。`force(thunk(expr))` も同じ経路です。
+`try force(t)` も通常の `try` 文の規則に従い、対象式は任意の結果型を許可します。正常終了時の結果値は破棄され、`try` 文自体は値を生成しません。値を返す `try` 式は今回の仕様には含めません。catch式は引き続きUnitです。
+
+failure指定には個別FailureId、failureset、単独のNeverを使えます。Neverは空集合です。
+指定省略、未知名、Neverとの混在、同じ指定名の重複は拒否します。failureset展開後の重なりは統合します。
+代入・関数引数・戻り値では、結果型の完全一致とactualの潜在failure集合がdeclaredの部分集合であることを検査します。
+sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
+
+Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
+`sig make() -> Thunk[Float, DivideByZero] { failure Never }` は有効です。
+静的に解決されたThunkは本体上限検証の対象です。handledに直接・推移的に依存する場合の保留は維持します。
+静的契約はruntimeオブジェクトへ追加していません。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
+実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
 
 ## 現在の制限・未確定事項
 
@@ -203,7 +226,7 @@ Thunk の潜在 failure 契約は未確定です。遅延式での実際の fail
 | guarantee の契約 | 型変数の保証を本体内の呼び出し検査に十分反映できない。複数保証やメソッドの型契約と実装選択の関係も未確定 |
 | failure の契約 | 通常関数の上限検証と catch の静的集合制限は導入済み。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告、重複 catch・handler 再失敗は既存挙動を維持 |
 | handled | 中核仕様として保留。意味・付与先・builtin との整合性は未確定で、依存する関数の上限検証は保留 |
-| Thunk | 潜在 failure の保持・伝播は未確定。保存済み値の force で情報を復元できず、catch が拒否され得る |
+| Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。handled依存の検証保留は維持 |
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |
 | 名前付き引数 | 構文解析は対応するが、通常の型検査・実行では拒否 |
 | スコープ | 関数外変数への参照は通常の型検査で拒否。評価器には外側環境を参照する処理が残る |
@@ -272,5 +295,4 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
 
 集合名自体は FailureId ではなく、catch には使用できません。catch の対象は従来どおり
-try 対象から静的に発生しうる個別の FailureId です。Thunk、latent failure、集合演算、
-`@attr.handled` の仕様は変更していません。
+try 対象から静的に発生しうる個別の FailureId です。集合演算や `@attr.handled` の仕様は変更していません。

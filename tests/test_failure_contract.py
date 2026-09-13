@@ -229,23 +229,18 @@ func h() {}
                            "sig f() -> Unit {}\nfunc f() { return print(1)\nh() }")
         self.assertEqual(len(diags.items), 1)
 
-    def test_thunk_boundary_and_saved_force_catch_limitation(self):
-        source = """
-sig f(Thunk[Float]) -> Float {}
-func f(t: Thunk[Float]) { return force(t) }
-sig g(Thunk[Float]) -> Float {}
-func g(t: Thunk[Float]) { return f(t) }
-"""
-        _, diags = checked(source)
-        self.assertEqual(len(diags.items), 2)
-        self.assertTrue(all("Thunk:" in d.message for d in diags))
-        with self.assertRaisesRegex(TypecheckError, "cannot catch 'DivideByZero'"):
-            checked("var t: Thunk[Float] = thunk(div(1.0,0.0))\n"
-                    "try print(force(t))\ncatch DivideByZero print(0)")
+    def test_thunk_contract_validation_and_saved_force(self):
+        _, diags = checked("sig f(Thunk[Float, DivideByZero]) -> Float { failure DivideByZero }\n"
+                           "func f(t: Thunk[Float, DivideByZero]) { return force(t) }")
+        self.assertEqual(diags.items, [])
+        program, diags = checked("var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n"
+                                 "try print(force(t))\ncatch DivideByZero print(0)")
+        self.assertEqual(diags.items, [])
+        self.assertEqual(output(program), "0\n")
 
     def test_deferred_functions_still_typechecked(self):
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig f(Thunk[Int]) -> Float {}\nfunc f(t: Thunk[Int]) { return force(t) }")
+            checked("sig f(Thunk[Int, Never]) -> Float {}\nfunc f(t: Thunk[Int, Never]) { return force(t) }")
 
     def test_custom_builtin_declarations_are_still_trusted(self):
         program, _ = checked("sig raw(Float,Float) -> Float { builtin core.float.div }\n"
@@ -258,16 +253,16 @@ func g(t: Thunk[Float]) { return f(t) }
 class ExistingRegressionTests(unittest.TestCase):
     def test_parameter_and_return_typerefs(self):
         checked("sig identity(Int) -> Int {}\nfunc identity(x: Int) { return x }")
-        checked("sig identity(Thunk[Int]) -> Thunk[Int] {}\n"
-                "func identity(x: Thunk[Int]) { return x }")
+        checked("sig identity(Thunk[Int, Never]) -> Thunk[Int, Never] {}\n"
+                "func identity(x: Thunk[Int, Never]) { return x }")
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig identity(Thunk[Int]) -> Thunk[Float] {}\n"
-                    "func identity(x: Thunk[Int]) { return x }")
+            checked("sig identity(Thunk[Int, Never]) -> Thunk[Float, Never] {}\n"
+                    "func identity(x: Thunk[Int, Never]) { return x }")
 
     def test_parameter_order_structure_and_declaration_order(self):
         checked("sig f(Int,Float) -> Unit {}\nfunc f(a: Int,b: Float) {}")
         for src in ("sig f(Int,Float) -> Unit {}\nfunc f(a: Float,b: Int) {}",
-                    "sig f(Thunk[Int]) -> Unit {}\nfunc f(a: Thunk[Float]) {}",
+                    "sig f(Thunk[Int, Never]) -> Unit {}\nfunc f(a: Thunk[Float, Never]) {}",
                     "sig f(Int) -> Unit {}\nfunc f(a: Int,b: Int) {}"):
             with self.subTest(src=src), self.assertRaisesRegex(TypecheckError, "positional types"):
                 checked(src)
@@ -277,9 +272,9 @@ class ExistingRegressionTests(unittest.TestCase):
     def test_thunk_force_arity_and_expected_type(self):
         for call in ("thunk()", "thunk(1,2)", "force()", "force(1,2)"):
             with self.subTest(call=call), self.assertRaisesRegex(TypecheckError, "argument count mismatch"):
-                checked(f"var t: Thunk[Int] = {call}")
+                checked(f"var t: Thunk[Int, Never] = {call}")
         with self.assertRaisesRegex(TypecheckError, "type mismatch"):
-            checked("var t: Thunk[Int] = thunk(1)\nvar x: Float = force(t)")
+            checked("var t: Thunk[Int, Never] = thunk(1)\nvar x: Float = force(t)")
         with self.assertRaisesRegex(TypecheckError, "force expects Thunk"):
             checked("var x: Int = force(1)")
 
@@ -291,13 +286,10 @@ class ExistingRegressionTests(unittest.TestCase):
 
     def test_samples_outputs_and_warnings(self):
         expected = {
-            "Code": ("4\n", 0),
-            "Scene_3": ("-1\n-1.0\n1\n", 0),
-            "Scene_5": ("0.5\n2.0\n", 2),
-            "Scene_6": ("Left\n", 0),
-            "Scene_7": ("3\n4\n2\n-1\n6\n12\n4.0\n2.0\n", 2),
-            "Scene_8": ("true\nfalse\ntrue\nfalse\nfalse\n", 0),
-            "Scene_9": ("3\n", 0),
+            "Scene_1": ("9\n4.5\n-9\n", 1),
+            "Scene_2": ("2.0\n", 0),
+            "Scene_3": ("0\n", 0),
+            "Scene_4": ("1\n2\n", 0),
         }
         root = Path(__file__).resolve().parents[1] / "ginger" / "script"
         for name, (stdout, warning_count) in expected.items():

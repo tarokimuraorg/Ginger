@@ -2,8 +2,14 @@
   "sigs": [
     {
       "name": "thunk",
-      "params": [{ "ref": "T" }],
-      "ret": { "ref": "Thunk", "args": [{ "ref": "T" }] },
+      "params": [
+        {
+          "ref": "T"
+        }
+      ],
+      "ret": {
+        "ref": "T"
+      },
       "requires": [],
       "failures": [],
       "attrs": [],
@@ -12,9 +18,13 @@
     {
       "name": "force",
       "params": [
-        { "ref": "Thunk", "args": [{ "ref": "T" }] }
+        {
+          "ref": "T"
+        }
       ],
-      "ret": { "ref": "T" },
+      "ret": {
+        "ref": "T"
+      },
       "requires": [],
       "failures": [],
       "attrs": [],

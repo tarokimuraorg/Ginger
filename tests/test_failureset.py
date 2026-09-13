@@ -123,8 +123,8 @@ try print(f())
             '@attr.handled\nsig f() -> Unit { %s }\n'
             'func f() { print(div(1.0,0.0)) }\n'
             'sig g() -> Unit {}\nfunc g() { f() }\nf()',
-            'sig f(Thunk[Float]) -> Float { %s }\n'
-            'func f(t: Thunk[Float]) { return force(t) }',
+            'sig f(Thunk[Float, Never]) -> Float { %s }\n'
+            'func f(t: Thunk[Float, Never]) { return force(t) }',
             '@attr.handled\nsig h(Int) -> Unit { %s builtin core.int.print }\n'
             'sig f() -> Unit {}\nfunc f() { h(1) }',
         ]
@@ -133,7 +133,8 @@ try print(f())
                 _, named = checked(SET + source % 'failure CalculationFailure')
                 _, explicit = checked(source % 'failure DivideByZero failure IOErr')
                 self.assertEqual(named.items, explicit.items)
-                self.assertTrue(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named))
+                self.assertEqual(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named),
+                                 '@attr.handled' in source)
         with self.assertRaisesRegex(TypecheckError, "cannot catch 'IOErr'"):
             checked(SET + '@attr.handled\nsig h(Int) -> Unit { failure CalculationFailure '
                     'builtin core.int.print }\ntry h(1)\ncatch IOErr print(0)')

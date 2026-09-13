@@ -1,0 +1,16 @@
+failureset CalculationFailure {
+    DivideByZero
+    IOErr
+}
+
+sig calculate() -> Float {
+    failure CalculationFailure
+}
+
+func calculate() {
+    return div(1.0, 0.0)
+}
+
+try print(calculate())
+catch DivideByZero print(0)
+catch IOErr print(1)

@@ -234,6 +234,14 @@ class Parser:
         if self.match("SYM", "["):
             self.eat("SYM", "[")
             args = []
+            if name == "Thunk":
+                result = self.parse_type()
+                specs = []
+                while self.match("SYM", ","):
+                    self.eat("SYM", ",")
+                    specs.append(self.eat("IDENT").text)
+                self.eat("SYM", "]")
+                return TypeRef(name, (result,), tuple(specs))
 
             while True:
                 args.append(self.parse_type())

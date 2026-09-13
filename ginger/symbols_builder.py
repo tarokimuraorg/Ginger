@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Dict, Tuple
 from .builtin import BUILTINS
 from .errors import TypecheckError
@@ -36,6 +36,7 @@ class Symbols:
     sig_attrs: Dict[str, set[str]]
     funcs: Dict[str, FuncDecl]                       # name -> decl
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
+    expression_types: Dict[int, TypeRef]  # Static, per-check expression annotations
     types: set[str]                                  # プリミティブ型
 
 
@@ -44,6 +45,8 @@ def _is_typevar(name: str) -> bool:
     return len(name) == 1 and name.isupper()
 
 def _same_type(a: TypeRef, b: TypeRef) -> bool:
+    if a.latent_failures != b.latent_failures:
+        return False
     if a.name != b.name:
         return False
     if len(a.args) != len(b.args):
@@ -89,6 +92,45 @@ def _build_failuresets(items) -> Dict[str, FailureSet]:
     return resolved
 
 
+def normalize_failures(names, failuresets, context):
+    if len(set(names)) != len(names):
+        raise TypecheckError(f"duplicate failure in {context}")
+    if "Never" in names and len(names) > 1:
+        raise TypecheckError(f"cannot combine 'Never' with other failures in {context}")
+    expanded = set()
+    for name in names:
+        if name == "Never":
+            continue
+        if name in failuresets:
+            expanded.update(failuresets[name])
+        else:
+            try:
+                expanded.add(FailureId(name))
+            except ValueError:
+                raise TypecheckError(f"unknown failure '{name}' in {context}") from None
+    return frozenset(expanded)
+
+
+def normalize_types(value, failuresets):
+    """Resolve source contracts separately from ordinary type arguments."""
+    if isinstance(value, TypeRef):
+        args = tuple(normalize_types(a, failuresets) for a in value.args)
+        if value.name == "Thunk":
+            if len(args) != 1 or (value.latent_failures is None and not value.failure_specs):
+                raise TypecheckError("Thunk requires a result type and explicit failure contract")
+            latent = value.latent_failures
+            if latent is None:
+                latent = normalize_failures(value.failure_specs, failuresets, "Thunk")
+            return TypeRef("Thunk", args, latent_failures=latent)
+        return replace(value, args=args)
+    if isinstance(value, list):
+        return [normalize_types(v, failuresets) for v in value]
+    if is_dataclass(value):
+        return replace(value, **{f.name: normalize_types(getattr(value, f.name), failuresets)
+                                 for f in fields(value)})
+    return value
+
+
 def build_symbols(prog: Program) -> Symbols:
 
     guarantees: Dict[str, GuaranteeDecl] = {}
@@ -107,6 +149,7 @@ def build_symbols(prog: Program) -> Symbols:
     # Resolve named sets before sig normalization, including catalog sigs.
     failuresets = _build_failuresets(items)
 
+    items = normalize_types(items, failuresets)
     for item in items:
 
         if isinstance(item, GuaranteeDecl):
@@ -185,32 +228,7 @@ def build_symbols(prog: Program) -> Symbols:
             # failure は SigDecl.failures: list[str]
             fnames = list(getattr(item, "failures", []) or [])
 
-            seen_failures = set()
-            for name in fnames:
-                if name in seen_failures:
-                    raise TypecheckError(f"duplicate failure '{name}' in sig '{item.name}'")
-                seen_failures.add(name)
-            if "Never" in fnames and len(fnames) > 1:
-                raise TypecheckError(f"cannot combine 'Never' with other failures in sig '{item.name}'")
-            fnames = [n for n in fnames if n != "Never"]
-
-            if not fnames:
-                sig_failures[item.name] = EMPTY_FAILURES
-            else:
-                try:
-                    expanded = set()
-                    for name in fnames:
-                        if name in failuresets:
-                            expanded.update(failuresets[name])
-                        else:
-                            expanded.add(FailureId(name))
-                    sig_failures[item.name] = frozenset(expanded)
-                except ValueError:
-                    candidates = ", ".join([f.value for f in FailureId])
-                    raise TypecheckError(
-                        f"unknown failure(s) '{', '.join(fnames)}' in sig '{item.name}'. "
-                        f"use none (implicit Never) or one of: {candidates}"
-                    )
+            sig_failures[item.name] = normalize_failures(fnames, failuresets, f"sig '{item.name}'")
 
         elif isinstance(item, FuncDecl):
 
@@ -289,6 +307,7 @@ def build_symbols(prog: Program) -> Symbols:
         funcs=funcs,
         impls=impls,
         types=types,
+        expression_types={},
     )
 
     _validate_catalog(syms)
