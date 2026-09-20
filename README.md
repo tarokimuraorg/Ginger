@@ -59,7 +59,11 @@ PY
 
 ## 型・変数・式
 
-トップレベル変数には明示的な型注釈が必要です。通常の型照合では Int / Float の暗黙変換を行いません。Float が必要なら Float リテラルか `toFloat` を使います。
+トップレベル変数には明示的な型注釈が必要です。具体的な Float を要求する変数初期化・再代入・user function / builtin の引数・関数の戻り値では、`Int → Float` の暗黙変換を許可し、runtime 値も Float に変換します。`Float → Int` は暗黙には許可しません。
+
+`var x: Float = 1` は有効で値は `1.0`、`var x: Int = 1.5` は無効です。これは方向付きの数値変換であり型の等価性ではありません。Int と Float は引き続き別の型で、sig / func 宣言の照合や generic 型の variance、Thunk の結果型には適用しません。
+
+`add(1, 2.0)` のような generic 型変数の共通型推論は対象外です。型変数を解決した引数の一致条件も従来どおりです。変換は既存の `toFloat` と同じく精度を失う場合があり、巨大整数では Python の `OverflowError` が伝播します。新しい Ginger failure や精度保証は導入しません。
 
 ```ginger
 let initial: Int = 1
@@ -80,7 +84,7 @@ print(negative)
 - 単項マイナスのオペランドに別の単項マイナスを直接指定する構文は提供しません。`(-(-x))` や `(-((-x)))` は無効です。二重否定には `neg(neg(x))` を使用してください。
 - 既存の `neg(expr)` も引き続き使用できます。`(-expr)` と型・評価・failure の扱いは同じです。標準では Int / Float に対応します。
 - `neg(expr)` と `(-expr)` は既存の型規則に従い、期待型を必要とします。例えば `var n: Int = (-1)` は有効ですが、`print((-1))` は `print(neg(1))` と同様に型推論エラーになります。
-- 除算は標準では Float 同士に限定します。`div(1, 2)` は拒否されます。
+- 除算は標準では Float 引数を要求します。`div(1, 2)` は両引数を Float に変換して実行します。
 - Bool 値は現在 `eq`・`lt` などから得ます。`true` / `false` のリテラルはありません。
 - `cmp(a, b)` は `a > b` で `Left`、等しければ `Flat`、`a < b` で `Right` を返します。
 - Unit の実行値は Python の `None` です。トップレベルの式文は Unit を要求しますが、関数本体では非 Unit の式文も通るという不一致が残っています。

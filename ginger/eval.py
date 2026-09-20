@@ -1,6 +1,8 @@
 from typing import Dict, Union, Optional, Any
 from dataclasses import dataclass
 from .args import bind_args
+from .ast import TypeRef
+from .numeric import widen_value
 from ginger.surface.funcs import SURFACE_FUNCS
 from .base.funcs import BASE_FUNCS
 from ginger.runtime.dispatch import Dispatcher
@@ -41,6 +43,7 @@ Value = Any
 class Cell:
     value: Value
     mutable: bool   # let=False, var=True
+    typ: Optional[TypeRef] = None
 
 @dataclass
 class ReturnSignal(Exception):
@@ -101,7 +104,7 @@ def eval_program(prog) -> Dict[str, Cell]:
             
         if isinstance(item, VarDecl):
             v = eval_expr(item.expr, env=env, syms=syms)
-            env[item.name] = Cell(value=v, mutable=item.mutable)
+            env[item.name] = Cell(value=widen_value(v, item.typ), mutable=item.mutable, typ=item.typ)
             i += 1
             continue
 
@@ -112,7 +115,7 @@ def eval_program(prog) -> Dict[str, Cell]:
             if not cell.mutable:
                 raise EvalError(f"cannot assign to immutable binding '{item.name}'")
             v = eval_expr(item.expr, env=env, syms=syms)
-            env[item.name] = Cell(value=v, mutable=cell.mutable)
+            env[item.name] = Cell(value=widen_value(v, cell.typ), mutable=cell.mutable, typ=cell.typ)
             i += 1
             continue
 
@@ -186,13 +189,13 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Ce
     local: Dict[str, Cell] = {}
 
     for p,v in zip(fdecl.params, args):
-        local[p.name] = Cell(value=v, mutable=False)
+        local[p.name] = Cell(value=widen_value(v, p.typ), mutable=False, typ=p.typ)
 
     try:
         eval_block(fdecl.body, env=local, syms=syms, outer=caller_env)
         return None     # implicit Unit
     except ReturnSignal as rs:
-        return rs.value
+        return widen_value(rs.value, syms.sigs[fname].ret)
     except RaisedFailure:
         # @attr.handled: swallow failures of this sig
         attrs = syms.sig_attrs.get(fname, set())
@@ -233,6 +236,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[s
     if expr.callee in syms.sigs:
         
         sig = syms.sigs[expr.callee]
+        args = [widen_value(v, typ) for v, typ in zip(args, sig.params)]
 
         # sig に builtin が直結していたら、それを呼ぶ（requires不要）
         if getattr(sig, "builtin", None) is not None:

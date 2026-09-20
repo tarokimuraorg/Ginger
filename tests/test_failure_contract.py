@@ -81,7 +81,7 @@ func f() { print(g()) }
     def test_unreachable_effects_but_not_types_are_ignored(self):
         checked("sig f() -> Unit {}\nfunc f() { return print(1)\nprint(div(1.0,0.0)) }")
         with self.assertRaisesRegex(TypecheckError, "division expects Float"):
-            checked("sig f() -> Unit {}\nfunc f() { return print(1)\nprint(div(1,2)) }")
+            checked("sig f() -> Unit {}\nfunc f() { return print(1)\nprint(div(eq(1,1),2)) }")
         with self.assertRaisesRegex(TypecheckError, "inconsistent return types"):
             checked("sig f() -> Int {}\nfunc f() { return 1\nreturn 2.0 }")
 
@@ -240,7 +240,7 @@ func h() {}
 
     def test_deferred_functions_still_typechecked(self):
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig f(Thunk[Int, Never]) -> Float {}\nfunc f(t: Thunk[Int, Never]) { return force(t) }")
+            checked("sig f(Thunk[Float, Never]) -> Int {}\nfunc f(t: Thunk[Float, Never]) { return force(t) }")
 
     def test_custom_builtin_declarations_are_still_trusted(self):
         program, _ = checked("sig raw(Float,Float) -> Float { builtin core.float.div }\n"
@@ -274,13 +274,13 @@ class ExistingRegressionTests(unittest.TestCase):
             with self.subTest(call=call), self.assertRaisesRegex(TypecheckError, "argument count mismatch"):
                 checked(f"var t: Thunk[Int, Never] = {call}")
         with self.assertRaisesRegex(TypecheckError, "type mismatch"):
-            checked("var t: Thunk[Int, Never] = thunk(1)\nvar x: Float = force(t)")
+            checked("var t: Thunk[Float, Never] = thunk(1.0)\nvar x: Int = force(t)")
         with self.assertRaisesRegex(TypecheckError, "force expects Thunk"):
             checked("var x: Int = force(1)")
 
     def test_type_mismatch_diagnostics(self):
-        for src in ("var x: Float = 1", "var x: Int = 1.0",
-                    "var x: Int = 1\nvar y: Float = x"):
+        for src in ("var b: Bool = eq(1,1)\nvar x: Float = b", "var x: Int = 1.0",
+                    "var x: Float = 1.0\nvar y: Int = x"):
             with self.subTest(src=src), self.assertRaisesRegex(TypecheckError, "type mismatch: expected"):
                 checked(src)
 

@@ -4,7 +4,7 @@ from ginger.pipeline import run
 def main() -> None:
 
     root = Path(__file__).parent
-    scene_id = 9
+    scene_id = 7
     src = (root / f"script/Scene_{scene_id}.ginger").read_text(encoding="utf-8")
     
     # 実行

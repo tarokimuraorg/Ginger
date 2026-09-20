@@ -156,8 +156,8 @@ class UnaryMinusTests(unittest.TestCase):
                 typ = 'Float' if '.' in expected else 'Int'
                 program, _ = checked(f'var result: {typ} = {expr}\nprint(result)')
                 self.assertEqual(output(program), expected + '\n')
-        with self.assertRaisesRegex(TypecheckError, 'division expects Float'):
-            checked('print((1 / 2))')
+        program, _ = checked('print((1 / 2))')
+        self.assertEqual(output(program), '0.5\n')
 
     def test_all_sample_baselines(self):
         expected = {

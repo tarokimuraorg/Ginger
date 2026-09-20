@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .errors import TypecheckError
+from .numeric import can_widen
 from .symbols_builder import build_symbols, normalize_types
 from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from .diagnostics import Diagnostics
@@ -42,7 +43,7 @@ def compatible(actual, declared):
     if actual.name == declared.name == "Thunk":
         return (same_type(actual.args[0], declared.args[0])
                 and actual.latent_failures <= declared.latent_failures)
-    return same_type(actual, declared)
+    return same_type(actual, declared) or can_widen(actual, declared)
 
 
 def remove_failure(eff: FailureSet, name: str) -> FailureSet:
@@ -312,7 +313,9 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
         for st in item.body.stmts:
             if isinstance(st, ReturnStmt):
                 rt = type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
-                ret_types.append(rt)
+                # Compare returns after concrete widening, without feeding an
+                # expected type into generic inference or changing annotations.
+                ret_types.append(sig.ret if can_widen(rt, sig.ret) else rt)
             elif isinstance(st, ExprStmt):
                 type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
             else:
@@ -604,7 +607,11 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
         expected_arg = resolve_typeref(tref, tmap)
 
         try:
-            type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
+            actual_arg = type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
+            # A substituted type variable retains its existing matching rule.
+            # Widening is only enabled for concretely declared parameter types.
+            if is_typevar(tref.name) and can_widen(actual_arg, expected_arg):
+                raise TypecheckError(f"type mismatch: expected {expected_arg}, got {actual_arg}")
         except TypecheckError as e:
             if call.callee == "div":
                 raise TypecheckError(
