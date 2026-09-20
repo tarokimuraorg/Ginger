@@ -1,0 +1,15 @@
+failureset CalculationFailure {
+    DivideByZero
+    IOErr
+}
+
+var t1: Thunk[Float, CalculationFailure] = thunk(div(1.0,0.0))
+
+try force(t1)
+catch DivideByZero print(0)
+catch IOErr print(1)
+
+var t2: Thunk[Float, DivideByZero] = thunk(div(10.0,2.0))
+
+try print(force(t2))
+catch DivideByZero print(0)

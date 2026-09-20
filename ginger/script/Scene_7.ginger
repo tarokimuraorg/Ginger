@@ -1,0 +1,12 @@
+let x: Int = 2
+
+let a: Int = neg(x)
+let b: Int = (-x)
+let c: Int = 1 - (-2)
+
+print(a)
+print(b)
+print(c)
+
+//let x: Int = 1 - -2
+//print(x)

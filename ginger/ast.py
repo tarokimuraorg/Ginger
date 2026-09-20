@@ -175,6 +175,8 @@ class AssignStmt:
 # ---- expressions ----
 
 Expr = Union[
+    "BinaryExpr",
+    "UnaryMinusExpr",
     "CallExpr", 
     "IdentExpr", 
     "IntLit", 
@@ -192,6 +194,11 @@ class IntLit:
 @dataclass(frozen=True)
 class FloatLit:
     value: float
+
+@dataclass(frozen=True)
+class UnaryMinusExpr:
+    operand: Expr
+
 
 @dataclass(frozen=True)
 class BinaryExpr:

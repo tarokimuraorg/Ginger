@@ -6,7 +6,7 @@ from .ast import (
     FailureSetDecl, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr,
+    SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
     BlockStmt, ReturnStmt, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, FloatLit,
     Arg, PosArg, NamedArg,
@@ -549,68 +549,48 @@ class Parser:
         return self.match("SYM") and self.cur().text in _PRECEDENCE
 
     def parse_expr(self) -> Expr:
-        # 演算子式は必ず '(' から始まる
-        if self.match("SYM", "("):
-            return self.parse_paren_infix_expr()
-        
-        # それ以外は「operand（原子）」しか許さない
-        expr = self.parse_operand()
+        return self.parse_infix(min_prec=0)
 
-        # operand の直後に演算子が見えたらルール違反
-        if self._is_op():
-            t = self.cur()
-            raise SyntaxError(
-                f"infix operator '{t.text}' is only allowed inside '(...)' at {t.pos}"
-            )
-        return expr
+    def parse_paren_expr(self) -> Expr:
+        self.eat("SYM", "(")
+        if self.match("SYM", "-"):
+            minus = self.eat("SYM", "-")
+            operand = self.parse_expr()
+            self.eat("SYM", ")")
+            # Ordinary grouping returns its inner AST, so extra parentheses
+            # cannot hide a directly nested unary minus. Explicit neg is a call.
+            if isinstance(operand, UnaryMinusExpr):
+                raise SyntaxError(
+                    f"nested unary '-' is forbidden; use neg(neg(x)) at {minus.pos}"
+                )
+            return UnaryMinusExpr(operand)
 
-    def parse_paren_infix_expr(self) -> Expr:
-        # '(' <infix-expr> ')' だが、ただの(operand)は禁止
-        lpar = self.eat("SYM", "(")
-
-        expr, saw_op = self.parse_infix(min_prec=0)
-
+        expr = self.parse_expr()
         self.eat("SYM", ")")
-
-        if not saw_op:
-            # (1) や (div(1,2)) を禁止
-            raise SyntaxError(
-                f"parentheses are only for infix expressions; "
-                f"remove '(...)' or write an operator inside at {lpar.pos}"
-            )
         return expr
 
-    def parse_infix(self, min_prec: int) -> tuple[Expr, bool]:
-        # left operand
+    def parse_infix(self, min_prec: int) -> Expr:
         left = self.parse_operand()
-        saw_op = False
-
         while self._is_op():
             op = self.cur().text
             prec = _PRECEDENCE[op]
             if prec < min_prec:
                 break
-
             self.eat("SYM", op)
-            right, right_saw = self.parse_infix(min_prec=prec + 1)
-
-            saw_op = True or saw_op
-            saw_op = saw_op or right_saw
-
+            right = self.parse_infix(min_prec=prec + 1)
             left = BinaryExpr(op=op, left=left, right=right)
-
-        return left, saw_op
+        return left
 
     def parse_operand(self) -> Expr:
         
-        # unary '-' はどこでも禁止（neg(x)に固定）
+        # 裸の単項 '-' は operand にならない
         if self.match("SYM", "-"):
             t = self.cur()
-            raise SyntaxError(f"unary '-' is forbidden; use neg(x) at {t.pos}")
+            raise SyntaxError(f"bare unary '-' is forbidden; use (-expr) or neg(expr) at {t.pos}")
 
-        # infix-group は operand 扱いできる（入れ子OK）
+        # 括弧式・括弧付き単項マイナスは operand として扱う
         if self.match("SYM", "("):
-            return self.parse_paren_infix_expr()
+            return self.parse_paren_expr()
 
         if self.match("IDENT"):
             ident = self.eat("IDENT").text
@@ -629,52 +609,6 @@ class Parser:
         t = self.cur()
         raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
 
-
-    def parse_primary(self) -> Expr:
-
-        if self.match("SYM", "-"):
-            
-            t = self.cur()
-
-            def tok(i):
-                if 0 <= i < len(self.toks):
-                    return self.toks[i]
-                return None
-            
-            t_m1 = tok(self.i - 1)
-            t_m2 = tok(self.i - 2)
-
-            if (
-                t_m1 is not None and t_m1.kind == "SYM" and t_m1.text == "(" and
-                t_m2 is not None and t_m2.kind == "IDENT" and t_m2.text == "neg"
-            ):
-                raise SyntaxError(
-                    f"unary '-' is forbidden inside neg(...); write neg(neg(x)) instead at {t.pos}"
-                )
-            
-            raise SyntaxError(
-                f"unary '-' is forbidden; use neg(x) at {t.pos}"
-            )
-
-        if self.match("IDENT"):
-
-            ident = self.eat("IDENT").text
-
-            if self.match("SYM", "("):
-                self.eat("SYM", "(")
-                args, style = self.parse_args()
-                self.eat("SYM", ")")
-                return CallExpr(callee=ident, args=args, arg_style=style)
-            
-            return IdentExpr(ident)
-        
-        if self.match("INT"):
-            return IntLit(int(self.eat("INT").text))
-        if self.match("FLOAT"):
-            return FloatLit(float(self.eat("FLOAT").text))
-        
-        t = self.cur()
-        raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")
 
     def parse_args(self) -> Tuple[List[Arg], str]:
         # empty ok

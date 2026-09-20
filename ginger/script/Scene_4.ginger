@@ -1,5 +1,5 @@
 var x: Int = 1
-var t: Thunk[Int] = thunk(x)
+var t: Thunk[Int, Never] = thunk(x)
 x = 2
 print(force(t))
 print(x)

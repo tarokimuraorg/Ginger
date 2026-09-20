@@ -5,7 +5,7 @@ from .ast import (
     Program, TopLevel,
     ExprStmt, TryStmt, CatchStmt, VarDecl, AssignStmt,
     FuncDecl, BlockStmt, ReturnStmt,
-    Expr, BinaryExpr, CallExpr, PosArg,
+    Expr, BinaryExpr, UnaryMinusExpr, CallExpr, PosArg,
 )
 
 # op -> callee
@@ -72,6 +72,12 @@ def lower_block(b: BlockStmt) -> BlockStmt:
     return BlockStmt(stmts=out)
 
 def lower_expr(e: Expr) -> Expr:
+    if isinstance(e, UnaryMinusExpr):
+        return CallExpr(
+            callee="neg",
+            args=[PosArg(lower_expr(e.operand))],
+            arg_style="pos",
+        )
     
     if isinstance(e, BinaryExpr):
         
