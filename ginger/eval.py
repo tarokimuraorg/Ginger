@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from .args import bind_args
 from .ast import TypeRef
 from .numeric import widen_value
-from ginger.surface.funcs import SURFACE_FUNCS
-from .base.funcs import BASE_FUNCS
-from ginger.runtime.dispatch import Dispatcher
-from .symbols_builder import build_symbols
+from .symbols_builder import build_symbols, normalize_types, ResolvedCall
+from .typecheck import typecheck_program, resolve_typeref
+from .diagnostics import Diagnostics
 from .errors import EvalError, TypecheckError
 from ginger.runtime.failures import RaisedFailure, FailureId
 from .builtin import call_builtin
@@ -23,6 +22,7 @@ from .ast import (
     NamedArg,
     IdentExpr,
     IntLit,
+    Int64Lit,
     FloatLit,
     BlockStmt,
     ReturnStmt,
@@ -45,13 +45,31 @@ class Cell:
     mutable: bool   # let=False, var=True
     typ: Optional[TypeRef] = None
 
+class FunctionEnv(dict):
+    """Call-local type substitution, also preserved by existing Thunk snapshots."""
+    def __init__(self, type_bindings, values=()):
+        super().__init__(values)
+        self.type_bindings = type_bindings
+
+    def copy(self):
+        return FunctionEnv(self.type_bindings, self)
+
+
+def instantiated_type(typ, env):
+    return resolve_typeref(typ, getattr(env, "type_bindings", {}))
+
+
 @dataclass
 class ReturnSignal(Exception):
     value: "Value"
+    typ: TypeRef
 
 def eval_program(prog) -> Dict[str, Cell]:
     
     syms = build_symbols(prog)
+    prog = normalize_types(prog, syms.failuresets)
+    # Keep the exact checked expressions alive for runtime boundary/dispatch types.
+    typecheck_program(prog, Diagnostics(), syms=syms)
     env: Dict[str, Cell] = {}
 
     i = 0
@@ -102,20 +120,8 @@ def eval_program(prog) -> Dict[str, Cell]:
         if isinstance(item, CatchStmt):
             raise EvalError("catch without preceding try")
             
-        if isinstance(item, VarDecl):
-            v = eval_expr(item.expr, env=env, syms=syms)
-            env[item.name] = Cell(value=widen_value(v, item.typ), mutable=item.mutable, typ=item.typ)
-            i += 1
-            continue
-
-        if isinstance(item, AssignStmt):
-            if item.name not in env:
-                raise EvalError(f"unknown identifier '{item.name}'")
-            cell = env[item.name]
-            if not cell.mutable:
-                raise EvalError(f"cannot assign to immutable binding '{item.name}'")
-            v = eval_expr(item.expr, env=env, syms=syms)
-            env[item.name] = Cell(value=widen_value(v, cell.typ), mutable=cell.mutable, typ=cell.typ)
+        if isinstance(item, (VarDecl, AssignStmt)):
+            eval_binding_statement(item, env, syms)
             i += 1
             continue
 
@@ -128,9 +134,25 @@ def eval_program(prog) -> Dict[str, Cell]:
 
     return env
 
+
+def eval_binding_statement(stmt, env, syms, outer=None):
+    """Evaluate/coerce before publishing a new Cell, including on reassignment."""
+    if isinstance(stmt, VarDecl):
+        typ, mutable = instantiated_type(stmt.typ, env), stmt.mutable
+    else:
+        if stmt.name not in env:
+            raise EvalError(f"unknown identifier '{stmt.name}'")
+        cell = env[stmt.name]
+        if not cell.mutable:
+            raise EvalError(f"cannot assign to immutable binding '{stmt.name}'")
+        typ, mutable = cell.typ, cell.mutable
+    value = eval_expr(stmt.expr, env, syms, outer)
+    value = widen_value(value, expression_type(stmt.expr, env, syms, outer), typ)
+    env[stmt.name] = Cell(value=value, mutable=mutable, typ=typ)
+
 def eval_expr(expr: Expr, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None) -> Value:
 
-    if isinstance(expr, IntLit):
+    if isinstance(expr, (IntLit, Int64Lit)):
         return int(expr.value)
 
     if isinstance(expr, FloatLit):
@@ -148,29 +170,22 @@ def eval_expr(expr: Expr, env: Dict[str, Cell], syms, outer: Optional[Dict[str, 
 
     raise EvalError(f"unsupported expr node: {expr!r}")
 
-def _runtime_type(v):
-    if isinstance(v, bool):
-        return "Bool"
-    if isinstance(v, int):
-        return "Int"
-    if isinstance(v, float):
-        return "Float"
-    if isinstance(v, str):
-        return "String"
-    if (isinstance(v, tuple) 
-        and len(v) == 2 
-        and v[0] == "Ordering"
-        and v[1] in ("Left", "Flat", "Right")):
-        return "Ordering"
-    if v is None:
-        return "Unit"
-    raise EvalError(f"unknown runtime value type: {type(v)}")
+def expression_type(expr, env, syms, outer=None):
+    # Generic parameters are instantiated in Cells at the call boundary.
+    if isinstance(expr, IdentExpr):
+        cell = env.get(expr.name)
+        if cell is None and outer is not None:
+            cell = outer.get(expr.name)
+        if cell is not None:
+            return cell.typ
+    return instantiated_type(syms.expression_types[id(expr)], env)
 
-def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Cell]) -> Value:
+
+def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Cell], resolved: ResolvedCall) -> Value:
     """
     Run a user-defined func body.
     - Parameters are bound positionally
-    - Locals are immutable (mutable stmt not implemented inside func yet).
+    - Parameters are immutable; local declarations retain their let/var mutability.
     - Global lookup is allowed via 'caller_env' as 'outer'.
     - ReturnSignal carries the return value.
     - If a RaisedFailure happens and the corresponding sig has @attr.handled, swallow it and return Unit(None).
@@ -186,16 +201,16 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Ce
         )
     
     # local env: bind_parameters
-    local: Dict[str, Cell] = {}
+    local = FunctionEnv(resolved.type_bindings)
 
-    for p,v in zip(fdecl.params, args):
-        local[p.name] = Cell(value=widen_value(v, p.typ), mutable=False, typ=p.typ)
+    for p, v, typ in zip(fdecl.params, args, resolved.parameter_types):
+        local[p.name] = Cell(value=v, mutable=False, typ=typ)
 
     try:
         eval_block(fdecl.body, env=local, syms=syms, outer=caller_env)
         return None     # implicit Unit
     except ReturnSignal as rs:
-        return widen_value(rs.value, syms.sigs[fname].ret)
+        return widen_value(rs.value, rs.typ, resolved.return_type)
     except RaisedFailure:
         # @attr.handled: swallow failures of this sig
         attrs = syms.sig_attrs.get(fname, set())
@@ -228,61 +243,43 @@ def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[s
 
     args = [eval_expr(a.expr, env, syms, outer) for a in expr.args]
 
-    # user func があればそちらで対応（既存の仕様があれば維持）
+    actual_types = [expression_type(a.expr, env, syms, outer) for a in expr.args]
+    checked = syms.resolved_calls[id(expr)]
+    # Only substitute already inferred symbolic types for a generic function
+    # frame. Never infer again from runtime values or from the caller's target.
+    resolved = ResolvedCall(
+        {name: instantiated_type(typ, env) for name, typ in checked.type_bindings.items()},
+        tuple(instantiated_type(typ, env) for typ in checked.parameter_types),
+        instantiated_type(checked.return_type, env),
+        checked.implementation,
+    )
+    args = [widen_value(value, actual, parameter)
+            for value, actual, parameter in zip(args, actual_types, resolved.parameter_types)]
+
     if expr.callee in syms.funcs:
-        return eval_user_func(expr.callee, args, syms, env)
-    
-    # sig 呼び出しなら impl 経由で builtin に落とす
-    if expr.callee in syms.sigs:
-        
-        sig = syms.sigs[expr.callee]
-        args = [widen_value(v, typ) for v, typ in zip(args, sig.params)]
+        return eval_user_func(expr.callee, args, syms, env, resolved)
 
-        # sig に builtin が直結していたら、それを呼ぶ（requires不要）
-        if getattr(sig, "builtin", None) is not None:
-            try:
-                return call_builtin(sig.builtin, *args)
-            except ZeroDivisionError:
-                raise RaisedFailure(FailureId.DivideByZero)
+    if resolved.implementation is None:
+        raise EvalError(f"function '{expr.callee}' has no resolved runtime implementation")
+    try:
+        return call_builtin(resolved.implementation, *args)
+    except ZeroDivisionError:
+        raise RaisedFailure(FailureId.DivideByZero)
 
-        req_guars = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
-
-        if len(req_guars) != 1:
-            raise EvalError(
-                f"sig '{sig.name}' must have exactly 1 'require T guarantees G' for runtime dispatch (got {len(req_guars)})"
-            )
-        
-        guar = req_guars[0].guarantee_name
-
-        # Self の具象型を引数から決める（四則は左右同型を想定）
-        if not args:
-            raise EvalError(f"sig '{sig.name}' needs args for runtime dispatch")
-        
-        t0 = _runtime_type(args[0])
-        key = (t0, guar, sig.name)      # (Type, Guarantee, Method)
-        builtin_id = syms.impls.get(key)
-
-        if builtin_id is None:
-            raise EvalError(f"no impl for {t0} guarantees {guar}.{sig.name}")
-        
-        # builtin 実行
-        try:
-            return call_builtin(builtin_id, *args)
-        except ZeroDivisionError:
-            raise RaisedFailure(FailureId.DivideByZero)
-    
-    raise EvalError(f"function '{expr.callee}' has no runtime implementation yet")
-    
 
 def eval_block(block: BlockStmt, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None) -> None:
         
     for st in block.stmts:
+        if isinstance(st, (VarDecl, AssignStmt)):
+            eval_binding_statement(st, env, syms, outer)
+            continue
+
         # return
         if isinstance(st, ReturnStmt):
             v = eval_expr(st.expr, env=env, syms=syms, outer=outer)
-            raise ReturnSignal(v)
+            raise ReturnSignal(v, expression_type(st.expr, env, syms, outer))
         
-        # 今は ExprStmt のみ対応
+        # Expression statements retain their existing behavior.
         if isinstance(st, ExprStmt):
             eval_expr(st.expr, env=env, syms=syms, outer=outer)
             continue

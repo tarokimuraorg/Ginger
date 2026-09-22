@@ -179,7 +179,8 @@ Expr = Union[
     "UnaryMinusExpr",
     "CallExpr", 
     "IdentExpr", 
-    "IntLit", 
+    "IntLit",
+    "Int64Lit",
     "FloatLit", 
     ]
 
@@ -189,6 +190,10 @@ class IdentExpr:
 
 @dataclass(frozen=True)
 class IntLit:
+    value: int
+
+@dataclass(frozen=True)
+class Int64Lit:
     value: int
 
 @dataclass(frozen=True)

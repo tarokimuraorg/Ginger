@@ -286,18 +286,18 @@ class ExistingRegressionTests(unittest.TestCase):
 
     def test_samples_outputs_and_warnings(self):
         expected = {
-            "Scene_1": ("9\n4.5\n-9\n", 1),
-            "Scene_2": ("2.0\n", 0),
-            "Scene_3": ("0\n", 0),
-            "Scene_4": ("1\n2\n", 0),
+            "Scene_1": ("9\n4.5\n-9\n", ["unhandled failures: IntegerOverflow"] * 2
+                        + ["unhandled failures: DivideByZero"]),
+            "Scene_2": ("2.0\n", []),
+            "Scene_3": ("0\n", []),
+            "Scene_4": ("1\n2\n", []),
         }
         root = Path(__file__).resolve().parents[1] / "ginger" / "script"
-        for name, (stdout, warning_count) in expected.items():
+        for name, (stdout, warnings) in expected.items():
             with self.subTest(name=name):
                 program, diags = checked((root / f"{name}.ginger").read_text())
                 self.assertEqual(output(program), stdout)
-                self.assertEqual([d.message for d in diags],
-                                 ["unhandled failures: DivideByZero"] * warning_count)
+                self.assertEqual([d.message for d in diags], warnings)
 
 
 if __name__ == "__main__":

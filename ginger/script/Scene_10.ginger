@@ -1,0 +1,18 @@
+var a: Int = 9007199254740991
+var b: Int = add(a, 0)
+
+print(b)
+
+//var c: Int = 9007199254740991
+
+//try add(c, 1)
+//catch IntegerOverflow print(999)
+
+//try add(1.0, 2.0)
+//catch IntegerOverflow print(999)
+
+var d: Int64 = 9007199254740992i64
+print(d)
+
+var e: Int64 = add(1i64,2i64)
+print(e)

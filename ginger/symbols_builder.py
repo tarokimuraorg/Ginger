@@ -25,6 +25,14 @@ from .ast import (
 # =====================
 
 @dataclass(frozen=True)
+class ResolvedCall:
+    type_bindings: Dict[str, TypeRef]
+    parameter_types: Tuple[TypeRef, ...]
+    return_type: TypeRef
+    implementation: str | None
+
+
+@dataclass(frozen=True)
 class Symbols:
 
     guarantees: Dict[str, GuaranteeDecl]
@@ -37,6 +45,7 @@ class Symbols:
     funcs: Dict[str, FuncDecl]                       # name -> decl
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     expression_types: Dict[int, TypeRef]  # Static, per-check expression annotations
+    resolved_calls: Dict[int, ResolvedCall]  # Shared by effects and runtime; keyed by expression id.
     types: set[str]                                  # プリミティブ型
 
 
@@ -308,6 +317,7 @@ def build_symbols(prog: Program) -> Symbols:
         impls=impls,
         types=types,
         expression_types={},
+        resolved_calls={},
     )
 
     _validate_catalog(syms)

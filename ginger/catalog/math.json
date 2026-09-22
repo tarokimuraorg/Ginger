@@ -54,6 +54,18 @@
   ],
   "impls": [
     {
+      "type": {
+        "ref": "Int64"
+      },
+      "guarantee": "Negatable",
+      "methods": [
+        {
+          "name": "neg",
+          "builtin": "core.int.neg"
+        }
+      ]
+    },
+    {
       "type": { "ref": "Int" },
       "guarantee": "Addable",
       "methods": [{ "name": "add", "builtin": "core.int.add" }]

@@ -1,0 +1,11 @@
+sig f(Int) -> Int {
+    failure IntegerOverflow
+}
+
+func f(x: Int) {
+    var y: Int = add(x, 1)
+    return y
+}
+
+try f(9007199254740991)
+catch IntegerOverflow print(999)

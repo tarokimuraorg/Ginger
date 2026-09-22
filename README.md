@@ -12,7 +12,7 @@ Ginger は、Python で実装された独自のプログラミング言語処理
 python3 -B -m ginger.main
 ```
 
-現在の `ginger/main.py` は `ginger/script/Scene_9.ginger` を固定で読み込み、`3` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
+現在の `ginger/main.py` は `ginger/script/Scene_7.ginger` を固定で読み込み、IntegerOverflow の未処理警告に続いて `-2`、`-2`、`3` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
 
 別のサンプルは Python API から実行できます。次の例もプロジェクトルートで実行します。
 
@@ -25,7 +25,7 @@ run(Path("ginger/script/Scene_7.ginger").read_text(encoding="utf-8"))
 PY
 ```
 
-`Code.ginger` と Scene 3・5・6・7・8・9 は現在実行できます。Scene 5・7 は `DivideByZero` の未処理警告がそれぞれ2件出ますが、評価結果は従来と同じです。ほかのサンプルには現行構文や標準定義と一致しないものがあります。
+Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2〜6 には未処理警告はありません。演算結果・標準出力は前段階と同じです。
 
 ## 処理フロー
 
@@ -41,6 +41,8 @@ PY
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
 `compile(src)` は型検査済み AST を返し、`execute(prog)` が評価します。`run(src)` は両方を実行します。型検査の通過だけで、未完成部分を含むすべての実行時契約が保証されるわけではありません。
+
+型検査は現在、通常の `compile → execute` 経路で二重に実行します。compile は Program のみを返し、Symbols / expression_types / resolved_calls を保持しません。さらに型の正規化で AST が再構築されるため、評価開始時に runtime が使用する AST と Symbols に対して再検査し、式の ID に対応する型情報を作ります。再検査の診断は再表示しません。今回は API を維持します。将来、正規化済み Program と検査済み Symbols をまとめた compile 結果を execute へ渡せば再利用できます。
 
 ## 現在確認できる主な機能
 
@@ -59,11 +61,56 @@ PY
 
 ## 型・変数・式
 
-トップレベル変数には明示的な型注釈が必要です。具体的な Float を要求する変数初期化・再代入・user function / builtin の引数・関数の戻り値では、`Int → Float` の暗黙変換を許可し、runtime 値も Float に変換します。`Float → Int` は暗黙には許可しません。
+通常の整数リテラル `123` は Int、suffix を直接付けた `123i64` は Int64 です。`1.0i64` は無効です。範囲外リテラルは静的に拒否します。既存の leading zero の許容は維持します。
 
-`var x: Float = 1` は有効で値は `1.0`、`var x: Int = 1.5` は無効です。これは方向付きの数値変換であり型の等価性ではありません。Int と Float は引き続き別の型で、sig / func 宣言の照合や generic 型の variance、Thunk の結果型には適用しません。
+| 型 | 範囲 |
+|---|---|
+| Int | `-(2^53 - 1)` ～ `+(2^53 - 1)`（±9,007,199,254,740,991） |
+| Int64 | `-(2^63 - 1)` ～ `+(2^63 - 1)`（±9,223,372,036,854,775,807） |
 
-`add(1, 2.0)` のような generic 型変数の共通型推論は対象外です。型変数を解決した引数の一致条件も従来どおりです。変換は既存の `toFloat` と同じく精度を失う場合があり、巨大整数では Python の `OverflowError` が伝播します。新しい Ginger failure や精度保証は導入しません。
+Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `(-1)` / `(-1i64)` と書き、裸の `-1` は引き続き無効です。
+
+| 暗黙変換 | 許可 |
+|---|---|
+| Int → Float | OK（有効な Int は精度損失・値域 overflow なし） |
+| Int → Int64 | OK |
+| Int64 → Float / Int | NG（小さい値でも禁止） |
+| Float → Int / Int64 | NG |
+
+トップレベル変数には明示的な型注釈が必要です。widening は変数初期化・再代入・具体型の関数引数・return の使用境界で行います。`var x: Int = 1` から `var y: Int64 = x`、`var z: Float = x` に変換しても、元の x の宣言型は Int のままです。runtime でも宣言型を保持し、Python int から Int / Int64 を推測しません。
+
+3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[Int, Never] → Thunk[Int64, Never]` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
+
+Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / eq / lt）のみです。add / sub / mul / div は未対応です。
+
+標準 Int の **add / sub / mul は結果を範囲検査**し、Int 範囲外なら `RaisedFailure(FailureId.IntegerOverflow)` を送出します。範囲外の結果を変数や関数の戻り値へ渡しません。Int64 への自動昇格・wraparound・clamp・saturation は行いません。戻り値型は常に Int です。neg は対称範囲内に収まるため IntegerOverflow を持ちません。
+
+範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。Float の add / sub / mul と Infinity の挙動も変更しません。
+
+**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul に一律の IntegerOverflow 宣言は追加していません。`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES` に管理対象の3実装 `core.int.add/sub/mul` の契約を定義し、`effect_call` が呼び出しメタデータに保存された選択実装から契約を合算します。runtime dispatch も同じ実装を使用します。この限定的な特殊化により Int 呼び出しだけが IntegerOverflow を持ち、Float 呼び出しには混入しません。一般的な型依存 effect・overload・failure 型変数は導入していません。式全体の effect には引数評価の failure も含むため、Float 演算でもその引数が IntegerOverflow を起こす式なら catch できます。
+
+型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。既存の catch 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
+
+```ginger
+var t: Thunk[Int, IntegerOverflow] = thunk(mul(9007199254740991, 2))
+try force(t)
+catch IntegerOverflow print(1)
+```
+
+return 式には宣言戻り値型を generic 型変数の推論用期待型として渡しません。`return add(x,1)` や `return neg(x)` は、実引数から型変数を決定できるため有効です。`make() -> T` のように引数側に T の根拠がなければ、外側の return 型が具体型でも拒否します。
+
+整数生成経路の監査結果:
+
+| 経路 | 保証・制約 |
+|---|---|
+| Int / Int64 literal | 静的範囲検査 |
+| 標準 Int add / sub / mul | 範囲内の Int を返すか IntegerOverflow を送出 |
+| Int / Int64 neg | 有効入力では対称範囲内。failure なし |
+| その他の標準 builtin | div / toFloat は Float、cmp は Ordering、eq / lt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
+| 変数・引数・return・Thunk | 標準演算が範囲外の値を返さないため、その値を格納・伝播しない。入力自体は既存の型契約を信頼 |
+| 独自 builtin sig / impl・Python API の直接呼び出し | 引き続き信頼境界。宣言と実装の型・値域・failure を全面検証しない。範囲外 Python int を Int として返す実装は技術的に可能 |
+
+独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。runtime の標準算術結果検査は実行されます。任意の独自 builtin が不正な Int を生成した場合は、neg・widening・toFloat などの保証の前提を破ります。builtin sandbox や全面的な runtime validation は導入していません。
 
 ```ginger
 let initial: Int = 1
@@ -82,8 +129,8 @@ print(negative)
 - `(x)` や `(f())` は通常の括弧式として使用できます。
 - 単項マイナスは `(-expr)` の形式で使用できます。括弧なしの `-expr` は使用できません。`1 - (-2)` は有効ですが、`1--2` や `1 - -2` は無効です。
 - 単項マイナスのオペランドに別の単項マイナスを直接指定する構文は提供しません。`(-(-x))` や `(-((-x)))` は無効です。二重否定には `neg(neg(x))` を使用してください。
-- 既存の `neg(expr)` も引き続き使用できます。`(-expr)` と型・評価・failure の扱いは同じです。標準では Int / Float に対応します。
-- `neg(expr)` と `(-expr)` は既存の型規則に従い、期待型を必要とします。例えば `var n: Int = (-1)` は有効ですが、`print((-1))` は `print(neg(1))` と同様に型推論エラーになります。
+- 既存の `neg(expr)` も引き続き使用できます。`(-expr)` と型・評価・failure の扱いは同じです。標準では Int / Int64 / Float に対応します。
+- `neg(expr)` と `(-expr)` は実引数から型を推論します。`print(neg(1))` と `print((-1))` はどちらも `-1` を出力します。裸の単項マイナスは引き続き禁止です。
 - 除算は標準では Float 引数を要求します。`div(1, 2)` は両引数を Float に変換して実行します。
 - Bool 値は現在 `eq`・`lt` などから得ます。`true` / `false` のリテラルはありません。
 - `cmp(a, b)` は `a > b` で `Left`、等しければ `Flat`、`a < b` で `Right` を返します。
@@ -114,7 +161,59 @@ print(result)
 - 呼び出しは位置引数で、値も位置順に束縛します。同名 sig のオーバーロードはありません。
 - return の型は sig の戻り値と照合します（Thunkの潜在failureは上限包含を許可）。return がなければ Unit を要求します。
 
-型変数は現在、原則として1文字の大文字で表します。`T → T` の恒等関数は動作しますが、一般的なジェネリクスや型推論は限定実装です。例えば `var x: Int = add(1, 2)` は通りますが、`print(add(1, 2))` は内側の戻り値型を決められず拒否されます。
+型変数は現在、原則として1文字の大文字で表します。generic 呼び出しは **sig の仮引数 TypeRef と実引数の静的 TypeRef のみ**から call site ごとに局所推論します。外側の assignment / argument / return の expected type や、func 本体から型変数を逆算しません。
+
+同じ型変数への evidence は、実際に観測した型の中から、すべてを安全な widening で受け入れられる一意の型へ統合します。Int だけなら Int のままです。
+
+| 同じ T への実引数型 | 推論結果 |
+|---|---|
+| Int, Int | Int |
+| Int, Float（逆順も同じ） | Float |
+| Int, Int64（逆順も同じ） | Int64 |
+| Int64, Float | 統合不能として拒否 |
+
+根拠がない型変数は `cannot determine type variable`、統合不能は `cannot reconcile`、候補が複数残る場合は ambiguity として拒否します。`sig make() -> T` / `sig strange(Int) -> T` は、`var x: Int = make()` / `strange(1)` でも T を決定できません。
+
+TypeRef は再帰的に照合・置換するため、`Thunk[T, Never]` と `Thunk[Int, Never]` から T = Int を得られます。`SomeType[T]` のような既存 TypeRef 構造も同様ですが、型コンストラクタの不一致は拒否します。置換後の引数全体を既存 compatibility で検査するため、Thunk の結果型を含む型引数の variance は追加しません。latent failure 集合は具体的な既存契約として検査し、failure 型変数や集合の推論・統合は導入しません。同じ裸の T に異なる latent failure を持つ Thunk 型が渡された場合も、集合の共通上限を新たに推論しません。
+
+型変数決定後に guarantee / typegroup の要件を検査します。`add(1,2i64)` は T = Int64 まで解決した後、Int64 が Addable を持たないため拒否します。Int64 算術は未解禁です。
+
+型検査は呼び出しごとに `Symbols.resolved_calls` へ型変数 binding、置換済み parameter / return TypeRef、選択実装を保存します。runtime は actual Ginger TypeRef と解決済み parameter TypeRef に従って call boundary widening を行い、保存された実装を呼びます。effect 判定も同じ選択実装を使い、Python int から Int / Int64 や T を推測しません。
+
+call expression 自体の型は置換済み return TypeRef です。外側の expected type はその後の compatibility 検査にのみ使います。
+
+| 呼び出しと格納先 | call の型・実装・effect |
+|---|---|
+| `var x: Float = add(1,2)` | call は Int / core.int.add / IntegerOverflow。格納境界で Float に変換 |
+| `var x: Float = add(1,2.0)` | call は Float / core.float.add / IntegerOverflow なし。第一引数を Float に変換 |
+| `var x: Int = add(1,2.0)` | call は Float。Float → Int は拒否 |
+| `var x: Int64 = identity(1)` | identity call は Int。格納境界で Int64 に変換 |
+
+`print(add(1,2))` は `3`（未処理 IntegerOverflow 警告あり）、`print(add(1,2.0))` は `3.0`（警告なし）を出力します。Float 演算の引数式自体が failure を持つ場合は、その effect は従来どおり合算します。
+
+user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使います。`first(1,2.0)` は両 parameter を Float として束縛します。nested call は内側を解決した静的型を外側の evidence に使います。generic 関数フレームは call site で解決した binding を保持し、本体の symbolic TypeRef を置換します（本体からの再推論はしません）。Thunk の環境スナップショットにもこの binding を保持します。generic 本体内で型変数の guarantee を使う演算は既存の検証上の制限が残ります。sig / func の厳密な構造照合、型変数名の一致条件は変更しません。
+
+関数本体では型注釈付きの `let name: Type = expr` / `var name: Type = expr` と再代入を使用できます。`let` と parameter は再代入不可、`var` は再代入可能です。宣言型は固定し、トップレベルと同じ安全な `Int → Float` / `Int → Int64` widening を初期化・再代入の境界で適用します。逆方向や `Int64 → Float` は許可しません。型注釈省略の `let x = 1` / `var x = 1` は未対応です。
+
+関数本体全体がひとつのローカルスコープです。引数とローカル変数は同じ名前空間に属し、引数名や宣言済みローカル名の再宣言は禁止します。宣言は順番に処理し、initializer の型検査・評価が成功してから binding を追加します。宣言前参照や `var x: Int = x` は拒否します。呼び出しごとにローカル環境を作り、関数外や次の呼び出しへ binding は漏れません。
+
+同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 try/catch・nested function・一般的な closure は追加していません。
+
+ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は `999` を出力します。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が失敗した変数は作成せず、再代入が失敗した場合は以前の値を維持します。
+
+```ginger
+sig increment(Int) -> Int {
+    failure IntegerOverflow
+}
+func increment(x: Int) {
+    var y: Int = add(x, 1)
+    return y
+}
+try print(increment(9007199254740991))
+catch IntegerOverflow print(999)
+```
+
+`failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int, Never]` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
 ## guarantee と標準 catalog
 
@@ -124,7 +223,7 @@ print(result)
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
 
-実行時は `thunk` / `force` を特別扱いし、通常の呼び出しは同名の `func`、sig 直結の builtin、guarantee 経由の impl の順に処理します。最後の経路は保証1個と先頭引数の実行時型を前提にしています。
+実行時は `thunk` / `force` を特別扱いし、通常の呼び出しは同名の `func`、sig 直結の builtin、guarantee 経由の impl の順に処理します。最後の経路は保証1個に対応する解決済み型変数から選んだ実装を使います。先頭引数の元の型や Python 実行時型からは選びません。
 
 現在は単一ソースに宣言と実行文を記述できます。`Catalog.ginger`・`Code.ginger`・`Impl.ginger` を役割別に自動読み込みする仕組みはありません。Catalog とソースの責務や標準実装の置換は未確定です。
 
@@ -146,7 +245,7 @@ sig 本体に `failure DivideByZero` などを列挙できます。使える fai
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-通常ユーザー関数では、到達可能な return 式と式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled に依存する関数は、後述のとおり上限検証を保留します。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 Int 算術では、上記の具体的な impl の IntegerOverflow 契約も合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled に依存する関数は、後述のとおり上限検証を保留します。
 
 標準 `div` は `DivideByZero` を宣言しています。catch せずにトップレベルで使うと未処理警告の対象になります。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -168,7 +267,7 @@ catch DivideByZero print(0)
 
 重複 catch と handler の再失敗規則は既存挙動の記録であり、今回の上限契約整備で将来の仕様まで確定したものではありません。
 
-builtin の宣言は静的解析が信頼する契約であり、Python 実装から実際の failure を自動推論・検証してはいません。独自 builtin sig の宣言漏れも検出できません。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や巨大な Int の toFloat 変換失敗は Python 例外として伝播し、Ginger の catch が捕捉する `RaisedFailure` には変換されません。
+builtin の宣言は静的解析が信頼する契約であり、Python 実装から実際の failure を自動推論・検証してはいません。独自 builtin sig の宣言漏れも検出できません。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や、独自 builtin が契約違反の巨大整数を返した場合の toFloat 変換失敗は Python 例外として伝播し、Ginger の catch が捕捉する `RaisedFailure` には変換されません。
 
 ## @attr.handled と検証保留
 
@@ -228,8 +327,8 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 
 | 項目 | 制限・判断が必要な点 |
 |---|---|
-| 型変数推論 | 戻り値が型変数の通常呼び出しは期待型を要求。return 式に sig の期待型を伝播しない |
-| 型引数・ジェネリクス | 再帰的な型変数置換は未対応。通常呼び出しで戻り値の型引数を失う経路がある |
+| 型変数推論 | sig 仮引数と実引数から call site ごとに推論。外側 expected type / 関数本体からの逆推論はしない |
+| 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 型変数の保証を本体内の呼び出し検査に十分反映できない。複数保証やメソッドの型契約と実装選択の関係も未確定 |
 | failure の契約 | 通常関数の上限検証と catch の静的集合制限は導入済み。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告、重複 catch・handler 再失敗は既存挙動を維持 |
 | handled | 中核仕様として保留。意味・付与先・builtin との整合性は未確定で、依存する関数の上限検証は保留 |
@@ -237,7 +336,7 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |
 | 名前付き引数 | 構文解析は対応するが、通常の型検査・実行では拒否 |
 | スコープ | 関数外変数への参照は通常の型検査で拒否。評価器には外側環境を参照する処理が残る |
-| 関数内ローカル変数 | let / var、再代入は未対応。本体は return と式文のみ |
+| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。型注釈省略・nested block scope・関数内 try/catch は未対応 |
 | CLI | main がサンプル固定。入力パス指定の CLI は未実装 |
 | String・制御構文など | 文字列リテラル、条件分岐、ループ、ユーザー定義データ構造は未実装。String の実行時処理や builtin は一部存在する |
 

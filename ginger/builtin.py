@@ -1,4 +1,20 @@
 from typing import Callable, Dict, Any, Literal, Tuple
+from .numeric import INT_MIN, INT_MAX
+from .core.failure_spec import FailureId, failures
+from .runtime.failures import RaisedFailure
+
+# Managed implementation contracts, specialized after concrete impl dispatch.
+# Custom builtin sigs remain trusted declarations; this is not Python effect inference.
+INT_ARITHMETIC_FAILURES = {
+    f"core.int.{name}": failures(FailureId.IntegerOverflow)
+    for name in ("add", "sub", "mul")
+}
+
+
+def checked_int_result(result: int) -> int:
+    if not INT_MIN <= result <= INT_MAX:
+        raise RaisedFailure(FailureId.IntegerOverflow)
+    return result
 
 # いまのランタイム値（必要なら ginger/eval.py 側の Value と合わせる）
 Value = Any
@@ -13,13 +29,13 @@ def ordering(tag: OrderingTag) -> OrderingValue:
 
 BUILTINS: Dict[str, BuiltinFn] = {
 
-    "core.int.add":   lambda a, b: a + b,
+    "core.int.add":   lambda a, b: checked_int_result(a + b),
     "core.float.add": lambda a, b: a + b,
 
-    "core.int.sub":   lambda a, b: a - b,
+    "core.int.sub":   lambda a, b: checked_int_result(a - b),
     "core.float.sub": lambda a, b: a - b,
 
-    "core.int.mul":   lambda a, b: a * b,
+    "core.int.mul":   lambda a, b: checked_int_result(a * b),
     "core.float.mul": lambda a, b: a * b,
 
     "core.float.div": lambda a, b: a / b,
@@ -60,8 +76,5 @@ def call_builtin(builtin_id: str, *args: Value) -> Value:
     return fn(*args)
 
 def _cmp_result(a, b):
-    if isinstance(a, int):
-        return BUILTINS["core.int.cmp"](a, b)
-    if isinstance(a, float):
-        return BUILTINS["core.float.cmp"](a, b)
-    raise TypeError("unsupported type for cmp")
+    # Numeric implementations share value comparison, not Ginger type inference.
+    return ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right")

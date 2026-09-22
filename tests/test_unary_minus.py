@@ -34,7 +34,10 @@ class UnaryMinusTests(unittest.TestCase):
             with self.subTest(expr=expr):
                 typ = 'Float' if '.' in expected else 'Int'
                 program, diags = checked(prefix + f'var result: {typ} = {expr}\nprint(result)')
-                self.assertEqual(diags.items, [])
+                arithmetic = {'(-(a + b))', '1 - (-2)', '1 + (-2)', 'x * (-2)',
+                              '(-x) + 1', '(-2) * 3', '1-(-2)'}
+                self.assertEqual([d.message for d in diags],
+                                 ['unhandled failures: IntegerOverflow'] if expr in arithmetic else [])
                 self.assertEqual(output(program), expected + '\n')
 
     def test_invalid_syntax_in_expression_contexts(self):
@@ -93,13 +96,14 @@ class UnaryMinusTests(unittest.TestCase):
                     messages.append(str(raised.exception))
             self.assertEqual(*messages)
 
-    def test_existing_expected_type_requirement_is_preserved(self):
+    def test_argument_inference_without_expected_type(self):
         for form in ['(-1)', 'neg(1)']:
             for source in [f'print({form})',
-                           f'sig f() -> Int {{}}\nfunc f() {{ return {form} }}']:
-                with self.subTest(source=source), self.assertRaisesRegex(
-                        TypecheckError, "cannot determine type variable 'T' in call to neg"):
-                    checked(source)
+                           f'sig f() -> Int {{}}\nfunc f() {{ return {form} }}\nprint(f())']:
+                with self.subTest(source=source):
+                    program, diags = checked(source)
+                    self.assertEqual(diags.items, [])
+                    self.assertEqual(output(program), '-1\n')
 
     def test_standard_neg_has_no_failure(self):
         syms = build_symbols(parse(''))
@@ -161,10 +165,13 @@ class UnaryMinusTests(unittest.TestCase):
 
     def test_all_sample_baselines(self):
         expected = {
-            'Scene_1': ('9\n4.5\n-9\n', ['unhandled failures: DivideByZero']),
+            'Scene_1': ('9\n4.5\n-9\n', ['unhandled failures: IntegerOverflow'] * 2
+                         + ['unhandled failures: DivideByZero']),
             'Scene_2': ('2.0\n', []), 'Scene_3': ('0\n', []),
             'Scene_4': ('1\n2\n', []),
             'Scene_5': ('0\n', []),
+            'Scene_6': ('0\n5.0\n', []),
+            'Scene_7': ('-2\n-2\n3\n', ['unhandled failures: IntegerOverflow']),
         }
         root = Path(__file__).resolve().parents[1] / 'ginger' / 'script'
         for name, (stdout, warnings) in expected.items():

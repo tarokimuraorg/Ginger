@@ -1,17 +1,22 @@
-"""Concrete numeric widening, independent of equality and generic inference."""
+"""Concrete numeric ranges and directional widening (constructors are invariant)."""
 from .ast import TypeRef
+
+INT_MAX = (1 << 53) - 1
+INT_MIN = -INT_MAX
+INT64_MAX = (1 << 63) - 1
+INT64_MIN = -INT64_MAX
 
 
 def can_widen(actual: TypeRef, expected: TypeRef) -> bool:
-    """Only bare Ginger Int values widen to Float; constructors are invariant."""
-    return actual == TypeRef("Int") and expected == TypeRef("Float")
+    return actual == TypeRef("Int") and expected in (TypeRef("Float"), TypeRef("Int64"))
 
 
-def widen_value(value, expected: TypeRef | None):
-    """Like toFloat, float() may round or propagate OverflowError.
+def widen_value(value, actual: TypeRef, expected: TypeRef | None):
+    """Use Ginger types, never infer integer identity from Python representation.
 
-    Python bool is not Ginger Int. No new Ginger failure is introduced.
+    Int -> Int64 preserves the Python int representation. Range enforcement for
+    arithmetic results is performed by the managed integer builtins.
     """
-    if type(value) is int and can_widen(TypeRef("Int"), expected):
+    if can_widen(actual, expected) and expected == TypeRef("Float"):
         return float(value)
     return value

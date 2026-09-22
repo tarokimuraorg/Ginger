@@ -2,9 +2,13 @@ from ginger.builtin import call_builtin, has_builtin
 from ginger.errors import EvalError
 from ginger.runtime.thunk import ThunkValue
 
-def type_of(v):
+def type_of(v, actual_type=None):
 
-    if isinstance(v, int): return "Int"
+    if actual_type is not None:
+        return actual_type.name
+    if isinstance(v, bool): return "Bool"
+    if isinstance(v, int):
+        raise EvalError("integer dispatch requires an explicit Ginger TypeRef")
     if isinstance(v, float): return "Float"
     if isinstance(v, str): return "String"
     if isinstance(v, ThunkValue): return "Thunk"
@@ -30,5 +34,5 @@ class Dispatcher:
         
         return call_builtin(builtin_id, *args)
     
-    def type_of(self, v):
-        return type_of(v)
+    def type_of(self, v, actual_type=None):
+        return type_of(v, actual_type)

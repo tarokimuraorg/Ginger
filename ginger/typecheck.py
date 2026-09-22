@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .errors import TypecheckError
-from .numeric import can_widen
-from .symbols_builder import build_symbols, normalize_types
+from .numeric import can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
+from .builtin import INT_ARITHMETIC_FAILURES
+from .symbols_builder import build_symbols, normalize_types, ResolvedCall
 from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from .diagnostics import Diagnostics
 
@@ -15,6 +16,7 @@ from .ast import (
     CallExpr,
     IdentExpr,
     IntLit,
+    Int64Lit,
     FloatLit,
     ExprStmt,
     TryStmt,
@@ -52,7 +54,7 @@ def remove_failure(eff: FailureSet, name: str) -> FailureSet:
 def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
 
     # literals
-    if isinstance(expr, IntLit):
+    if isinstance(expr, (IntLit, Int64Lit)):
         return EMPTY_FAILURES
     
     if isinstance(expr, FloatLit):
@@ -100,6 +102,14 @@ def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
         arg_effects.append(effect_expr(a.expr, env, syms))
 
     callee_eff: FailureSet = syms.sig_failures.get(call.callee, EMPTY_FAILURES)
+    # The checked call's implementation is the same one runtime dispatch uses.
+    if call.callee not in syms.funcs and sig.builtin is None:
+        if id(call) not in syms.resolved_calls:
+            type_expr(call, None, env, syms)
+        resolved = syms.resolved_calls[id(call)]
+        callee_eff = union_failures(
+            callee_eff, INT_ARITHMETIC_FAILURES.get(resolved.implementation, EMPTY_FAILURES)
+        )
     eff_args = union_failures(EMPTY_FAILURES, *arg_effects)
 
     # @handled なら callee の failure を落とす（引数の failure は残す）
@@ -121,7 +131,7 @@ def is_typevar(name: str) -> bool:
 def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
     if is_typevar(t.name):
         if t.name not in tmap:
-            raise TypecheckError(f"cannot resolve type variable '{t.name}'")
+            raise TypecheckError(f"cannot determine type variable '{t.name}'")
         return tmap[t.name]
     return TypeRef(t.name, tuple(resolve_typeref(a, tmap) for a in t.args),
                    latent_failures=t.latent_failures)
@@ -129,7 +139,7 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
 # def resolve_typeref(t, tmap: Dict[str, TypeRef]) -> TypeRef:
 #     if is_typevar(t.name):
 #         if t.name not in tmap:
-#             raise TypecheckError(f"cannot resolve type variable '{t.name}'")
+#             raise TypecheckError(f"cannot determine type variable '{t.name}'")
 #         return tmap[t.name]
 #     return t
 
@@ -138,10 +148,11 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
 # Typechecking
 # =====================
 
-def typecheck_program(prog, diags: Diagnostics) -> Dict[str, Binding]:
+def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Binding]:
 
-    syms = build_symbols(prog)
-    prog = normalize_types(prog, syms.failuresets)
+    if syms is None:
+        syms = build_symbols(prog)
+        prog = normalize_types(prog, syms.failuresets)
     typecheck_func_bodies(prog, syms, diags)
     env: Dict[str, Binding] = {}
 
@@ -311,10 +322,23 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
         ret_types: list[TypeRef] = []
 
         for st in item.body.stmts:
-            if isinstance(st, ReturnStmt):
+            if isinstance(st, VarDecl):
+                if st.name in fenv:
+                    raise TypecheckError(f"variable '{st.name}' already defined")
+                type_expr(st.expr, expected=st.typ, env=fenv, syms=syms, tv_guars=tv_guars)
+                # A declaration enters scope only after its initializer is checked.
+                fenv[st.name] = Binding(ty=st.typ, mutable=st.mutable)
+            elif isinstance(st, AssignStmt):
+                if st.name not in fenv:
+                    raise TypecheckError(f"unknown identifier '{st.name}'")
+                binding = fenv[st.name]
+                if not binding.mutable:
+                    raise TypecheckError(f"cannot assign to immutable binding '{st.name}'")
+                type_expr(st.expr, expected=binding.ty, env=fenv, syms=syms, tv_guars=tv_guars)
+            elif isinstance(st, ReturnStmt):
                 rt = type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
-                # Compare returns after concrete widening, without feeding an
-                # expected type into generic inference or changing annotations.
+                # Compare returns after boundary widening while retaining each
+                # expression's actual type annotation for runtime coercion.
                 ret_types.append(sig.ret if can_widen(rt, sig.ret) else rt)
             elif isinstance(st, ExprStmt):
                 type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
@@ -345,7 +369,7 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
 
 
 def reachable_body_exprs(func):
-    """Only ReturnStmt/ExprStmt are supported by the preceding body typecheck."""
+    """Include declaration/assignment RHS effects, stopping at the first return."""
     for stmt in func.body.stmts:
         yield stmt.expr
         if isinstance(stmt, ReturnStmt):
@@ -393,9 +417,15 @@ def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
                 )
             continue
         env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
-        inferred_failures = union_failures(
-            *(effect_expr(expr, env, syms) for expr in reachable_body_exprs(func))
-        )
+        inferred_failures = EMPTY_FAILURES
+        for stmt in func.body.stmts:
+            inferred_failures = union_failures(
+                inferred_failures, effect_expr(stmt.expr, env, syms)
+            )
+            if isinstance(stmt, VarDecl):
+                env[stmt.name] = Binding(ty=stmt.typ, mutable=stmt.mutable)
+            if isinstance(stmt, ReturnStmt):
+                break
         declared_failures = syms.sig_failures[fname]
         missing = inferred_failures - declared_failures
         if missing:
@@ -422,9 +452,13 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         tv_guars = {}
 
     # literals
-    if isinstance(expr, IntLit):
+    if isinstance(expr, (IntLit, Int64Lit)):
     
-        t = TypeRef("Int")
+        is64 = isinstance(expr, Int64Lit)
+        t = TypeRef("Int64" if is64 else "Int")
+        low, high = (INT64_MIN, INT64_MAX) if is64 else (INT_MIN, INT_MAX)
+        if not low <= expr.value <= high:
+            raise TypecheckError(f"{t.name} literal out of range: {expr.value} (expected {low}..{high})")
 
         if expected is not None and not compatible(t, expected):
             raise TypecheckError(f"type mismatch: expected {expected}, got {t}")
@@ -457,6 +491,36 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
     if isinstance(expr, CallExpr):
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
+def collect_type_evidence(formal: TypeRef, actual: TypeRef, evidence):
+    """Match constructors recursively; failure sets remain concrete contracts."""
+    if is_typevar(formal.name):
+        evidence.setdefault(formal.name, []).append(actual)
+        return
+    if formal.name != actual.name or len(formal.args) != len(actual.args):
+        if can_widen(actual, formal):
+            return
+        raise TypecheckError(f"type mismatch: expected {formal}, got {actual}")
+    for formal_arg, actual_arg in zip(formal.args, actual.args):
+        collect_type_evidence(formal_arg, actual_arg, evidence)
+
+
+def reconcile_type_evidence(name: str, evidence: list[TypeRef]) -> TypeRef:
+    """Choose a unique observed type accepting all evidence via safe widening."""
+    observed = []
+    for typ in evidence:
+        if not any(same_type(typ, prior) for prior in observed):
+            observed.append(typ)
+    candidates = [candidate for candidate in observed
+                  if all(same_type(actual, candidate) or can_widen(actual, candidate)
+                         for actual in observed)]
+    if not candidates:
+        names = " and ".join(sorted(t.name for t in observed))
+        raise TypecheckError(f"cannot reconcile {names} for type variable '{name}'")
+    if len(candidates) != 1:
+        raise TypecheckError(f"ambiguous evidence for type variable '{name}': {candidates}")
+    return candidates[0]
+
+
 def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding],syms,tv_guars: Optional[Dict[str, set[str]]] = None) -> TypeRef:
 
     if tv_guars is None:
@@ -475,11 +539,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             )
         arg_expr = call.args[0].expr
 
-        inner_expected = None
-        if isinstance(expected, TypeRef) and expected.name == "Thunk":
-            inner_expected = expected.args[0]
-
-        t = type_expr(arg_expr, inner_expected, env, syms, tv_guars)
+        t = type_expr(arg_expr, None, env, syms, tv_guars)
         return TypeRef("Thunk", (t,), latent_failures=effect_expr(arg_expr, env, syms))
 
     # =====================
@@ -522,45 +582,20 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             f"expected {len(sig.params)}, got {len(call.args)}"
         )
 
-    tmap: Dict[str, TypeRef] = {}
-
-    # =====================
-    # ① expected から型決定
-    # =====================
-    if expected is not None:
-        if is_typevar(sig.ret.name):
-            tmap[sig.ret.name] = expected
-        else:
-            if not compatible(sig.ret, to_typeref(expected)):
-                raise TypecheckError(
-                    f"type mismatch in call to {sig.name}: "
-                    f"expected {expected}, got {sig.ret.name}"
-                )
-    else:
-        if is_typevar(sig.ret.name):
-            raise TypecheckError(
-                f"cannot determine type variable '{sig.ret.name}' "
-                f"in call to {sig.name} (no expected type)"
-            )
-
-    # =====================
-    # 引数抽出
-    # =====================
-    arg_exprs = [a.expr for a in call.args]
-
-    # =====================
-    # ② 引数から型変数推論
-    # =====================
-    for tref, aexpr in zip(sig.params, arg_exprs):
-        if is_typevar(tref.name) and tref.name not in tmap:
-            inferred = type_expr(
-                aexpr,
-                tmap.get(tref.name),
-                env,
-                syms,
-                tv_guars=tv_guars
-            )
-            tmap[tref.name] = inferred
+    # Infer every argument independently; outer expected types are not evidence.
+    actual_types = [type_expr(a.expr, None, env, syms, tv_guars) for a in call.args]
+    evidence: Dict[str, list[TypeRef]] = {}
+    for formal, actual in zip(sig.params, actual_types):
+        try:
+            collect_type_evidence(formal, actual, evidence)
+        except TypecheckError as error:
+            if call.callee == "div":
+                raise TypecheckError("division expects Float operands. Write 1.0/2.0 or use toFloat(...).") from error
+            raise
+    tmap = {name: reconcile_type_evidence(name, candidates)
+            for name, candidates in evidence.items()}
+    parameter_types = tuple(resolve_typeref(t, tmap) for t in sig.params)
+    return_type = resolve_typeref(sig.ret, tmap)
 
     # =====================
     # ③ requireチェック
@@ -600,30 +635,22 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
                     f"{concrete} does not guarantee {req.guarantee_name}"
                 )
 
-    # =====================
-    # ④ 引数型チェック
-    # =====================
-    for tref, aexpr in zip(sig.params, arg_exprs):
-        expected_arg = resolve_typeref(tref, tmap)
-
-        try:
-            actual_arg = type_expr(aexpr, expected_arg, env, syms, tv_guars=tv_guars)
-            # A substituted type variable retains its existing matching rule.
-            # Widening is only enabled for concretely declared parameter types.
-            if is_typevar(tref.name) and can_widen(actual_arg, expected_arg):
-                raise TypecheckError(f"type mismatch: expected {expected_arg}, got {actual_arg}")
-        except TypecheckError as e:
+    # Validate substituted contracts, including invariant constructor arguments
+    # and the existing Thunk latent-failure upper bound.
+    for actual, parameter in zip(actual_types, parameter_types):
+        if not compatible(actual, parameter):
             if call.callee == "div":
-                raise TypecheckError(
-                    "division expects Float operands. "
-                    "Write 1.0/2.0 or use toFloat(...)."
-                ) from e
-            raise
+                raise TypecheckError("division expects Float operands. Write 1.0/2.0 or use toFloat(...).")
+            raise TypecheckError(f"type mismatch: expected {parameter}, got {actual}")
 
-    # =====================
-    # return型
-    # =====================
-    if is_typevar(sig.ret.name):
-        return tmap[sig.ret.name]
-
-    return resolve_typeref(sig.ret, tmap)
+    implementation = None
+    if call.callee not in syms.funcs:
+        implementation = sig.builtin
+        if implementation is None:
+            requirements = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
+            if len(requirements) == 1:
+                requirement = requirements[0]
+                selected_type = tmap[requirement.type_var]
+                implementation = syms.impls.get((selected_type.name, requirement.guarantee_name, sig.name))
+    syms.resolved_calls[id(call)] = ResolvedCall(tmap, parameter_types, return_type, implementation)
+    return return_type

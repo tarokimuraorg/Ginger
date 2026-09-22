@@ -3,7 +3,7 @@ from typing import List
 
 @dataclass(frozen=True)
 class Token:
-    kind: str   # KW, IDENT, SYM, INT, FLOAT, EOF, NEWLINE
+    kind: str   # KW, IDENT, SYM, INT, INT64, FLOAT, EOF, NEWLINE
     text: str
     pos: int
 
@@ -86,10 +86,18 @@ def tokenize(src: str) -> List[Token]:
                 i += 1  # consume '.'
                 while peek().isdigit():
                     i += 1
+                if src.startswith("i64", i):
+                    raise SyntaxError(f"i64 suffix requires an integer literal at {start}")
                 toks.append(Token("FLOAT", src[start:i], start))
                 continue
 
-            toks.append(Token("INT", src[start:i], start))
+            kind = "INT"
+            if src.startswith("i64", i):
+                i += 3
+                kind = "INT64"
+                if peek().isalnum() or peek() == "_":
+                    raise SyntaxError(f"invalid i64 literal suffix at {start}")
+            toks.append(Token(kind, src[start:i], start))
             continue
 
         # identifier / keyword

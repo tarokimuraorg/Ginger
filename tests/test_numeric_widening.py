@@ -40,7 +40,7 @@ class NumericWideningTests(unittest.TestCase):
                        'sig f() -> Float {}\nfunc f() { return eq(1,1) }']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 checked(source)
-        self.assertIs(widen_value(True, TypeRef('Float')), True)
+        self.assertIs(widen_value(True, TypeRef('Bool'), TypeRef('Float')), True)
 
     def test_user_parameter_is_float_inside_body(self):
         source = ('sig inspect(Float) -> Unit { builtin core.float.print }\n'
@@ -95,19 +95,20 @@ class NumericWideningTests(unittest.TestCase):
                        'sig f(Int) -> Unit {}\nfunc f(x: Float) {}',
                        'var t: Thunk[Float, Never] = thunk(1)',
                        'var t: Thunk[Int, Never] = thunk(1)\nvar u: Thunk[Float, Never] = t',
-                       'var x: Float = add(1,2.0)',
                        'var x: Int = add(1,2.0)']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 checked(source)
+        self.assertEqual(self.values('var x: Float = add(1,2.0)')['x'].value, 3.0)
         env = self.values('var t: Thunk[Int, Never] = thunk(1)\nvar x: Float = force(t)')
         self.assertIs(type(env['x'].value), float)
 
-    def test_precision_and_overflow_match_to_float(self):
-        value = 2**53 + 1
-        result = widen_value(value, TypeRef('Float'))
-        self.assertEqual(result, call_builtin('core.int.toFloat', value))
-        self.assertNotEqual(int(result), value)
-        for source in [f'var x: Float = {10**400}',
-                       f'var x: Float = toFloat({10**400})']:
-            with self.subTest(source=source), self.assertRaises(OverflowError):
-                self.values(source)
+    def test_bounded_int_converts_exactly(self):
+        for value in [0, 1, 2**53 - 1, -(2**53 - 1)]:
+            result = widen_value(value, TypeRef('Int'), TypeRef('Float'))
+            self.assertEqual(int(result), value)
+            self.assertEqual(result, call_builtin('core.int.toFloat', value))
+        for value in [2**53 + 1, 10**400]:
+            for source in [f'var x: Float = {value}',
+                           f'var x: Float = toFloat({value})']:
+                with self.subTest(source=source), self.assertRaises(TypecheckError):
+                    self.values(source)

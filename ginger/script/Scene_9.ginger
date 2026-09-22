@@ -1,0 +1,10 @@
+sig f(Float) -> Float {
+    failure Never
+}
+
+func f(x:Float) {
+    return x
+}
+
+let x: Float = f(1)
+print(x)

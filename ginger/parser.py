@@ -8,7 +8,7 @@ from .ast import (
     RequireClause, RequireIn, RequireGuarantees,
     SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
     BlockStmt, ReturnStmt, Stmt,
-    Expr, CallExpr, IdentExpr, IntLit, FloatLit,
+    Expr, CallExpr, IdentExpr, IntLit, Int64Lit, FloatLit,
     Arg, PosArg, NamedArg,
     ExprStmt, TryStmt, CatchStmt,
 )
@@ -533,7 +533,16 @@ class Parser:
                 self.skip_newlines()
                 continue
 
-            # 今は最低限、式分だけ許可
+            if self.match("KW", "let") or self.match("KW", "var"):
+                stmts.append(self.parse_let_var_decl(mutable=self.match("KW", "var")))
+                continue
+
+            if (self.match("IDENT") and self.toks[self.i + 1].kind == "SYM"
+                    and self.toks[self.i + 1].text == "="):
+                stmts.append(self.parse_assign_stmt())
+                continue
+
+            # Remaining function statements are expressions; try/catch stay unsupported.
             expr = self.parse_expr()
             stmts.append(ExprStmt(expr=expr))
             self.skip_newlines()
@@ -603,6 +612,8 @@ class Parser:
 
         if self.match("INT"):
             return IntLit(int(self.eat("INT").text))
+        if self.match("INT64"):
+            return Int64Lit(int(self.eat("INT64").text[:-3]))
         if self.match("FLOAT"):
             return FloatLit(float(self.eat("FLOAT").text))
 
