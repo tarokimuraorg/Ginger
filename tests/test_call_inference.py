@@ -1,3 +1,5 @@
+from test_failure_contract import recorded
+from ginger.eval import UninitializedBinding
 import itertools
 import unittest
 from unittest.mock import patch
@@ -98,9 +100,9 @@ class CallInferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, "type mismatch: expected TypeRef\\(name='Int'.*got TypeRef\\(name='Float'"):
             checked('var x: Int = add(1,2.0)')
         program, _ = checked(f'var x: Float = add({INT_MAX},1)')
-        with self.assertRaises(RaisedFailure) as raised:
-            eval_program(program)
-        self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
+        env, context, _ = recorded(program)
+        self.assertIsInstance(env['x'], UninitializedBinding)
+        self.assertEqual(context.failure_history[0].failure_id, FailureId.IntegerOverflow)
 
     def test_unresolved_variables_not_filled_from_any_outer_boundary(self):
         for declaration, call in [('sig make() -> T {}', 'make()'),

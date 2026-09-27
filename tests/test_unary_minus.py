@@ -1,3 +1,5 @@
+from test_failure_contract import recorded
+from ginger.eval import UninitializedBinding
 import unittest
 from pathlib import Path
 
@@ -121,9 +123,9 @@ class UnaryMinusTests(unittest.TestCase):
                 program, diags = checked(FLOAT_IDENTITY + f'print(identity({expr}))')
                 self.assertEqual([d.message for d in diags],
                                  ['unhandled failures: DivideByZero'])
-                with self.assertRaises(RaisedFailure) as raised:
-                    output(program)
-                self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
+                _, context, stdout = recorded(program)
+                self.assertEqual(stdout, '')
+                self.assertEqual(context.failure_history[0].failure_id, FailureId.DivideByZero)
                 program, diags = checked(FLOAT_IDENTITY + f'try print(identity({expr}))\ncatch DivideByZero print(7)')
                 self.assertEqual(diags.items, [])
                 self.assertEqual(output(program), '7\n')

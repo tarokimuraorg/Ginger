@@ -199,7 +199,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 try/catch・nested function・一般的な closure は追加していません。
 
-ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は `999` を出力します。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が失敗した変数は作成せず、再代入が失敗した場合は以前の値を維持します。
+ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は `999` を出力します。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
 
 ```ginger
 sig increment(Int) -> Int {
@@ -261,9 +261,9 @@ catch DivideByZero print(0)
 - `try` 文の対象式は任意の結果型を許可します。正常終了時の結果値は破棄され、`try` 文自体は値を生成しません。将来的な値を返す `try` 式は今回の仕様には含めません。
 - `try` の後には1個以上の `catch` が必要です。catch式はUnitに限定され、関数本体内では使えません。
 - トップレベルでは、捕捉・処理後に静的集合に残る failure を警告します。警告だけでは実行を止めません。これは関数本体の上限契約違反を型エラーにする規則とは別です。
-- 実行時は一致する最初の catch を処理します。未捕捉の `RaisedFailure` は外へ伝播します。
+- Phase 6 では try 評価中に新しく発生した各イベントについて、種類に一致する最初の catch を発生順に実行します。未宣言の `RaisedFailure` や Python 例外は catch で通常処理せず停止します。
 - 同名 catch の重複は現在も許可します。
-- handler 内で発生した failure は、元の catch 対象と同名でも新たな failure として外へ伝播します。同じ try の後続 catch では捕捉しません。現在は try-catch のネストに対応していないため、未捕捉の failure は実行を停止し、後続のトップレベル文は実行しません。
+- handler 内で発生した宣言済み failure は、元の catch 対象と同名でも新しいイベントとして保持し、handler を未完遂として後続文へ進みます。同じ try の後続 catch では捕捉しません。handler が fatal 以外で終了すると元イベントを resolved にします。handler 由来の新イベントは unresolved のままです。
 
 静的な外向き failure 集合は `(try failures - caught failures) ∪ handler failures` です。handler の failure 集合から catch 対象の failure を削除しません。重複 catch を許可する既存挙動は維持しています。
 
@@ -277,7 +277,7 @@ failure の種類を指定しない runtime の握りつぶし、呼び出し先
 
 汎用の `@attr.<name>` 構文は維持し、`@attr.io` は引き続き使用できます。属性は sig / func の前にのみ置けます。不正な位置の属性は黙って破棄せず、構文エラーにします。
 
-この段階では failure 履歴や statement 単位の継続は未導入です。未捕捉の `RaisedFailure` は従来どおり伝播して実行を停止します。将来の runtime 再設計とは段階を分け、`@suppress` も導入していません。
+Phase 1 時点では failure 履歴や statement 単位の継続は未導入でした。未捕捉の `RaisedFailure` は従来どおり伝播して実行を停止します。将来の runtime 再設計とは段階を分け、`@suppress` も導入していません。
 
 ## 内部 runtime の骨格（Phase 2）
 
@@ -293,11 +293,54 @@ Phase 2 時点では単体で使用できる内部構造のみを導入しまし
 
 `ginger/runtime/builtin_bridge.py` を実際の builtin 呼び出し境界へ接続しました。正常終了は `EvalResult(Value(v))`、builtin 自身の宣言済み `RaisedFailure` はイベント登録と `EvalResult(NoValue(), related_event_ids)` に変換します。静的解析と runtime は `builtin_failure_contract` を共有し、既存の sig failure と標準整数演算の実装別契約を参照します。独自の直接 builtin sig は自身の宣言を使用し、実装名だけで契約を補いません。
 
-引数評価は bridge の外で先に行い、引数の failure を外側 builtin の契約で判定・再登録しません。origin は `core.int.add` などの実装 ID です。実行ごとに内部 RuntimeContext と `<program>` の root call を作り、ユーザー関数内の builtin にも暫定的に同じ root call ID を使用します。関数別 CallFrame はまだ導入していません。
+引数評価は bridge の外で先に行い、引数の failure を外側 builtin の契約で判定・再登録しません。origin は `core.int.add` などの実装 ID です。実行ごとに内部 RuntimeContext と `<program>` の root call を作り、ユーザー関数内の builtin にも暫定的に同じ root call ID を使用します。これは Phase 3 時点の制限で、Phase 5 で関数別 CallFrame を導入しました。
 
-互換境界 `legacy_value` は Value を通常値へ戻し、NoValue を既存の RaisedFailure 伝播へ戻します。イベントはこの段階で再登録しません。NoValue を None・0・Unit へ変換せず、変数や外側の式へ流しません。statement 継続は未実装で、未捕捉 failure の停止挙動、try-catch、公開 API、main の出力は従来どおりです。既存 catch によるイベントの resolved 化も Phase 6 まで未実装のため、この段階の内部 unresolved 履歴は、従来の catch による処理結果を反映しません。
+Phase 3 時点では互換境界 `legacy_value` が NoValue を RaisedFailure へ戻し、既存停止挙動を維持していました。この互換境界は Phase 4 で撤去しました。
 
 未宣言の RaisedFailure は通常イベントとして登録せず、そのまま伝播させます。FailureContractViolation は未実装です。Python の実装エラーはイベント化しません。ただし、既存 evaluator の ZeroDivisionError → DivideByZero 変換は bridge 内に移して維持しています。内部テストでは `_eval_program_with_context` に context を渡して通常と同じ経路を観測できます。pipeline はまだ履歴を公開せず、ExecutionResult への切り替えは後続 Phase です。
+
+## statement 単位の継続（Phase 4）
+
+宣言済み builtin failure は `FailureEvent + NoValue` として式の親へ返します。引数は左から右に評価し、NoValue に達したら残りの引数と呼び出し先を実行しません。値を必要とする親演算も実行せず、原因 event ID を保持したまま文を未完遂にし、次の文へ進みます。実行済みの副作用は取り消しません。
+
+```ginger
+print(div(1.0, 0.0))
+print(3)
+```
+
+この例は静的警告に続いて `3` を出力します。最初の print は呼び出されず、DivideByZero のイベントは unresolved のまま残ります。同じ failure の再発は別イベントです。`RuntimeContext.incomplete_statements` で root call ID、scope、文の index / 種類、原因 event ID を内部的に確認できます。index は program items または関数 body 内の0始まりで、source locationではありません。
+
+初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。参照すると同じ原因の NoValue を返し、新しい failure を生成せず、その依存文も未完遂にします。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
+
+Phase 4 では関数本体の通常文にも継続を適用しました。以下の root のみという制限と Unit 終了の扱いは Phase 5 で更新しています。値欠落は呼び出し側へ返せますが、関数ごとの pending 管理・成功値と一緒に未解決イベントを受け渡す契約は Phase 5 です。正常な return は値を返し、途中の failure 履歴は root に残ります。return 式が NoValue なら、その関数本体を終了して呼び出し側へ NoValue を返します。失敗した return の後を実行する意味論と静的到達可能性は Phase 9 に残しています。明示 return なしで未完遂文を含む本体は NoValue、すべて完遂した本体は正常な Unit を返します。
+
+try-catch は暫定的に NoValue の先頭原因の種類でhandlerを選び、以前から保持している他のイベント全体は検索しません。handler由来NoValueを後続catchへ渡さず、後続トップレベル文へ進みます。resolved化・複数イベントごとのcatch処理はまだ行いません。正常値と pending を持つ関数呼び出しの暫定対応は Phase 5 に記載します。
+
+Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約と履歴の統合は Phase 9 です。公開 API は環境辞書のままで、値を持たない binding も含み得ます。ExecutionResult・履歴の公開、FailureContractViolation、main の履歴表示は未実装です。
+
+## 関数呼び出しごとの pending 伝播（Phase 5）
+
+実行開始時の `<program>` に加え、ユーザー関数を呼ぶたびに一意の CallFrame を作成します。parent_call_id は呼び出し元、declared_failure_contract は型検査と同じ Symbols.sig_failures の集合です。実際に発生したイベントの pending_event_ids とは別に保持し、この段階では関数境界の runtime 契約違反判定を追加しません。
+
+RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValue・fatal 例外のいずれでも親へ復元します。終了したframeの履歴は削除しません。builtinイベントは発生時のcurrent call IDと実装originを保持し、callee終了時は未解決イベントIDだけをcallerへ渡します。イベントは作り直さず、発生元call IDも変更しません。resolvedイベントは履歴に残し、親pendingには追加しません。fatal終了時も、それ以前に発生した未解決イベントの参照は親へ伝播します。
+
+CallFrame.pendingが実行時の正本です。関数のEvalResultには生成された値（またはNoValue）と関連イベントIDを添えます。正常値はpendingがあっても利用でき、値を得たことだけでfailureをresolvedにしません。関数末尾への到達は正常Unit `Value(None)` であり、途中の未完遂文によるpendingがあってもNoValueにはしません。失敗したreturnはPhase 4同様、関数を終了してNoValueを返します。callerはその依存文を未完遂とし、独立した次の文へ進みます。
+
+try-catchは関連イベントの先頭原因に一致する最初のhandlerを選ぶ暫定処理です。正常値やUnitとpendingを返す関数にもこの選択を適用して、従来のhandler実行を可能な範囲で維持します。この暫定処理は Phase 6 のイベント単位処理で置き換えました。incomplete statementには実際のユーザー関数call IDが記録されます。
+
+同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、失敗return後の継続とThunk契約の再設計はPhase 9に残しています。
+
+## イベント単位の try-catch（Phase 6）
+
+try 開始時の次の event ID を境界として記録し、try 式評価が終わった時点で、その期間に新しく登録されたイベントIDを履歴順に固定します。評価結果の Value / NoValue や関連IDの先頭だけで判断しません。try 以前の同種イベントや、未初期化変数の参照で再利用した古い原因イベントは対象外です。
+
+各 unresolved イベントについて、種類が一致する最初のhandlerを実行します。同種failureが2回発生すればhandlerも2回実行します。未対応の種類は未解決のまま残り、実行を継続します。handlerが正常終了または宣言済みfailureによるNoValueで終了した場合に限り、対象イベントをresolvedにします。fatalな未宣言RaisedFailure・Python例外・EvalErrorでは停止し、対象はunresolvedのままです。
+
+handlerが起こしたfailureは新しいIDのunresolvedイベントとして残ります。元イベントを再利用せず、`caused_by`に処理対象のevent IDを記録します。処理対象リストは固定済みなので、同じtryの後続catchではhandler由来イベントを捕捉しません。handlerのNoValueはCatchStmtとして既存のincomplete記録にも残します。
+
+resolvedイベントも履歴に残ります。CallFrame.pending_event_idsの参照も伝播履歴として保持し、現在有効なpendingは `RuntimeContext.unresolved_pending` でstatusを照合して取得します。callee終了時もunresolvedだけをcallerへ渡します。関数内try-catch構文は未対応のため、この境界は共通runtime helperのテストで確認しています。
+
+静的集合 `(F(try) - caught) ∪ F(handlers)` は変更していません。tryは引き続きstatementで、式として値を返す新構文はありません。評価中に正常値が生成されればその値の利用・副作用は維持し、failure処理だけを独立して行います。tryネスト・関数内try構文、FailureContractViolation（Phase 7）、失敗return後の継続（Phase 9）、公開ExecutionResult APIは未実装です。
 
 ## Thunk と遅延評価
 

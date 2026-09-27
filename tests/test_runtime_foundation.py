@@ -35,7 +35,7 @@ class RuntimeFoundationTests(unittest.TestCase):
         self.assertEqual((resolved.event_id, resolved.origin, resolved.call_id),
                          (first.event_id, first.origin, first.call_id))
         self.assertEqual(self.context.failure_history, (resolved, second))
-        self.assertEqual(self.context.get_call(self.frame.call_id).pending_event_ids, (second.event_id,))
+        self.assertEqual(self.context.unresolved_pending(self.frame.call_id), (second.event_id,))
         self.assertIs(self.context.resolve(first.event_id), resolved)
         self.assertEqual(self.context.next_event_id, 3)
         # Previously acquired immutable snapshots stay unchanged.
@@ -57,7 +57,7 @@ class RuntimeFoundationTests(unittest.TestCase):
         self.assertEqual(self.context.get_call(self.frame.call_id).pending_event_ids, (event.event_id,))
         self.assertEqual(self.context.get_call(child.call_id).pending_event_ids, (event.event_id,))
         self.context.resolve(event.event_id)
-        self.assertTrue(all(not frame.pending_event_ids for frame in self.context.call_frames.values()))
+        self.assertTrue(all(not self.context.unresolved_pending(frame.call_id) for frame in self.context.call_frames.values()))
         with self.assertRaises(ValueError):
             self.context.add_pending(child.call_id, event.event_id)
 

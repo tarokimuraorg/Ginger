@@ -9,7 +9,7 @@ from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, failures
 from ginger.lower import lower_program
 from ginger.numeric import INT_MAX
 from ginger.parser import parse
-from ginger.runtime.builtin_bridge import invoke_builtin, legacy_value
+from ginger.runtime.builtin_bridge import invoke_builtin
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.failures import FailureStatus, RaisedFailure
 from ginger.runtime.results import NoValue, Value
@@ -41,7 +41,7 @@ class BuiltinBridgeTests(unittest.TestCase):
         self.assertTrue(all(r.related_event_ids == () for r in results))
         self.assertEqual(self.context.failure_history, ())
 
-    def test_declared_failure_records_once_and_still_stops(self):
+    def test_declared_failure_records_once_and_continues(self):
         results = []
         def observe(*args):
             result = invoke_builtin(*args)
@@ -49,10 +49,8 @@ class BuiltinBridgeTests(unittest.TestCase):
             return result
         stream = io.StringIO()
         with patch('ginger.eval.invoke_builtin', side_effect=observe), redirect_stdout(stream):
-            with self.assertRaises(RaisedFailure) as raised:
-                self.run_source('print(div(1.0,0.0))\nprint(3)')
-        self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
-        self.assertEqual(stream.getvalue(), '')
+            self.run_source('print(div(1.0,0.0))\nprint(3)')
+        self.assertEqual(stream.getvalue(), '3\n')
         self.assertEqual(len(self.context.failure_history), 1)
         event = self.context.failure_history[0]
         self.assertEqual((event.failure_id, event.status, event.origin),
@@ -69,19 +67,18 @@ class BuiltinBridgeTests(unittest.TestCase):
                                   self.context, frame.call_id) for _ in range(2)]
         self.assertEqual([r.related_event_ids for r in results], [(1,), (2,)])
         for result in results:
-            with self.assertRaises(RaisedFailure):
-                legacy_value(result, self.context)
+            self.assertIsInstance(result.value_result, NoValue)
         self.assertEqual(len(self.context.failure_history), 2)
 
-    def test_legacy_catch_remains_unchanged_without_event_resolution(self):
+    def test_catch_resolves_events_without_changing_output(self):
         stream = io.StringIO()
         with redirect_stdout(stream):
             self.run_source('try print(div(1.0,0.0))\ncatch DivideByZero print(2)\n'
                             'try print(div(1.0,0.0))\ncatch DivideByZero print(4)\nprint(3)')
         self.assertEqual(stream.getvalue(), '2\n4\n3\n')
         self.assertEqual([e.event_id for e in self.context.failure_history], [1, 2])
-        # Phase 6, not this bridge, will implement event-aware resolution.
-        self.assertTrue(all(e.status is FailureStatus.UNRESOLVED
+        # Catch resolves events without deleting bridge history.
+        self.assertTrue(all(e.status is FailureStatus.RESOLVED
                             for e in self.context.failure_history))
 
     def test_no_value_not_published_or_passed_to_parent(self):
@@ -93,20 +90,20 @@ class BuiltinBridgeTests(unittest.TestCase):
                 def observe(expr, env, syms, outer=None):
                     envs.append(env)
                     return original(expr, env, syms, outer)
-                with patch('ginger.eval.eval_expr', side_effect=observe), self.assertRaises(RaisedFailure):
+                with patch('ginger.eval.eval_expr', side_effect=observe):
                     self.run_source(statement)
                 if statement.startswith('var x: Int = 7'):
                     self.assertEqual(envs[0]['x'].value, 7)
                 else:
-                    self.assertNotIn('x', envs[0])
+                    self.assertIsInstance(envs[0]['x'], evaluator.UninitializedBinding)
         outer = Mock(return_value=0)
-        with patch.dict(BUILTINS, {'core.int.mul': outer}), self.assertRaises(RaisedFailure):
+        with patch.dict(BUILTINS, {'core.int.mul': outer}):
             self.run_source(f'var y: Int = mul(add({INT_MAX},1),2)')
         outer.assert_not_called()
 
     def test_argument_failure_has_inner_origin_only(self):
         outer = Mock(return_value=0.0)
-        with patch.dict(BUILTINS, {'core.float.add': outer}), self.assertRaises(RaisedFailure):
+        with patch.dict(BUILTINS, {'core.float.add': outer}):
             self.run_source('var x: Float = add(div(1.0,0.0),1.0)')
         outer.assert_not_called()
         self.assertEqual([e.origin for e in self.context.failure_history], ['core.float.div'])
@@ -123,8 +120,7 @@ class BuiltinBridgeTests(unittest.TestCase):
     def test_declared_custom_alias_records_failure(self):
         source = ('sig alias(Int,Int) -> Int { failure IntegerOverflow builtin core.int.add }\n'
                   f'var x: Int = alias({INT_MAX},1)')
-        with self.assertRaises(RaisedFailure):
-            self.run_source(source)
+        self.run_source(source)
         self.assertEqual([e.origin for e in self.context.failure_history], ['core.int.add'])
 
     def test_managed_arithmetic_shares_contract_but_alias_does_not_inherit_it(self):
@@ -137,8 +133,7 @@ class BuiltinBridgeTests(unittest.TestCase):
                                  failures(FailureId.IntegerOverflow))
                 self.assertEqual(builtin_failure_contract(EMPTY_FAILURES, f'core.int.{name}',
                                                           direct_builtin=True), EMPTY_FAILURES)
-                with self.assertRaises(RaisedFailure):
-                    self.run_source(f'var x: Int = {name}({args})')
+                self.run_source(f'var x: Int = {name}({args})')
                 self.assertEqual([e.failure_id for e in self.context.failure_history],
                                  [FailureId.IntegerOverflow])
 
@@ -159,15 +154,13 @@ class BuiltinBridgeTests(unittest.TestCase):
                 self.run_source('print(1)')
             self.assertIs(raised.exception, error)
             self.assertEqual(self.context.failure_history, ())
-            with self.assertRaises(RaisedFailure):
-                self.run_source('sig custom(Int) -> Unit { failure IOErr builtin core.int.print }\ncustom(1)')
+            self.run_source('sig custom(Int) -> Unit { failure IOErr builtin core.int.print }\ncustom(1)')
         self.assertEqual([e.failure_id for e in self.context.failure_history], [FailureId.IOErr])
 
-    def test_user_functions_share_root_without_duplicate_registration(self):
-        with self.assertRaises(RaisedFailure):
-            self.run_source('sig f() -> Float { failure DivideByZero }\n'
-                            'func f() { return div(1.0,0.0) }\nprint(f())')
-        self.assertEqual(len(self.context.call_frames), 1)
+    def test_user_functions_have_child_frame_without_duplicate_registration(self):
+        self.run_source('sig f() -> Float { failure DivideByZero }\n'
+                        'func f() { return div(1.0,0.0) }\nprint(f())')
+        self.assertEqual(len(self.context.call_frames), 2)
         self.assertEqual(len(self.context.failure_history), 1)
         self.assertIsNone(self.context.get_call(1).parent_call_id)
 
