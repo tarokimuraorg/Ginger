@@ -14,7 +14,7 @@ from ginger.typecheck import compatible, same_type, typecheck_program
 
 class BoundedIntegerTests(unittest.TestCase):
     def values(self, source):
-        return eval_program(checked(source)[0])
+        return eval_program(checked(source)[0]).environment
 
     def test_literals(self):
         for typ, suffix, maximum, node in [('Int', '', INT_MAX, IntLit), ('Int64', 'i64', INT64_MAX, Int64Lit)]:
@@ -50,7 +50,7 @@ class BoundedIntegerTests(unittest.TestCase):
     def test_fixed_types(self):
         program, _ = checked('var x: Int = 1\nvar y: Int64 = x\nvar z: Float = x\ny = 2\nz = x')
         bindings = typecheck_program(program, Diagnostics())
-        env = eval_program(program)
+        env = eval_program(program).environment
         for name, typ in [('x', 'Int'), ('y', 'Int64'), ('z', 'Float')]:
             self.assertEqual(bindings[name].ty, TypeRef(typ))
             self.assertEqual(env[name].typ, TypeRef(typ))
@@ -83,7 +83,7 @@ class BoundedIntegerTests(unittest.TestCase):
     def test_capabilities(self):
         program, _ = checked('var lo: Int64 = (-9223372036854775807i64)\nvar hi: Int64 = neg(lo)\n'
                              'var n: Int64 = (-1i64)\nvar e: Bool = eq(lo,hi)\nvar l: Bool = lt(lo,hi)\nvar o: Ordering = cmp(lo,hi)')
-        env = eval_program(program)
+        env = eval_program(program).environment
         self.assertEqual(env['lo'].value, INT64_MIN)
         self.assertEqual(env['hi'].value, INT64_MAX)
         self.assertEqual(INT64_MIN, -INT64_MAX)

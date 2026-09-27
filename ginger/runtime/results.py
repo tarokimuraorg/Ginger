@@ -1,10 +1,12 @@
-"""Future evaluation/result types; the current evaluator API is unchanged."""
+"""Evaluation values and public execution snapshots."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .failures import FailureEvent, FailureStatus
+from .context import CallFrame, IncompleteStatement
+from ginger.core.failure_spec import FailureId, FailureSet
 
 
 @dataclass(frozen=True)
@@ -31,21 +33,49 @@ class EvalResult:
 
 
 @dataclass(frozen=True)
-class ExecutionResult:
-    """Snapshot of records and environment bindings, not a deep copy of values.
+class ContractViolationSnapshot:
+    failure_id: FailureId
+    origin: str
+    violating_call_id: int
+    violating_function_or_builtin: str
+    declared_contract: FailureSet
+    boundary_kind: str
+    event_id: int | None
 
-    incomplete_statements holds descriptive origins for now. Evaluator-specific
-    statement records and source locations can be introduced when connected.
-    """
+    @classmethod
+    def from_violation(cls, violation):
+        return cls(**{name: getattr(violation, name) for name in cls.__dataclass_fields__})
+
+    def __str__(self):
+        declared = ', '.join(sorted(fid.value for fid in self.declared_contract))
+        return (f'Failure contract violation; failure: {self.failure_id.value}; '
+                f'origin: {self.origin}; boundary: {self.boundary_kind} '
+                f'{self.violating_function_or_builtin}; call: {self.violating_call_id}; '
+                f'declared failures: {{{declared}}}; event: {self.event_id}')
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    """Execution snapshot; environment values are deliberately shallow-copied."""
 
     environment: Mapping[str, Any]
     failure_history: tuple[FailureEvent, ...]
-    incomplete_statements: tuple[str, ...] = ()
+    incomplete_statements: tuple[IncompleteStatement, ...] = ()
+    call_frames: Mapping[int, CallFrame] = field(default_factory=dict)
+    contract_violation: ContractViolationSnapshot | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "environment", MappingProxyType(dict(self.environment)))
         object.__setattr__(self, "failure_history", tuple(self.failure_history))
         object.__setattr__(self, "incomplete_statements", tuple(self.incomplete_statements))
+        object.__setattr__(self, "call_frames", MappingProxyType(dict(self.call_frames)))
+
+    @classmethod
+    def from_context(cls, environment, context):
+        violation = context.last_contract_violation
+        return cls(environment, context.failure_history, context.incomplete_statements,
+                   context.call_frames,
+                   ContractViolationSnapshot.from_violation(violation) if violation else None)
 
     @property
     def unresolved_events(self) -> tuple[FailureEvent, ...]:

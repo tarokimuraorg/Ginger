@@ -12,7 +12,7 @@ Ginger は、Python で実装された独自のプログラミング言語処理
 python3 -B -m ginger.main
 ```
 
-現在の `ginger/main.py` は `ginger/scripts/Scene_11.ginger` を固定で読み込み、IntegerOverflow を catch して、未処理警告なしで `999` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
+現在の `ginger/main.py` は `ginger/scripts/Scene_12.ginger` を固定で読み込み、標準出力へ `2`、`3` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
 
 別のサンプルは Python API から実行できます。次の例もプロジェクトルートで実行します。
 
@@ -297,7 +297,7 @@ Phase 2 時点では単体で使用できる内部構造のみを導入しまし
 
 Phase 3 時点では互換境界 `legacy_value` が NoValue を RaisedFailure へ戻し、既存停止挙動を維持していました。この互換境界は Phase 4 で撤去しました。
 
-Phase 3 時点の未宣言 RaisedFailure の再送出は、Phase 7 で FailureContractViolation に置き換えました。通常イベントとしては登録しません。Python の実装エラーはイベント化しません。ただし、既存 evaluator の ZeroDivisionError → DivideByZero 変換は bridge 内に移して維持しています。内部テストでは `_eval_program_with_context` に context を渡して通常と同じ経路を観測できます。pipeline はまだ履歴を公開せず、ExecutionResult への切り替えは後続 Phase です。
+Phase 3 時点の未宣言 RaisedFailure の再送出は、Phase 7 で FailureContractViolation に置き換えました。通常イベントとしては登録しません。Python の実装エラーはイベント化しません。ただし、既存 evaluator の ZeroDivisionError → DivideByZero 変換は bridge 内に移して維持しています。内部テストでは `_eval_program_with_context` に context を渡して通常と同じ経路を観測できます。Phase 8 で pipeline から ExecutionResult と履歴を公開しました。
 
 ## statement 単位の継続（Phase 4）
 
@@ -316,7 +316,7 @@ Phase 4 では関数本体の通常文にも継続を適用しました。以下
 
 try-catch は暫定的に NoValue の先頭原因の種類でhandlerを選び、以前から保持している他のイベント全体は検索しません。handler由来NoValueを後続catchへ渡さず、後続トップレベル文へ進みます。resolved化・複数イベントごとのcatch処理はまだ行いません。正常値と pending を持つ関数呼び出しの暫定対応は Phase 5 に記載します。
 
-Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約と履歴の統合は Phase 9 です。公開 API は環境辞書のままで、値を持たない binding も含み得ます。ExecutionResult・履歴の公開、FailureContractViolation、main の履歴表示は未実装です。
+Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約と履歴の統合は Phase 9 です。Phase 4 時点の公開 API は環境辞書でした。Phase 7 で契約違反、Phase 8 で ExecutionResult と履歴公開・main診断を導入しました。未初期化bindingも結果環境に保持します。
 
 ## 関数呼び出しごとの pending 伝播（Phase 5）
 
@@ -340,7 +340,7 @@ handlerが起こしたfailureは新しいIDのunresolvedイベントとして残
 
 resolvedイベントも履歴に残ります。CallFrame.pending_event_idsの参照も伝播履歴として保持し、現在有効なpendingは `RuntimeContext.unresolved_pending` でstatusを照合して取得します。callee終了時もunresolvedだけをcallerへ渡します。関数内try-catch構文は未対応のため、この境界は共通runtime helperのテストで確認しています。
 
-静的集合 `(F(try) - caught) ∪ F(handlers)` は変更していません。tryは引き続きstatementで、式として値を返す新構文はありません。評価中に正常値が生成されればその値の利用・副作用は維持し、failure処理だけを独立して行います。tryネスト・関数内try構文、失敗return後の継続（Phase 9）、公開ExecutionResult APIは未実装です。FailureContractViolation は Phase 7 で導入しました。
+静的集合 `(F(try) - caught) ∪ F(handlers)` は変更していません。tryは引き続きstatementで、式として値を返す新構文はありません。評価中に正常値が生成されればその値の利用・副作用は維持し、failure処理だけを独立して行います。tryネスト・関数内try構文、失敗return後の継続（Phase 9）は未実装です。公開ExecutionResult APIはPhase 8で導入しました。FailureContractViolation は Phase 7 で導入しました。
 
 ## Thunk と遅延評価
 
@@ -477,3 +477,38 @@ builtinは引数評価後、実装自身が送出したRaisedFailureだけを、
 Violationは通常catchの対象ではありません。handler中の違反では元のcatch対象はunresolvedのままです。診断にはfailure、origin、違反境界名、call ID、宣言集合、存在する場合event IDを含めます。内部RuntimeContextの `last_contract_violation` で参照できます。公開ExecutionResultとmain表示への統合はPhase 8です。
 
 forceで実際に評価されたbuiltinとユーザー関数には同じ境界検証が適用されます。Thunk自身の潜在契約と発生イベントの独立した照合、遅延評価のcall帰属の最終設計、失敗return後の継続はPhase 9に残します。
+
+## 公開実行結果（Phase 8）
+
+`ginger.pipeline.run(source)`、`execute(program)`、`ginger.eval.eval_program(program)` は正式な実行結果 `ExecutionResult` を返します。旧環境辞書の参照 `eval_program(program)[name]` は `eval_program(program).environment[name]` へ移行してください。dict互換の振る舞いは追加していません。
+
+```python
+from ginger.pipeline import run
+
+result = run("var x: Int = 3")
+print(result.environment["x"].value)
+for event in result.unresolved_events:
+    frame = result.call_frames[event.call_id]
+    print(event.event_id, event.origin, frame.function_name)
+if result.contract_violation is not None:
+    print(result.contract_violation)
+```
+
+取得可能な情報:
+
+- `environment`: 正常終了または契約違反で停止した時点のトップレベル環境。確定済み値と未初期化bindingを保持し、失敗した値を捏造しません。関数ローカル環境は含みません。
+- `failure_history`: resolvedを含む全FailureEventの発生順tuple。event ID、発生call ID、caused_byをそのまま保持します。
+- `unresolved_events`: 履歴のstatusから毎回導出するtuple。同種failureも別イベントです。
+- `call_frames`: call IDからCallFrameを取得できる読み取り専用mapping。終了済みframeとparent関係も保持します。
+- `incomplete_statements`: call ID、scope、statement index/kind、原因event IDを持つ既存記録のtuple。
+- `contract_violation`: 違反がなければNone。違反時は `ContractViolationSnapshot` にfailure ID、origin、違反call ID、境界名・種別、宣言契約、任意のevent IDを保持します。
+
+RuntimeContextは実行中の状態、ExecutionResultは終了時点のsnapshotです。履歴と未完遂記録は不変レコードのtuple、frame対応表はコピーした読み取り専用mapping、違反情報は例外から切り離したfrozen dataclassです。環境対応表もコピーしますが、bindingやGinger値はdeep copyしません。
+
+unresolvedだけなら正常に完走して結果を返します。契約違反はGingerプログラムを即停止しますが、公開APIは停止時点の結果を返します。ユーザー関数境界の違反では原因eventを履歴に残し、builtin未宣言failureではeventを作りません。違反で伝播が止まったeventはroot pendingに未到達でも `unresolved_events` に含まれます。正常完走時もraw pendingにはresolved参照が残り得るため、現在の未解決状態はevent.statusで判定します。
+
+Python内部例外、parse/typecheckエラーは結果へ隠さず従来の例外として送出します。内部 `_eval_program_with_context` は評価・テスト用の例外経路を維持します。コンパイル診断はruntime結果へ統合しません。
+
+mainはunresolvedイベントを1件ずつstderrへ表示し、failure名・event ID・origin・call IDを含めます。resolved履歴は自動表示しません。契約違反もstderrへ専用診断を出し終了コード1、正常完走はunresolvedの有無によらず0です。既存の静的警告もstderrへ移しました。Python内部例外は隠しません。
+
+失敗return後の継続と到達可能性解析、Thunk/forceの潜在契約・call帰属の最終統合はPhase 9に残しています。
