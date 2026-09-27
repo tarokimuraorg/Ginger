@@ -1,3 +1,4 @@
+from ginger.eval import UninitializedBinding
 import unittest
 from unittest.mock import patch
 
@@ -147,10 +148,9 @@ class FunctionLocalTests(unittest.TestCase):
             def observe(block, env, syms, outer):
                 environments.append(env)
                 return eval_block(block, env, syms, outer)
-            with patch('ginger.eval.eval_block', side_effect=observe), self.assertRaises(RaisedFailure) as raised:
+            with patch('ginger.eval.eval_block', side_effect=observe):
                 eval_program(program)
-            self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
-            self.assertEqual('y' in environments[0], exists)
+            self.assertEqual(isinstance(environments[0]['y'], UninitializedBinding), not exists)
             if exists:
                 self.assertEqual(environments[0]['y'].value, 5)
 

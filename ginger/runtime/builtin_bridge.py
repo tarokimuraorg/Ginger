@@ -1,4 +1,4 @@
-"""Phase 3 builtin-only event boundary and temporary legacy control adapter."""
+"""Builtin-only event boundary; declared failures return NoValue."""
 
 from typing import Any
 
@@ -31,17 +31,3 @@ def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
         event = context.register_failure(failure.fid, origin=implementation, call_id=call_id)
         return EvalResult(NoValue(), (event.event_id,))
     return EvalResult(Value(value))
-
-
-def legacy_value(result: EvalResult, context: RuntimeContext) -> Any:
-    """Single compatibility boundary, to be replaced by Phase 4 evaluation.
-
-    NoValue never enters an environment or a parent expression. This bridge
-    produces exactly one event per failed builtin; rethrowing does not register.
-    """
-    if isinstance(result.value_result, Value):
-        return result.value_result.value
-    if len(result.related_event_ids) != 1:
-        raise ValueError("builtin NoValue requires exactly one failure event")
-    event = context.get_event(result.related_event_ids[0])
-    raise RaisedFailure(event.failure_id)

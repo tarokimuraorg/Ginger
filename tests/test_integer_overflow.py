@@ -1,3 +1,5 @@
+from test_failure_contract import recorded
+from ginger.eval import UninitializedBinding
 import unittest
 from unittest.mock import patch
 
@@ -44,9 +46,10 @@ class IntegerOverflowTests(unittest.TestCase):
                 source = f'var a: Int = {literal(a)}\nvar b: Int = {literal(b)}\nvar y: Int = {op}(a,b)\nprint(y)'
                 program, diags = checked(source)
                 self.assertEqual([d.message for d in diags], ['unhandled failures: IntegerOverflow'])
-                with self.assertRaises(RaisedFailure) as raised:
-                    eval_program(program)
-                self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
+                env, context, stdout = recorded(program)
+                self.assertIsInstance(env['y'], UninitializedBinding)
+                self.assertEqual(stdout, '')
+                self.assertEqual(context.failure_history[0].failure_id, FailureId.IntegerOverflow)
                 with self.assertRaises(RaisedFailure) as raised:
                     call_builtin(f'core.int.{op}', a, b)
                 self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
@@ -106,9 +109,9 @@ class IntegerOverflowTests(unittest.TestCase):
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '7\n')
         program, _ = checked(prefix + f'print(f({INT_MAX}))')
-        with self.assertRaises(RaisedFailure) as raised:
-            output(program)
-        self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
+        _, context, stdout = recorded(program)
+        self.assertEqual(stdout, '')
+        self.assertEqual(context.failure_history[0].failure_id, FailureId.IntegerOverflow)
 
     def test_float_runtime_effect_and_catch_eligibility(self):
         for op, result in [('add', 3.0), ('sub', -1.0), ('mul', 2.0)]:
@@ -147,8 +150,7 @@ class IntegerOverflowTests(unittest.TestCase):
         prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
         for typ in ['Int64', 'Float']:
             program, _ = checked(prefix + f'var x: {typ} = f({INT_MAX})')
-            with self.assertRaises(RaisedFailure):
-                eval_program(program)
+            self.assertIsInstance(eval_program(program)['x'], UninitializedBinding)
 
     def test_int64_arithmetic_stays_disabled(self):
         for op in ['add', 'sub', 'mul', 'div']:
@@ -190,14 +192,14 @@ class IntegerOverflowTests(unittest.TestCase):
             def observe(expr, env, syms, outer=None):
                 environments.append(env)
                 return original(expr, env, syms, outer)
-            with patch('ginger.eval.eval_expr', side_effect=observe), self.assertRaises(RaisedFailure):
+            with patch('ginger.eval.eval_expr', side_effect=observe):
                 eval_program(program)
             env = environments[0]
             self.assertEqual(env['x'].value, INT_MAX)
             if statement.startswith('y ='):
                 self.assertEqual(env['y'].value, 7)
             else:
-                self.assertNotIn('y', env)
+                self.assertIsInstance(env['y'], UninitializedBinding)
 
     def test_direct_builtin_alias_still_needs_its_own_failure_declaration(self):
         source = ('sig alias(Int,Int) -> Int { builtin core.int.add }\n'

@@ -23,6 +23,15 @@ class CallFrame:
         object.__setattr__(self, "pending_event_ids", tuple(self.pending_event_ids))
 
 
+@dataclass(frozen=True)
+class IncompleteStatement:
+    call_id: int
+    scope: str
+    statement_index: int
+    statement_kind: str
+    related_event_ids: tuple[int, ...]
+
+
 class RuntimeContext:
     """Own IDs and ordered history for one execution.
 
@@ -36,6 +45,21 @@ class RuntimeContext:
         self._next_call_id = 1
         self._events: dict[int, FailureEvent] = {}
         self._calls: dict[int, CallFrame] = {}
+        self._incomplete_statements: list[IncompleteStatement] = []
+
+    @property
+    def incomplete_statements(self) -> tuple[IncompleteStatement, ...]:
+        return tuple(self._incomplete_statements)
+
+    def record_incomplete(self, call_id: int, scope: str, index: int,
+                          kind: str, event_ids: tuple[int, ...]) -> None:
+        self.get_call(call_id)
+        if not event_ids:
+            raise ValueError("incomplete statement requires a failure cause")
+        for event_id in event_ids:
+            self.get_event(event_id)
+        self._incomplete_statements.append(IncompleteStatement(
+            call_id, scope, index, kind, tuple(event_ids)))
 
     @property
     def next_event_id(self) -> int:

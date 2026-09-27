@@ -34,6 +34,16 @@ def output(program):
     return stream.getvalue()
 
 
+def recorded(program):
+    from ginger.eval import _eval_program_with_context
+    from ginger.runtime.context import RuntimeContext
+    context = RuntimeContext()
+    stream = io.StringIO()
+    with redirect_stdout(stream):
+        env = _eval_program_with_context(program, context)
+    return env, context, stream.getvalue()
+
+
 class FailureContractTests(unittest.TestCase):
     def test_upper_bounds(self):
         for failures in ("", "failure Never", "failure IOErr"):
@@ -124,16 +134,14 @@ catch DivideByZero print(3)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), "2\n")
 
-    def test_handler_same_failure_escapes_sibling_and_stops_execution(self):
+    def test_handler_same_failure_skips_sibling_and_continues(self):
         program, diags = checked("try print(div(1.0,0.0))\n"
                                  "catch DivideByZero print(div(2.0,0.0))\n"
                                  "catch DivideByZero print(2)\nprint(3)")
         self.assertEqual([d.message for d in diags], ["unhandled failures: DivideByZero"])
-        stream = io.StringIO()
-        with redirect_stdout(stream), self.assertRaises(RaisedFailure) as raised:
-            eval_program(program)
-        self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
-        self.assertEqual(stream.getvalue(), "")
+        _, context, stdout = recorded(program)
+        self.assertEqual(stdout, "3\n")
+        self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.DivideByZero] * 2)
 
     def test_handler_different_failure_escapes_sibling(self):
         source = """
@@ -148,15 +156,18 @@ print(3)
         program, diags = checked(source)
         self.assertEqual([d.message for d in diags], ["unhandled failures: IOErr"])
 
-        def fail(_):
-            raise RaisedFailure(FailureId.IOErr)
-
+        original = BUILTINS['core.int.print']
+        def fail(value):
+            if value == 1:
+                raise RaisedFailure(FailureId.IOErr)
+            return original(value)
         handler = Mock(side_effect=fail)
         with patch.dict(BUILTINS, {"core.int.print": handler}):
-            with self.assertRaises(RaisedFailure) as raised:
-                output(program)
-            handler.assert_called_once_with(1)
-        self.assertEqual(raised.exception.fid, FailureId.IOErr)
+            _, context, stdout = recorded(program)
+        self.assertEqual(stdout, '3\n')
+        self.assertEqual([call.args for call in handler.call_args_list], [(1,), (3,)])
+        self.assertEqual([e.failure_id for e in context.failure_history],
+                         [FailureId.DivideByZero, FailureId.IOErr])
 
     def test_source_declarations(self):
         for clause in ("", "failure Never"):
@@ -228,11 +239,9 @@ print(3)
             checked(prefix + "sig caller() -> Unit {}\nfunc caller() { middle() }")
         program, diags = checked(prefix + "middle()\nprint(3)")
         self.assertEqual([d.code for d in diags], ['UNHANDLED_FAILURES'])
-        stream = io.StringIO()
-        with redirect_stdout(stream), self.assertRaises(RaisedFailure) as raised:
-            eval_program(program)
-        self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
-        self.assertEqual(stream.getvalue(), "")
+        _, context, stdout = recorded(program)
+        self.assertEqual(stdout, '3\n')
+        self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.DivideByZero])
 
     def test_builtin_contract_is_visible_and_catchable(self):
         prefix = "sig h(Int) -> Unit { failure IOErr builtin core.int.print }\n"
@@ -242,8 +251,9 @@ print(3)
         self.assertEqual([d.message for d in diags], ['unhandled failures: IOErr'])
         def fail(_):
             raise RaisedFailure(FailureId.IOErr)
-        with patch.dict(BUILTINS, {'core.int.print': fail}), self.assertRaises(RaisedFailure):
-            output(program)
+        with patch.dict(BUILTINS, {'core.int.print': fail}):
+            _, context, _ = recorded(program)
+        self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.IOErr])
         program, diags = checked(prefix + "try h(1)\ncatch IOErr print(0)")
         self.assertEqual(diags.items, [])
         original_print = BUILTINS['core.int.print']
