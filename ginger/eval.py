@@ -1,5 +1,6 @@
 from typing import Dict, Union, Optional, Any
 from dataclasses import dataclass
+from contextvars import ContextVar
 from .args import bind_args
 from .ast import TypeRef
 from .numeric import widen_value
@@ -7,9 +8,11 @@ from .symbols_builder import build_symbols, normalize_types, ResolvedCall
 from .typecheck import typecheck_program, resolve_typeref
 from .diagnostics import Diagnostics
 from .errors import EvalError, TypecheckError
-from ginger.runtime.failures import RaisedFailure, FailureId
-from .builtin import call_builtin
+from ginger.runtime.failures import RaisedFailure
+from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
+from ginger.runtime.context import RuntimeContext
+from ginger.runtime.builtin_bridge import invoke_builtin, legacy_value
 
 from .ast import (
     SigDecl,
@@ -64,7 +67,29 @@ class ReturnSignal(Exception):
     value: "Value"
     typ: TypeRef
 
+_active_runtime: ContextVar[tuple[RuntimeContext, int]] = ContextVar("ginger_runtime")
+
+
 def eval_program(prog) -> Dict[str, Cell]:
+    return _eval_program_with_context(prog, RuntimeContext())
+
+
+def _eval_program_with_context(prog, context: RuntimeContext) -> Dict[str, Cell]:
+    """Internal injectable entry; public results remain an environment dictionary.
+
+    One root call only in Phase 3, including builtins inside user functions.
+    ContextVar scopes recursive evaluation without changing FunctionEnv or
+    capturing runtime state in Thunk environments. Always restore on failure.
+    """
+    root = context.create_call("<program>")
+    token = _active_runtime.set((context, root.call_id))
+    try:
+        return _eval_program(prog)
+    finally:
+        _active_runtime.reset(token)
+
+
+def _eval_program(prog) -> Dict[str, Cell]:
     
     syms = build_symbols(prog)
     prog = normalize_types(prog, syms.failuresets)
@@ -250,10 +275,13 @@ def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[s
 
     if resolved.implementation is None:
         raise EvalError(f"function '{expr.callee}' has no resolved runtime implementation")
-    try:
-        return call_builtin(resolved.implementation, *args)
-    except ZeroDivisionError:
-        raise RaisedFailure(FailureId.DivideByZero)
+    sig = syms.sigs[expr.callee]
+    contract = builtin_failure_contract(syms.sig_failures[expr.callee],
+                                       resolved.implementation,
+                                       direct_builtin=sig.builtin is not None)
+    context, call_id = _active_runtime.get()
+    result = invoke_builtin(resolved.implementation, args, contract, context, call_id)
+    return legacy_value(result, context)
 
 
 def eval_block(block: BlockStmt, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None) -> None:
