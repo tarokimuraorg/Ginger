@@ -60,7 +60,7 @@ class Parser:
             @attr.<name>
         
         Returns:
-            ["io", "handled",...] (the <name> part only)
+            ["io", ...] (the <name> part only)
         """     
         attrs: List[str] = []
         
@@ -129,10 +129,10 @@ class Parser:
         
         # 先頭の @attr を回収
         attrs = self.parse_attrs()
+        if attrs and not (self.match("KW", "sig") or self.match("KW", "func")):
+            raise SyntaxError("attributes must precede a sig or func declaration")
         
         if self.match("KW", "failureset"):
-            if attrs:
-                raise SyntaxError("attributes must precede a sig or func declaration")
             return self.parse_failureset()
 
         # --- catalog/decl ---
@@ -148,10 +148,6 @@ class Parser:
             return self.parse_func(attrs=attrs)
         if self.match("KW", "sig"):
             return self.parse_sig(attrs=attrs)
-        
-        # attrs があるのに func でない場合：エラー
-        if attrs:
-            raise SyntaxError("attributes must precede a sig or func declaration")
         
         # --- let/var (toplevel statement) ---
         if self.match("KW", "let"):

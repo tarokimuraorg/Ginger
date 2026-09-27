@@ -109,16 +109,18 @@ func use() { return execute(make()) }
                            'func make() { return thunk(1) }\nvar x: Int = force(make())')
         self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero, IOErr'])
 
-    def test_handled_keeps_boundary_and_argument_effect(self):
-        prefix = '@attr.handled\nsig h(Float) -> Unit { failure IOErr }\nfunc h(x: Float) {}\n'
+    def test_callee_and_argument_effects_are_preserved(self):
+        prefix = 'sig h(Float) -> Unit { failure IOErr }\nfunc h(x: Float) {}\n'
         program, diags = checked(prefix + 'var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n'
                                  'try h(force(t))\ncatch DivideByZero print(8)')
         self.assertEqual(output(program), '8\n')
-        self.assertTrue(all(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in diags))
-        _, diags = checked(prefix + 'sig wrap() -> Thunk[Unit, Never] {}\n'
+        self.assertEqual([d.message for d in diags], ['unhandled failures: IOErr'])
+        with self.assertRaises(TypecheckError):
+            checked(prefix + 'sig wrap() -> Thunk[Unit, Never] {}\n'
+                    'func wrap() { return thunk(h(1.0)) }')
+        _, diags = checked(prefix + 'sig wrap() -> Thunk[Unit, IOErr] {}\n'
                            'func wrap() { return thunk(h(1.0)) }')
-        self.assertEqual(len(diags.items), 2)
-        self.assertTrue(all('handled: h' in d.message for d in diags))
+        self.assertEqual(diags.items, [])
 
     def test_catch_set_still_rejected(self):
         with self.assertRaisesRegex(TypecheckError, 'unknown failure'):

@@ -184,7 +184,6 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Ce
     - Parameters are immutable; local declarations retain their let/var mutability.
     - Global lookup is allowed via 'caller_env' as 'outer'.
     - ReturnSignal carries the return value.
-    - If a RaisedFailure happens and the corresponding sig has @attr.handled, swallow it and return Unit(None).
     """
     if fname not in syms.funcs:
         raise EvalError(f"unknown func '{fname}'")
@@ -207,12 +206,6 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Ce
         return None     # implicit Unit
     except ReturnSignal as rs:
         return widen_value(rs.value, rs.typ, resolved.return_type)
-    except RaisedFailure:
-        # @attr.handled: swallow failures of this sig
-        attrs = syms.sig_attrs.get(fname, set())
-        if "handled" in attrs:
-            return None
-        raise
 
 
 def eval_call(expr: CallExpr, env: Dict[str, Cell], syms, outer: Optional[Dict[str, Cell]] = None):

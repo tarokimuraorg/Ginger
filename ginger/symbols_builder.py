@@ -241,6 +241,10 @@ def build_symbols(prog: Program) -> Symbols:
 
         elif isinstance(item, FuncDecl):
 
+            for attr in item.attrs:
+                if not is_defined(attr):
+                    raise TypecheckError(f"unknown attr '@attr.{attr}' on func '{item.name}'")
+
             if item.name in funcs:
                 raise TypecheckError(f"duplicate func '{item.name}'")
             

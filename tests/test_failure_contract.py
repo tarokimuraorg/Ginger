@@ -191,51 +191,68 @@ print(3)
         self.assertEqual(build_symbols(parse("")).sig_failures["div"],
                          frozenset({FailureId.DivideByZero}))
 
-    def test_handled_boundary_propagates_and_preserves_runtime(self):
-        for placement in ("sig", "func"):
-            source = ("%ssig h() -> Unit {}\n%sfunc h() { print(div(1.0,0.0)) }\n"
-                      "sig caller() -> Unit {}\nfunc caller() { h() }\ncaller()") % (
-                          "@attr.handled\n" if placement == "sig" else "",
-                          "@attr.handled\n" if placement == "func" else "")
-            program, diags = checked(source)
-            self.assertEqual(len(diags.items), 2)
-            self.assertTrue(all(d.code == "FAILURE_CONTRACT_DEFERRED" for d in diags))
-            self.assertTrue(all("handled: h" in d.message for d in diags))
-            if placement == "sig":
-                self.assertEqual(output(program), "")
-            else:
-                with self.assertRaises(RaisedFailure):
-                    output(program)
+    def test_handled_is_rejected_on_sig_func_and_builtin(self):
+        sources = [
+            "@attr.handled\nsig h() -> Unit {}",
+            "@attr.handled\nfunc h() {}",
+            "sig h() -> Unit {}\n@attr.handled\nfunc h() {}",
+            "@attr.handled\nsig h(Int) -> Unit { builtin core.int.print }",
+        ]
+        for source in sources:
+            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, "unknown attr '@attr.handled'"):
+                checked(source)
+        from ginger.ast import SigDecl, TypeRef
+        with self.assertRaisesRegex(TypecheckError, "unknown attr '@attr.handled'"):
+            build_symbols(Program([SigDecl('h', [], TypeRef('Unit'), [], attrs=['handled'])]))
 
-    def test_handled_builtin_stays_deferred_and_does_not_gain_catch_permission(self):
-        prefix = ("@attr.handled\nsig h(Int) -> Unit { failure IOErr builtin core.int.print }\n"
-                  "sig f() -> Unit {}\nfunc f() { h(1) }\n")
-        program, diags = checked(prefix + "f()")
-        self.assertTrue(any("handled: h" in d.message for d in diags))
+    def test_attributes_preserved_and_invalid_placements_rejected(self):
+        program, diags = checked("@attr.io\nsig h() -> Unit {}\n@attr.io\nfunc h() {}\nh()")
+        self.assertEqual(diags.items, [])
+        self.assertEqual(output(program), "")
+        for declaration in ["guarantee G {}", "typegroup G {}", "register Int guarantees G",
+                            "impl Int guarantees G {}", "failureset F { IOErr }",
+                            "var x: Int = 1", "try print(1)", "catch IOErr print(1)"]:
+            for attr in ('handled', 'io'):
+                with self.subTest(declaration=declaration, attr=attr), self.assertRaisesRegex(
+                        SyntaxError, "attributes must precede a sig or func"):
+                    parse(f"@attr.{attr}\n{declaration}")
 
+    def test_function_contracts_are_never_deferred_by_dependencies(self):
+        prefix = "sig h() -> Unit {}\nfunc h() {}\n"
+        with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):
+            checked(prefix + "sig f() -> Unit {}\nfunc f() { h()\nprint(div(1.0,0.0)) }")
+        prefix = ("sig h() -> Unit { failure DivideByZero }\n"
+                  "func h() { print(div(1.0,0.0)) }\n"
+                  "sig middle() -> Unit { failure DivideByZero }\nfunc middle() { h() }\n")
+        with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):
+            checked(prefix + "sig caller() -> Unit {}\nfunc caller() { middle() }")
+        program, diags = checked(prefix + "middle()\nprint(3)")
+        self.assertEqual([d.code for d in diags], ['UNHANDLED_FAILURES'])
+        stream = io.StringIO()
+        with redirect_stdout(stream), self.assertRaises(RaisedFailure) as raised:
+            eval_program(program)
+        self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
+        self.assertEqual(stream.getvalue(), "")
+
+    def test_builtin_contract_is_visible_and_catchable(self):
+        prefix = "sig h(Int) -> Unit { failure IOErr builtin core.int.print }\n"
+        with self.assertRaisesRegex(TypecheckError, "undeclared failures: IOErr"):
+            checked(prefix + "sig f() -> Unit {}\nfunc f() { h(1) }")
+        program, diags = checked(prefix + "h(1)")
+        self.assertEqual([d.message for d in diags], ['unhandled failures: IOErr'])
         def fail(_):
             raise RaisedFailure(FailureId.IOErr)
-
-        with patch.dict(BUILTINS, {"core.int.print": fail}), self.assertRaises(RaisedFailure):
+        with patch.dict(BUILTINS, {'core.int.print': fail}), self.assertRaises(RaisedFailure):
             output(program)
-        with self.assertRaisesRegex(TypecheckError, "cannot catch 'IOErr'"):
-            checked(prefix + "try h(1)\ncatch IOErr print(0)")
-
-    def test_boundary_transitivity_cycles_and_unreachable_calls(self):
-        source = """
-sig a() -> Unit {}
-sig b() -> Unit {}
-@attr.handled
-sig h() -> Unit {}
-func a() { b() }
-func b() { a()\nh() }
-func h() {}
-"""
-        _, diags = checked(source)
-        self.assertEqual(len(diags.items), 3)
-        _, diags = checked("@attr.handled\nsig h() -> Unit {}\nfunc h() {}\n"
-                           "sig f() -> Unit {}\nfunc f() { return print(1)\nh() }")
-        self.assertEqual(len(diags.items), 1)
+        program, diags = checked(prefix + "try h(1)\ncatch IOErr print(0)")
+        self.assertEqual(diags.items, [])
+        original_print = BUILTINS['core.int.print']
+        def fail_once(value):
+            if value == 1:
+                raise RaisedFailure(FailureId.IOErr)
+            return original_print(value)
+        with patch.dict(BUILTINS, {'core.int.print': fail_once}):
+            self.assertEqual(output(program), '0\n')
 
     def test_thunk_contract_validation_and_saved_force(self):
         _, diags = checked("sig f(Thunk[Float, DivideByZero]) -> Float { failure DivideByZero }\n"
@@ -246,7 +263,7 @@ func h() {}
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), "0\n")
 
-    def test_deferred_functions_still_typechecked(self):
+    def test_thunk_return_type_still_checked(self):
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
             checked("sig f(Thunk[Float, Never]) -> Int {}\nfunc f(t: Thunk[Float, Never]) { return force(t) }")
 

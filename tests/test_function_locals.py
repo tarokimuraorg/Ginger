@@ -188,8 +188,9 @@ class FunctionLocalTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'unknown identifier'):
             checked(function('return 1\nlet later: Int = missing'))
 
-    def test_handled_dependency_in_initializer_keeps_validation_deferred(self):
-        source = ('@attr.handled\nsig h() -> Unit { failure IOErr }\nfunc h() {}\n'
-                  + function('let x: Unit = h()', ret='Unit'))
-        _, diags = checked(source)
-        self.assertTrue(any(d.code == 'FAILURE_CONTRACT_DEFERRED' and "func 'f'" in d.message for d in diags))
+    def test_initializer_dependency_requires_failure_contract(self):
+        prefix = 'sig h() -> Unit { failure IOErr }\nfunc h() {}\n'
+        with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IOErr'):
+            checked(prefix + function('let x: Unit = h()', ret='Unit'))
+        _, diags = checked(prefix + function('let x: Unit = h()', ret='Unit', contract='failure IOErr'))
+        self.assertEqual(diags.items, [])

@@ -37,7 +37,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
 2. `lower`: 括弧内の演算子式を `add`・`sub`・`mul`・`div` の呼び出しへ変換します。
-3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、catch の資格を検査し、トップレベルの未処理 failure を警告します。failure 上限検証には後述の保留境界があります。
+3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、catch の資格を検査し、トップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
 `compile(src)` は型検査済み AST を返し、`execute(prog)` が評価します。`run(src)` は両方を実行します。型検査の通過だけで、未完成部分を含むすべての実行時契約が保証されるわけではありません。
@@ -245,7 +245,7 @@ sig 本体に `failure DivideByZero` などを列挙できます。使える fai
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 Int 算術では、上記の具体的な impl の IntegerOverflow 契約も合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled に依存する関数は、後述のとおり上限検証を保留します。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 Int 算術では、上記の具体的な impl の IntegerOverflow 契約も合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled による上限検証の保留は廃止しました。
 
 標準 `div` は `DivideByZero` を宣言しています。catch せずにトップレベルで使うと未処理警告の対象になります。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -269,15 +269,15 @@ catch DivideByZero print(0)
 
 builtin の宣言は静的解析が信頼する契約であり、Python 実装から実際の failure を自動推論・検証してはいません。独自 builtin sig の宣言漏れも検出できません。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や、独自 builtin が契約違反の巨大整数を返した場合の toFloat 変換失敗は Python 例外として伝播し、Ginger の catch が捕捉する `RaisedFailure` には変換されません。
 
-## @attr.handled と検証保留
+## @attr.handled の廃止（failure runtime 再設計 Phase 1）
 
-`@attr.handled` は既存機能としてコード上に残っていますが、中核 failure 仕様としては保留中です。意味、sig / func のどちらに付けるべきか、builtin との整合性、未宣言 failure の処理を許すかは、今回の仕様では確定していません。failure 上限契約の一般則には組み込んでいません。
+`@attr.handled` は廃止しました。sig・func・builtin sig・catalog JSON の属性として指定すると、未知の属性として明示的にエラーになります。旧コードは属性を削除し、通常の failure 宣言と必要に応じた catch へ移行してください。
 
-既存挙動として、sig の handled は Unit を要求し、呼び出し式の静的集合から callee 自身の failure を除外します。引数評価の failure は残ります。ユーザー関数では本体の `RaisedFailure` を捕捉しますが、builtin 経路や func のみに付けた属性では同じ効果になりません。この不整合は未修正です。handled を理由とする catch 資格の例外もありません。
+failure の種類を指定しない runtime の握りつぶし、呼び出し先の静的 failure の除去、自身・直接依存・間接依存を理由とする上限契約検証の保留は行いません。`FAILURE_CONTRACT_DEFERRED` の note も生成しません。builtin の宣言を信頼する既存の検証境界は引き続き存在します。
 
-sig / func の handled、または handled 付き callee に依存する関数は、新しい本体上限検証を保留します。保留は到達可能な呼び出しを通じて間接的な依存先からも伝わります。型検査は継続しますが、本体全体の上限契約を完全に検証済みとは扱いません。Thunk のみを理由とする保留はありません。
+汎用の `@attr.<name>` 構文は維持し、`@attr.io` は引き続き使用できます。属性は sig / func の前にのみ置けます。不正な位置の属性は黙って破棄せず、構文エラーにします。
 
-保留理由は Diagnostics に `FAILURE_CONTRACT_DEFERRED` の note として記録します。既存 pipeline が表示するのは warning のみなので、この note は通常の実行出力には表示されません。保留を「failure が空」や「契約検証成功」と同一視しないでください。
+この段階では failure 履歴や statement 単位の継続は未導入です。未捕捉の `RaisedFailure` は従来どおり伝播して実行を停止します。将来の runtime 再設計とは段階を分け、`@suppress` も導入していません。
 
 ## Thunk と遅延評価
 
@@ -319,7 +319,7 @@ sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致
 
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
 `sig make() -> Thunk[Float, DivideByZero] { failure Never }` は有効です。
-静的に解決されたThunkは本体上限検証の対象です。handledに直接・推移的に依存する場合の保留は維持します。
+静的に解決されたThunkは本体上限検証の対象です。
 静的契約はruntimeオブジェクトへ追加していません。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
 
@@ -331,8 +331,8 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 型変数の保証を本体内の呼び出し検査に十分反映できない。複数保証やメソッドの型契約と実装選択の関係も未確定 |
 | failure の契約 | 通常関数の上限検証と catch の静的集合制限は導入済み。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告、重複 catch は許可。handler の failure は同名でも外へ伝播 |
-| handled | 中核仕様として保留。意味・付与先・builtin との整合性は未確定で、依存する関数の上限検証は保留 |
-| Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。handled依存の検証保留は維持 |
+| handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
+| Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |
 | 名前付き引数 | 構文解析は対応するが、通常の型検査・実行では拒否 |
 | スコープ | 関数外変数への参照は通常の型検査で拒否。評価器には外側環境を参照する処理が残る |
@@ -344,7 +344,7 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 
 ## テスト
 
-failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、catch 資格、宣言正規化、handled / Thunk / builtin の検証境界と、既存の型検査・サンプルの回帰確認を担います。
+failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、catch 資格、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。
 
 ```sh
 python3 -B -m unittest discover -s tests -v
@@ -401,4 +401,4 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
 
 集合名自体は FailureId ではなく、catch には使用できません。catch の対象は従来どおり
-try 対象から静的に発生しうる個別の FailureId です。集合演算や `@attr.handled` の仕様は変更していません。
+try 対象から静的に発生しうる個別の FailureId です。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。

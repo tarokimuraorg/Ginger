@@ -16,15 +16,6 @@ ATTRS: Dict[str, AttrDef] = {
 
     #meta (分類)
     "io": AttrDef(name="io", kind="meta", doc="I/O related functions"),
-    
-    #sem (意味)
-    "handled": AttrDef(
-        name="handled",
-        kind="sem",
-        doc="Must return Unit",
-        require_return="Unit",
-
-    ),
 }
 
 def is_defined(attr_name: str) -> bool:

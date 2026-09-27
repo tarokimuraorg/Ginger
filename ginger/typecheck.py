@@ -112,12 +112,6 @@ def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
         )
     eff_args = union_failures(EMPTY_FAILURES, *arg_effects)
 
-    # @handled なら callee の failure を落とす（引数の failure は残す）
-    attrs = syms.sig_attrs.get(call.callee, set())
-
-    if "handled" in attrs:
-        return eff_args
-
     return union_failures(callee_eff, eff_args)
 
 # =====================
@@ -367,54 +361,8 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
     typecheck_func_failures(syms, diags)
 
 
-def reachable_body_exprs(func):
-    """Include declaration/assignment RHS effects, stopping at the first return."""
-    for stmt in func.body.stmts:
-        yield stmt.expr
-        if isinstance(stmt, ReturnStmt):
-            break
-
-
-def failure_contract_boundaries(fname, syms, visited=None) -> set[str]:
-    """Do not certify handled effects, including transitive dependencies.
-
-    Other builtin declarations remain trusted contracts, not inferred Python effects.
-    This traversal records validation limits only; it does not change call effects.
-    """
-    if visited is None:
-        visited = set()
-    if fname in visited:
-        return set()
-    visited.add(fname)
-    sig = syms.sigs[fname]
-    func = syms.funcs.get(fname)
-    reasons = set()
-    if "handled" in sig.attrs or (func is not None and "handled" in func.attrs):
-        reasons.add(f"handled: {fname}")
-
-    def visit_expr(expr):
-        if isinstance(expr, CallExpr):
-            reasons.update(failure_contract_boundaries(expr.callee, syms, visited))
-            for arg in expr.args:
-                visit_expr(arg.expr)
-
-    if func is not None:
-        for expr in reachable_body_exprs(func):
-            visit_expr(expr)
-    return reasons
-
-
 def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
     for fname, func in syms.funcs.items():
-        boundaries = failure_contract_boundaries(fname, syms)
-        if boundaries:
-            if diags is not None:
-                diags.note(
-                    "FAILURE_CONTRACT_DEFERRED",
-                    f"failure upper-bound validation deferred for func '{fname}': "
-                    + ", ".join(sorted(boundaries)),
-                )
-            continue
         env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
         inferred_failures = EMPTY_FAILURES
         for stmt in func.body.stmts:

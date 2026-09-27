@@ -118,23 +118,22 @@ try print(f())
         with self.assertRaisesRegex(TypecheckError, 'unknown failure'):
             build_symbols(Program(catalog))
 
-    def test_handled_and_thunk_equivalence(self):
+    def test_function_and_thunk_contract_equivalence(self):
         sources = [
-            '@attr.handled\nsig f() -> Unit { %s }\n'
+            'sig f() -> Unit { %s }\n'
             'func f() { print(div(1.0,0.0)) }\n'
-            'sig g() -> Unit {}\nfunc g() { f() }\nf()',
+            'sig g() -> Unit { failure DivideByZero failure IOErr }\nfunc g() { f() }\nf()',
             'sig f(Thunk[Float, Never]) -> Float { %s }\n'
             'func f(t: Thunk[Float, Never]) { return force(t) }',
-            '@attr.handled\nsig h(Int) -> Unit { %s builtin core.int.print }\n'
-            'sig f() -> Unit {}\nfunc f() { h(1) }',
+            'sig h(Int) -> Unit { %s builtin core.int.print }\n'
+            'sig f() -> Unit { failure DivideByZero failure IOErr }\nfunc f() { h(1) }',
         ]
         for source in sources:
             with self.subTest(source=source):
                 _, named = checked(SET + source % 'failure CalculationFailure')
                 _, explicit = checked(source % 'failure DivideByZero failure IOErr')
                 self.assertEqual(named.items, explicit.items)
-                self.assertEqual(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named),
-                                 '@attr.handled' in source)
-        with self.assertRaisesRegex(TypecheckError, "cannot catch 'IOErr'"):
-            checked(SET + '@attr.handled\nsig h(Int) -> Unit { failure CalculationFailure '
-                    'builtin core.int.print }\ntry h(1)\ncatch IOErr print(0)')
+                self.assertFalse(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named))
+        _, diags = checked(SET + 'sig h(Int) -> Unit { failure CalculationFailure '
+                           'builtin core.int.print }\ntry h(1)\ncatch IOErr print(0)')
+        self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero'])
