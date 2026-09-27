@@ -279,6 +279,16 @@ failure の種類を指定しない runtime の握りつぶし、呼び出し先
 
 この段階では failure 履歴や statement 単位の継続は未導入です。未捕捉の `RaisedFailure` は従来どおり伝播して実行を停止します。将来の runtime 再設計とは段階を分け、`@suppress` も導入していません。
 
+## 内部 runtime の骨格（Phase 2）
+
+`ginger/runtime/failures.py` に `FailureEvent` / `FailureStatus`、`context.py` に `RuntimeContext` / `CallFrame`、`results.py` に `Value` / `NoValue` / `EvalResult` / `ExecutionResult` を追加しました。静的契約は FailureId の集合、実行時履歴は発生ごとに異なる event ID を持つ記録として分離します。
+
+RuntimeContext 内で event / call ID を採番します。イベントとフレームは不変のスナップショットで、context の操作が同じ ID の記録を更新します。更新後の状態は context から再取得します。resolved にしても履歴から削除しません。pending はイベント ID の参照であり、関数境界の自動伝播は未実装です。
+
+`Value(None)` は正常な Unit、`NoValue()` は値の欠落です。ExecutionResult は環境の対応表と履歴のスナップショットを保持しますが、環境内の値そのものを深くコピーしません。未解決イベントは保持した履歴から取得します。
+
+これらは単体で使用できる内部構造のみです。既存 evaluator・builtin・pipeline には未接続で、RaisedFailure、try-catch、停止挙動、公開 API、main の出力は変更していません。statement 継続、契約違反判定、実行時の履歴収集は後続 Phase の対象です。
+
 ## Thunk と遅延評価
 
 ```ginger
