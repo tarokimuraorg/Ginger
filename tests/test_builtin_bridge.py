@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from unittest.mock import Mock, patch
 
 import ginger.eval as evaluator
-from ginger.builtin import BUILTINS, builtin_failure_contract
+from ginger.builtin import BUILTINS, builtin_failure_contract, call_builtin
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, failures
 from ginger.lower import lower_program
 from ginger.numeric import INT_MAX
@@ -25,6 +25,14 @@ class BuiltinBridgeTests(unittest.TestCase):
 
     def run_source(self, source):
         return evaluator._eval_program_with_context(program(source), self.context)
+
+    def test_float_division_signals_declared_failure_at_implementation(self):
+        for zero in (0.0, -0.0):
+            with self.subTest(zero=zero):
+                with self.assertRaises(RaisedFailure) as raised:
+                    call_builtin('core.float.div', 1.0, zero)
+                self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
+        self.assertEqual(call_builtin('core.float.div', 4.0, 2.0), 2.0)
 
     def test_success_goes_through_value_result(self):
         results = []
@@ -138,7 +146,7 @@ class BuiltinBridgeTests(unittest.TestCase):
                                  [FailureId.IntegerOverflow])
 
     def test_python_implementation_errors_remain_python_errors(self):
-        for error in (TypeError('bug'), KeyError('bug'), AssertionError('bug')):
+        for error in (TypeError('bug'), KeyError('bug'), AssertionError('bug'), ZeroDivisionError('bug')):
             with self.subTest(error=error):
                 fn = Mock(side_effect=error)
                 with patch.dict(BUILTINS, {'core.int.add': fn}), self.assertRaises(type(error)) as raised:
