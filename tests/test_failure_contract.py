@@ -292,7 +292,7 @@ class ExistingRegressionTests(unittest.TestCase):
             "Scene_3": ("0\n", []),
             "Scene_4": ("1\n2\n", []),
         }
-        root = Path(__file__).resolve().parents[1] / "ginger" / "script"
+        root = Path(__file__).resolve().parents[1] / "ginger" / "scripts"
         for name, (stdout, warnings) in expected.items():
             with self.subTest(name=name):
                 program, diags = checked((root / f"{name}.ginger").read_text())

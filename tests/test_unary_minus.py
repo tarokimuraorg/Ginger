@@ -173,7 +173,7 @@ class UnaryMinusTests(unittest.TestCase):
             'Scene_6': ('0\n5.0\n', []),
             'Scene_7': ('-2\n-2\n3\n', ['unhandled failures: IntegerOverflow']),
         }
-        root = Path(__file__).resolve().parents[1] / 'ginger' / 'script'
+        root = Path(__file__).resolve().parents[1] / 'ginger' / 'scripts'
         for name, (stdout, warnings) in expected.items():
             with self.subTest(name=name):
                 program, diags = checked((root / f'{name}.ginger').read_text())

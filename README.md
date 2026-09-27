@@ -12,7 +12,7 @@ Ginger は、Python で実装された独自のプログラミング言語処理
 python3 -B -m ginger.main
 ```
 
-現在の `ginger/main.py` は `ginger/script/Scene_7.ginger` を固定で読み込み、IntegerOverflow の未処理警告に続いて `-2`、`-2`、`3` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
+現在の `ginger/main.py` は `ginger/scripts/Scene_11.ginger` を固定で読み込み、IntegerOverflow を catch して、未処理警告なしで `999` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
 
 別のサンプルは Python API から実行できます。次の例もプロジェクトルートで実行します。
 
@@ -21,7 +21,7 @@ python3 -B - <<'PY'
 from pathlib import Path
 from ginger.pipeline import run
 
-run(Path("ginger/script/Scene_7.ginger").read_text(encoding="utf-8"))
+run(Path("ginger/scripts/Scene_7.ginger").read_text(encoding="utf-8"))
 PY
 ```
 
@@ -362,14 +362,14 @@ python3 -B -m unittest discover -s tests -v
 | `ginger/eval.py` / `builtin.py` | 評価と Python の組み込み実装 |
 | `ginger/runtime/` | Thunk・実行時 failure・ディスパッチ補助 |
 | `ginger/catalog/` / `core/` | 標準 JSON 定義、読み込み、failure 定義 |
-| `ginger/script/` | 現行の動作例と過去の試行サンプル |
+| `ginger/scripts/` | 現行の動作例と過去の試行サンプル |
 | `tests/test_failure_contract.py` | failure 契約・検証境界・既存動作の自動回帰テスト |
 
 ## 開発上の注意
 
 この README は現時点の実装状況の記録です。未確定事項はコードや README のどちらかを正と決めつけず、設計判断を先に行います。
 
-古い `catalog` / `fn` / `args:` 構文、`run_ginger.py` による起動、Catalog / Code の自動分離は現行の使い方ではありません。`script/` の古いサンプルやコメントにも不一致があります。既存ファイルの存在だけを、対応機能や互換性の保証とは扱わないでください。
+古い `catalog` / `fn` / `args:` 構文、`run_ginger.py` による起動、Catalog / Code の自動分離は現行の使い方ではありません。`scripts/` の古いサンプルやコメントにも不一致があります。既存ファイルの存在だけを、対応機能や互換性の保証とは扱わないでください。
 
 ### failureset（第1段階）
 
