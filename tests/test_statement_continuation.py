@@ -88,13 +88,13 @@ class StatementContinuationTests(unittest.TestCase):
             self.run_source(source)
         printer.assert_called_once_with(1)
 
-    def test_user_function_body_continues_without_call_frames(self):
+    def test_user_function_body_continues_with_child_frame(self):
         _, context, stdout = self.run_source(
             'sig f() -> Unit { failure DivideByZero }\n'
             'func f() { print(div(1.0,0.0))\nprint(2) }\nf()\nprint(3)')
         self.assertEqual(stdout, '2\n3\n')
-        self.assertEqual(len(context.call_frames), 1)
-        self.assertEqual([r.scope for r in context.incomplete_statements], ['f', '<program>'])
+        self.assertEqual(len(context.call_frames), 2)
+        self.assertEqual([r.scope for r in context.incomplete_statements], ['f'])
 
     def test_failed_return_does_not_execute_unreachable_body(self):
         env, context, stdout = self.run_source(
