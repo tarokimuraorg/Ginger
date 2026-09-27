@@ -281,8 +281,8 @@ print(3)
         program, _ = checked("sig raw(Float,Float) -> Float { builtin core.float.div }\n"
                              "sig f() -> Float {}\nfunc f() { return raw(1.0,0.0) }\n"
                              "var x: Float = f()")
-        with self.assertRaises(FailureContractViolation):
-            output(program)
+        result = eval_program(program)
+        self.assertIsNotNone(result.contract_violation)
 
 
 class ExistingRegressionTests(unittest.TestCase):

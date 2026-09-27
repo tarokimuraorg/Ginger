@@ -42,7 +42,7 @@ class CallInferenceTests(unittest.TestCase):
                 call = program.items[-1].expr
                 self.assertEqual(syms.expression_types[id(call)], TypeRef(name))
                 self.assertEqual(syms.resolved_calls[id(call)].return_type, TypeRef(name))
-                cell = eval_program(program)['x']
+                cell = eval_program(program).environment['x']
                 self.assertEqual(cell.value, value)
                 self.assertIs(type(cell.value), type(value))
 
@@ -94,7 +94,7 @@ class CallInferenceTests(unittest.TestCase):
             self.assertEqual(syms.resolved_calls[id(call)].implementation, impl)
             self.assertEqual(bindings['x'].ty, TypeRef(target))
             self.assertEqual(effect_expr(call, bindings, syms), OVERFLOW if impl else EMPTY_FAILURES)
-            cell = eval_program(program)['x']
+            cell = eval_program(program).environment['x']
             self.assertEqual(cell.typ, TypeRef(target))
             self.assertIs(type(cell.value), float if target == 'Float' else int)
         with self.assertRaisesRegex(TypecheckError, "type mismatch: expected TypeRef\\(name='Int'.*got TypeRef\\(name='Float'"):
@@ -131,7 +131,7 @@ class CallInferenceTests(unittest.TestCase):
         for args in ['1,2i64', '1i64,2']:
             program, syms, _, _ = self.annotated(FIRST + f'var x: Int64 = first({args})')
             self.assertEqual(syms.resolved_calls[id(program.items[-1].expr)].type_bindings['T'], TypeRef('Int64'))
-            self.assertEqual(eval_program(program)['x'].value, 1)
+            self.assertEqual(eval_program(program).environment['x'].value, 1)
             with self.assertRaisesRegex(TypecheckError, 'Int64.*does not guarantee Addable'):
                 checked(f'print(add({args}))')
         for args in ['1i64,2.0', '1.0,2i64']:

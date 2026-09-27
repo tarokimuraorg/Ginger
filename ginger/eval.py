@@ -13,7 +13,8 @@ from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
 from ginger.runtime.catches import handle_try_events
-from ginger.runtime.results import EvalResult, NoValue, Value as ProducedValue
+from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value as ProducedValue
+from ginger.runtime.failures import FailureContractViolation
 
 from .ast import (
     SigDecl,
@@ -83,12 +84,19 @@ _statement_scope: ContextVar[str] = ContextVar("ginger_statement_scope", default
 _active_runtime: ContextVar[RuntimeContext] = ContextVar("ginger_runtime")
 
 
-def eval_program(prog) -> Dict[str, Binding]:
-    return _eval_program_with_context(prog, RuntimeContext())
+def eval_program(prog) -> ExecutionResult:
+    context = RuntimeContext()
+    environment: Dict[str, Binding] = {}
+    try:
+        _eval_program_with_context(prog, context, environment)
+    except FailureContractViolation:
+        # Fatal to Ginger; preserve the stopped execution for the host API.
+        pass
+    return ExecutionResult.from_context(environment, context)
 
 
-def _eval_program_with_context(prog, context: RuntimeContext) -> Dict[str, Binding]:
-    """Internal injectable entry; public results remain an environment dictionary.
+def _eval_program_with_context(prog, context: RuntimeContext, environment=None) -> Dict[str, Binding]:
+    """Internal evaluator entry; retains exception control flow for runtime tests.
 
     Root and user calls retain their own frames and share one history.
     ContextVar scopes recursive evaluation without changing FunctionEnv or
@@ -98,19 +106,18 @@ def _eval_program_with_context(prog, context: RuntimeContext) -> Dict[str, Bindi
     scope_token = _statement_scope.set("<program>")
     try:
         with context.call("<program>"):
-            return _eval_program(prog)
+            return _eval_program(prog, {} if environment is None else environment)
     finally:
         _statement_scope.reset(scope_token)
         _active_runtime.reset(token)
 
 
-def _eval_program(prog) -> Dict[str, Binding]:
+def _eval_program(prog, env) -> Dict[str, Binding]:
     
     syms = build_symbols(prog)
     prog = normalize_types(prog, syms.failuresets)
     # Keep the exact checked expressions alive for runtime boundary/dispatch types.
     typecheck_program(prog, Diagnostics(), syms=syms)
-    env: Dict[str, Binding] = {}
 
     i = 0
 
