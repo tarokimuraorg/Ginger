@@ -1,6 +1,6 @@
 from typing import Callable, Dict, Any, Literal, Tuple
 from .numeric import INT_MIN, INT_MAX
-from .core.failure_spec import FailureId, failures
+from .core.failure_spec import FailureId, FailureSet, EMPTY_FAILURES, failures, union_failures
 from .runtime.failures import RaisedFailure
 
 # Managed implementation contracts, specialized after concrete impl dispatch.
@@ -9,6 +9,18 @@ INT_ARITHMETIC_FAILURES = {
     f"core.int.{name}": failures(FailureId.IntegerOverflow)
     for name in ("add", "sub", "mul")
 }
+
+
+def builtin_failure_contract(declared: FailureSet, implementation: str | None,
+                             *, direct_builtin: bool) -> FailureSet:
+    """Shared static/runtime contract, excluding argument evaluation.
+
+    Direct builtin aliases retain their own sig contract; only capability-based
+    dispatch adds the managed implementation's specialized arithmetic contract.
+    """
+    if direct_builtin:
+        return declared
+    return union_failures(declared, INT_ARITHMETIC_FAILURES.get(implementation, EMPTY_FAILURES))
 
 
 def checked_int_result(result: int) -> int:

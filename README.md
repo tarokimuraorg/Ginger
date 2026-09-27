@@ -287,7 +287,17 @@ RuntimeContext 内で event / call ID を採番します。イベントとフレ
 
 `Value(None)` は正常な Unit、`NoValue()` は値の欠落です。ExecutionResult は環境の対応表と履歴のスナップショットを保持しますが、環境内の値そのものを深くコピーしません。未解決イベントは保持した履歴から取得します。
 
-これらは単体で使用できる内部構造のみです。既存 evaluator・builtin・pipeline には未接続で、RaisedFailure、try-catch、停止挙動、公開 API、main の出力は変更していません。statement 継続、契約違反判定、実行時の履歴収集は後続 Phase の対象です。
+Phase 2 時点では単体で使用できる内部構造のみを導入しました。Phase 3 の接続範囲は以下のとおりです。
+
+## builtin failure bridge（Phase 3）
+
+`ginger/runtime/builtin_bridge.py` を実際の builtin 呼び出し境界へ接続しました。正常終了は `EvalResult(Value(v))`、builtin 自身の宣言済み `RaisedFailure` はイベント登録と `EvalResult(NoValue(), related_event_ids)` に変換します。静的解析と runtime は `builtin_failure_contract` を共有し、既存の sig failure と標準整数演算の実装別契約を参照します。独自の直接 builtin sig は自身の宣言を使用し、実装名だけで契約を補いません。
+
+引数評価は bridge の外で先に行い、引数の failure を外側 builtin の契約で判定・再登録しません。origin は `core.int.add` などの実装 ID です。実行ごとに内部 RuntimeContext と `<program>` の root call を作り、ユーザー関数内の builtin にも暫定的に同じ root call ID を使用します。関数別 CallFrame はまだ導入していません。
+
+互換境界 `legacy_value` は Value を通常値へ戻し、NoValue を既存の RaisedFailure 伝播へ戻します。イベントはこの段階で再登録しません。NoValue を None・0・Unit へ変換せず、変数や外側の式へ流しません。statement 継続は未実装で、未捕捉 failure の停止挙動、try-catch、公開 API、main の出力は従来どおりです。既存 catch によるイベントの resolved 化も Phase 6 まで未実装のため、この段階の内部 unresolved 履歴は、従来の catch による処理結果を反映しません。
+
+未宣言の RaisedFailure は通常イベントとして登録せず、そのまま伝播させます。FailureContractViolation は未実装です。Python の実装エラーはイベント化しません。ただし、既存 evaluator の ZeroDivisionError → DivideByZero 変換は bridge 内に移して維持しています。内部テストでは `_eval_program_with_context` に context を渡して通常と同じ経路を観測できます。pipeline はまだ履歴を公開せず、ExecutionResult への切り替えは後続 Phase です。
 
 ## Thunk と遅延評価
 

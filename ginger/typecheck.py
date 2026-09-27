@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Union
 from .errors import TypecheckError
 from .numeric import can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
-from .builtin import INT_ARITHMETIC_FAILURES
+from .builtin import builtin_failure_contract
 from .symbols_builder import build_symbols, normalize_types, ResolvedCall
 from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from .diagnostics import Diagnostics
@@ -103,13 +103,12 @@ def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
 
     callee_eff: FailureSet = syms.sig_failures.get(call.callee, EMPTY_FAILURES)
     # The checked call's implementation is the same one runtime dispatch uses.
-    if call.callee not in syms.funcs and sig.builtin is None:
+    if call.callee not in syms.funcs:
         if id(call) not in syms.resolved_calls:
             type_expr(call, None, env, syms)
         resolved = syms.resolved_calls[id(call)]
-        callee_eff = union_failures(
-            callee_eff, INT_ARITHMETIC_FAILURES.get(resolved.implementation, EMPTY_FAILURES)
-        )
+        callee_eff = builtin_failure_contract(
+            callee_eff, resolved.implementation, direct_builtin=sig.builtin is not None)
     eff_args = union_failures(EMPTY_FAILURES, *arg_effects)
 
     return union_failures(callee_eff, eff_args)
