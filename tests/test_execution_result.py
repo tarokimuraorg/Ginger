@@ -127,6 +127,17 @@ class ExecutionResultTests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             run('var =')
 
+    def test_custom_builtin_python_division_error_is_not_a_ginger_failure(self):
+        error = ZeroDivisionError('custom implementation bug')
+        def broken():
+            raise error
+        # Even a sig declaring DivideByZero must not legitimize a Python error.
+        with patch.dict(BUILTINS, {'test.broken': broken}):
+            with self.assertRaises(ZeroDivisionError) as caught:
+                self.capture('sig broken() -> Float { failure DivideByZero builtin test.broken }\n'
+                             'try print(broken())\ncatch DivideByZero print(9)\nprint(3)')
+        self.assertIs(caught.exception, error)
+
     def test_cli_diagnostics_and_exit_codes(self):
         cases = [('', 0, ''),
                  ('try print(div(1.0,0.0))\ncatch DivideByZero print(2)', 0, ''),

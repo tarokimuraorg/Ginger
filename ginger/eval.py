@@ -1,13 +1,12 @@
-from typing import Dict, Union, Optional, Any
+from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from contextvars import ContextVar
-from .args import bind_args
 from .ast import TypeRef
 from .numeric import widen_value
 from .symbols_builder import build_symbols, normalize_types, ResolvedCall
 from .typecheck import typecheck_program, resolve_typeref
 from .diagnostics import Diagnostics
-from .errors import EvalError, TypecheckError
+from .errors import EvalError
 from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
@@ -17,14 +16,11 @@ from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value a
 from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
 from .ast import (
-    SigDecl,
     FuncDecl,
     VarDecl,
     AssignStmt,
     Expr,
     CallExpr,
-    PosArg,
-    NamedArg,
     IdentExpr,
     IntLit,
     Int64Lit,
@@ -34,14 +30,12 @@ from .ast import (
     ExprStmt,
     TryStmt,
     CatchStmt,
-    RequireGuarantees,
 )
 
 
 # =====================
 # Runtime
 # =====================
-#Value = Union[int, float]
 Value = Any
 
 @dataclass
