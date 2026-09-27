@@ -7,7 +7,7 @@ from ginger.errors import EvalError
 from ginger.eval import _eval_program_with_context
 from ginger.runtime.catches import handle_try_events
 from ginger.runtime.context import RuntimeContext
-from ginger.runtime.failures import FailureStatus as Status, RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, FailureStatus as Status, RaisedFailure
 from test_failure_contract import checked, recorded
 
 
@@ -80,7 +80,7 @@ class EventCatchTests(unittest.TestCase):
             with self.subTest(error=error):
                 context = RuntimeContext()
                 printer = Mock(side_effect=error)
-                with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(type(error)):
+                with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation if isinstance(error, RaisedFailure) else type(error)):
                     _eval_program_with_context(checked(source)[0], context)
                 printer.assert_called_once_with(2)
                 self.assertIsNone(context.current_call_id)

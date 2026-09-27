@@ -1,4 +1,4 @@
-"""Execution bookkeeping only; no evaluation or failure-contract policy yet."""
+"""Execution bookkeeping and boundary contract validation."""
 
 from dataclasses import dataclass, replace
 from contextvars import ContextVar
@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, FailureSet
-from .failures import FailureEvent, FailureStatus
+from .failures import FailureEvent, FailureStatus, FailureContractViolation
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class RuntimeContext:
     """
 
     def __init__(self):
+        self.last_contract_violation: FailureContractViolation | None = None
         self._next_event_id = 1
         self._next_call_id = 1
         self._events: dict[int, FailureEvent] = {}
@@ -131,6 +132,24 @@ class RuntimeContext:
             self._calls[call_id] = replace(
                 frame, pending_event_ids=frame.pending_event_ids + (event_id,))
 
+    def fail_contract(self, **details):
+        violation = FailureContractViolation(**details)
+        self.last_contract_violation = violation
+        raise violation
+
+    def validate_function_exit(self, call_id: int) -> None:
+        """Check only events leaving this function, not root or resolved history."""
+        frame = self.get_call(call_id)
+        for event_id in self.unresolved_pending(call_id):
+            event = self.get_event(event_id)
+            if event.failure_id not in frame.declared_failure_contract:
+                self.fail_contract(
+                    failure_id=event.failure_id, origin=event.origin,
+                    violating_call_id=call_id,
+                    violating_function_or_builtin=frame.function_name,
+                    declared_contract=frame.declared_failure_contract,
+                    boundary_kind="function", event_id=event_id)
+
     def resolve(self, event_id: int) -> FailureEvent:
         event = self.get_event(event_id)
         if event.status is FailureStatus.UNRESOLVED:
@@ -167,7 +186,7 @@ class _CallScope:
 
     def __exit__(self, exc_type, exc, traceback):
         try:
-            if self.parent is not None:
+            if self.parent is not None and not isinstance(exc, FailureContractViolation):
                 for event_id in self.context.unresolved_pending(self.frame.call_id):
                     self.context.add_pending(self.parent, event_id)
         finally:

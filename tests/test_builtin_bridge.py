@@ -11,7 +11,7 @@ from ginger.numeric import INT_MAX
 from ginger.parser import parse
 from ginger.runtime.builtin_bridge import invoke_builtin
 from ginger.runtime.context import RuntimeContext
-from ginger.runtime.failures import FailureStatus, RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
 from ginger.runtime.results import NoValue, Value
 
 
@@ -112,9 +112,9 @@ class BuiltinBridgeTests(unittest.TestCase):
         source = (f'sig alias(Int,Int) -> Int {{ builtin core.int.add }}\n'
                   'sig f() -> Int { failure IntegerOverflow }\n'
                   f'func f() {{ return alias({INT_MAX},1) }}\nvar x: Int = f()')
-        with self.assertRaises(RaisedFailure) as raised:
+        with self.assertRaises(FailureContractViolation) as raised:
             self.run_source(source)
-        self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
+        self.assertEqual(raised.exception.failure_id, FailureId.IntegerOverflow)
         self.assertEqual(self.context.failure_history, ())
 
     def test_declared_custom_alias_records_failure(self):
@@ -150,9 +150,9 @@ class BuiltinBridgeTests(unittest.TestCase):
         error = RaisedFailure(FailureId.IOErr)
         fn = Mock(side_effect=error)
         with patch.dict(BUILTINS, {'core.int.print': fn}):
-            with self.assertRaises(RaisedFailure) as raised:
+            with self.assertRaises(FailureContractViolation) as raised:
                 self.run_source('print(1)')
-            self.assertIs(raised.exception, error)
+            self.assertEqual(raised.exception.failure_id, error.fid)
             self.assertEqual(self.context.failure_history, ())
             self.run_source('sig custom(Int) -> Unit { failure IOErr builtin core.int.print }\ncustom(1)')
         self.assertEqual([e.failure_id for e in self.context.failure_history], [FailureId.IOErr])
