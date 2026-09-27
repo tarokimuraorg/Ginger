@@ -2,7 +2,7 @@ import unittest
 from dataclasses import FrozenInstanceError
 
 from ginger.core.failure_spec import FailureId
-from ginger.runtime.context import CallFrame, RuntimeContext
+from ginger.runtime.context import CallFrame, RuntimeContext, IncompleteStatement
 from ginger.runtime.failures import FailureEvent, FailureStatus
 from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value
 
@@ -109,12 +109,13 @@ class RuntimeFoundationTests(unittest.TestCase):
         first, second = self.failure(), self.failure()
         self.context.resolve(first.event_id)
         environment = {'x': 3}
-        result = ExecutionResult(environment, self.context.failure_history, ['print(div(...))'])
+        record = IncompleteStatement(self.frame.call_id, 'calculate', 0, 'ExprStmt', (second.event_id,))
+        result = ExecutionResult(environment, self.context.failure_history, [record])
         environment['x'] = 4
         self.assertEqual(result.environment['x'], 3)
         self.assertEqual(len(result.failure_history), 2)
         self.assertEqual(result.unresolved_events, (second,))
-        self.assertEqual(result.incomplete_statements, ('print(div(...))',))
+        self.assertEqual(result.incomplete_statements, (record,))
         self.context.resolve(second.event_id)
         self.assertEqual(result.unresolved_events, (second,))  # Snapshot, not live context.
         self.assertEqual(ExecutionResult({}, self.context.failure_history).unresolved_events, ())

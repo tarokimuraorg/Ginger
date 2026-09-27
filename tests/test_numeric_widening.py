@@ -14,7 +14,7 @@ from ginger.typecheck import compatible, same_type, typecheck_program
 class NumericWideningTests(unittest.TestCase):
     def values(self, source):
         program, _ = checked(source)
-        return eval_program(program)
+        return eval_program(program).environment
 
     def test_initialization_and_assignment(self):
         for source in ['var x: Float = 1',
@@ -24,7 +24,7 @@ class NumericWideningTests(unittest.TestCase):
             with self.subTest(source=source):
                 program, _ = checked(source)
                 self.assertEqual(typecheck_program(program, Diagnostics())['x'].ty, TypeRef('Float'))
-                value = eval_program(program)['x'].value
+                value = eval_program(program).environment['x'].value
                 self.assertIs(type(value), float)
                 self.assertEqual(value, 1.0)
 

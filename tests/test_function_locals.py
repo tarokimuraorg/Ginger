@@ -63,7 +63,7 @@ class FunctionLocalTests(unittest.TestCase):
     def test_shadowing_is_local_and_globals_remain_inaccessible(self):
         source = 'var x: Int = 10\n' + function('var x: Int = 20\nx = 21\nreturn x')
         program, _ = checked(source + 'var answer: Int = f()')
-        env = eval_program(program)
+        env = eval_program(program).environment
         self.assertEqual(env['x'].value, 10)
         self.assertEqual(env['answer'].value, 21)
         for body in ['return x', 'x = 20\nreturn 0']:
@@ -72,7 +72,7 @@ class FunctionLocalTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'unknown identifier'):
             checked(function('let y: Int = 20\nreturn y') + 'var answer: Int = f()\nprint(y)')
         program, _ = checked(function('let y: Int = 20\nreturn y') + 'var answer: Int = f()')
-        self.assertNotIn('y', eval_program(program))
+        self.assertNotIn('y', eval_program(program).environment)
 
     def test_fresh_environment_per_call(self):
         source = function('var x: Int = 1\nlet before: Int = x\nx = 2\nreturn before')
@@ -110,7 +110,7 @@ class FunctionLocalTests(unittest.TestCase):
             environments.append(env)
             return eval_block(block, env, syms, outer)
         with patch('ginger.eval.eval_block', side_effect=observe):
-            env = eval_program(program)
+            env = eval_program(program).environment
         local = environments[0]
         for name, typ, value in [('i', 'Int', 1), ('wide', 'Int64', 2), ('real', 'Float', 3.0)]:
             self.assertEqual(local[name].typ, TypeRef(typ))

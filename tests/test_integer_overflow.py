@@ -11,7 +11,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.numeric import INT_MIN, INT_MAX
-from ginger.runtime.failures import RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, RaisedFailure
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import effect_expr, typecheck_program
 
@@ -61,7 +61,7 @@ class IntegerOverflowTests(unittest.TestCase):
                                   ('mul', INT_MAX, 1, INT_MAX), ('mul', INT_MIN, 1, INT_MIN)]:
             with self.subTest(op=op, a=a):
                 program, _ = checked(f'var x: Int = {op}({literal(a)},{literal(b)})')
-                cell = eval_program(program)['x']
+                cell = eval_program(program).environment['x']
                 self.assertEqual(cell.value, expected)
                 self.assertEqual(cell.typ, TypeRef('Int'))
                 self.assertIs(type(cell.value), int)
@@ -73,7 +73,7 @@ class IntegerOverflowTests(unittest.TestCase):
                     f'var x: Int = {literal(value)}\nvar y: Int = {expr}')
                 self.assertEqual(diags.items, [])
                 self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), EMPTY_FAILURES)
-                self.assertEqual(eval_program(program)['y'].value, -value)
+                self.assertEqual(eval_program(program).environment['y'].value, -value)
         checked(INT_IDENTITY + 'sig f(Int) -> Int { failure Never }\n'
                 'func f(x: Int) { return keepInt(neg(x)) }')
 
@@ -118,7 +118,7 @@ class IntegerOverflowTests(unittest.TestCase):
             source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure Never }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
             program, diags = checked(source + 'var x: Float = f(1.0)')
             self.assertEqual(diags.items, [])
-            self.assertEqual(eval_program(program)['x'].value, result)
+            self.assertEqual(eval_program(program).environment['x'].value, result)
             with self.assertRaisesRegex(TypecheckError, 'no declared or inferred IntegerOverflow'):
                 checked(source + 'try f(1.0)\ncatch IntegerOverflow print(0)')
         self.assertEqual(call_builtin('core.float.mul', 1e308, 2.0), float('inf'))
@@ -144,13 +144,13 @@ class IntegerOverflowTests(unittest.TestCase):
     def test_widening_is_pure_but_propagates_argument_failure(self):
         program, diags = checked('var x: Int = 1\nvar y: Int64 = x\nvar z: Float = x')
         self.assertEqual(diags.items, [])
-        env = eval_program(program)
+        env = eval_program(program).environment
         self.assertEqual(env['y'].typ, TypeRef('Int64'))
         self.assertIs(type(env['z'].value), float)
         prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
         for typ in ['Int64', 'Float']:
             program, _ = checked(prefix + f'var x: {typ} = f({INT_MAX})')
-            self.assertIsInstance(eval_program(program)['x'], UninitializedBinding)
+            self.assertIsInstance(eval_program(program).environment['x'], UninitializedBinding)
 
     def test_int64_arithmetic_stays_disabled(self):
         for op in ['add', 'sub', 'mul', 'div']:
@@ -162,12 +162,12 @@ class IntegerOverflowTests(unittest.TestCase):
         with patch.dict(BUILTINS, {'test.custom': lambda: INT_MAX + 1}):
             program, diags = checked(source)
             self.assertEqual(diags.items, [])
-            self.assertEqual(eval_program(program)['x'].value, INT_MAX + 1)
+            self.assertEqual(eval_program(program).environment['x'].value, INT_MAX + 1)
 
     def test_user_function_override_does_not_inherit_builtin_effect(self):
         program, diags = checked('func add(a: T,b: T) { return a }\nvar x: Int = add(1,2)')
         self.assertEqual(diags.items, [])
-        self.assertEqual(eval_program(program)['x'].value, 1)
+        self.assertEqual(eval_program(program).environment['x'].value, 1)
 
     def test_direct_float_catch_rejected_but_argument_effect_preserved(self):
         identity = 'sig identity(Float) -> Float {}\nfunc identity(x: Float) { return x }\n'
@@ -206,9 +206,8 @@ class IntegerOverflowTests(unittest.TestCase):
                   f'var x: Int = alias({INT_MAX},1)')
         program, diags = checked(source)
         self.assertEqual(diags.items, [])
-        with self.assertRaises(RaisedFailure) as raised:
-            eval_program(program)
-        self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
+        result = eval_program(program)
+        self.assertEqual(result.contract_violation.failure_id, FailureId.IntegerOverflow)
 
     def test_return_infers_from_arguments_only(self):
         for typ, arg in [('Int', '1'), ('Float', '1.0')]:

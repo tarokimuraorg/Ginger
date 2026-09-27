@@ -8,7 +8,7 @@ from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import FailureId, failures
 from ginger.errors import EvalError
 from ginger.runtime.context import RuntimeContext
-from ginger.runtime.failures import FailureStatus, RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
 from ginger.runtime.results import Value, NoValue
 from test_failure_contract import checked
 
@@ -106,13 +106,15 @@ class CallFrameTests(unittest.TestCase):
                     seen.append(self.context.current_call_id)
                     raise error
                 with patch.dict(BUILTINS, {'core.int.print': fail}):
-                    with self.assertRaises(type(error)) as raised:
+                    with self.assertRaises(FailureContractViolation if isinstance(error, RaisedFailure) else type(error)) as raised:
                         self.run_source('sig f() -> Unit { failure DivideByZero }\n'
                                         'func f() { print(div(1.0,0.0))\nprint(1) }\nf()\nprint(3)')
-                self.assertIs(raised.exception, error)
+                if not isinstance(error, RaisedFailure):
+                    self.assertIs(raised.exception, error)
                 self.assertEqual(seen, [2])
                 self.assertIsNone(self.context.current_call_id)
-                self.assertEqual(self.context.get_call(1).pending_event_ids, (1,))
+                self.assertEqual(self.context.get_call(1).pending_event_ids,
+                                 () if isinstance(error, RaisedFailure) else (1,))
                 self.assertEqual(len(self.context.failure_history), 1)
 
     def test_scope_restores_parent_on_fatal_exit(self):

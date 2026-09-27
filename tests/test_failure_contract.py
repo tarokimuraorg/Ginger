@@ -15,7 +15,7 @@ from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.lower import lower_program
 from ginger.parser import parse
-from ginger.runtime.failures import RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, RaisedFailure
 from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program
 
@@ -281,8 +281,8 @@ print(3)
         program, _ = checked("sig raw(Float,Float) -> Float { builtin core.float.div }\n"
                              "sig f() -> Float {}\nfunc f() { return raw(1.0,0.0) }\n"
                              "var x: Float = f()")
-        with self.assertRaises(RaisedFailure):
-            output(program)
+        result = eval_program(program)
+        self.assertIsNotNone(result.contract_violation)
 
 
 class ExistingRegressionTests(unittest.TestCase):

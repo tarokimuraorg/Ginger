@@ -13,7 +13,8 @@ from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
 from ginger.runtime.catches import handle_try_events
-from ginger.runtime.results import EvalResult, NoValue, Value as ProducedValue
+from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value as ProducedValue
+from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
 from .ast import (
     SigDecl,
@@ -83,12 +84,19 @@ _statement_scope: ContextVar[str] = ContextVar("ginger_statement_scope", default
 _active_runtime: ContextVar[RuntimeContext] = ContextVar("ginger_runtime")
 
 
-def eval_program(prog) -> Dict[str, Binding]:
-    return _eval_program_with_context(prog, RuntimeContext())
+def eval_program(prog) -> ExecutionResult:
+    context = RuntimeContext()
+    environment: Dict[str, Binding] = {}
+    try:
+        _eval_program_with_context(prog, context, environment)
+    except FailureContractViolation:
+        # Fatal to Ginger; preserve the stopped execution for the host API.
+        pass
+    return ExecutionResult.from_context(environment, context)
 
 
-def _eval_program_with_context(prog, context: RuntimeContext) -> Dict[str, Binding]:
-    """Internal injectable entry; public results remain an environment dictionary.
+def _eval_program_with_context(prog, context: RuntimeContext, environment=None) -> Dict[str, Binding]:
+    """Internal evaluator entry; retains exception control flow for runtime tests.
 
     Root and user calls retain their own frames and share one history.
     ContextVar scopes recursive evaluation without changing FunctionEnv or
@@ -98,19 +106,18 @@ def _eval_program_with_context(prog, context: RuntimeContext) -> Dict[str, Bindi
     scope_token = _statement_scope.set("<program>")
     try:
         with context.call("<program>"):
-            return _eval_program(prog)
+            return _eval_program(prog, {} if environment is None else environment)
     finally:
         _statement_scope.reset(scope_token)
         _active_runtime.reset(token)
 
 
-def _eval_program(prog) -> Dict[str, Binding]:
+def _eval_program(prog, env) -> Dict[str, Binding]:
     
     syms = build_symbols(prog)
     prog = normalize_types(prog, syms.failuresets)
     # Keep the exact checked expressions alive for runtime boundary/dispatch types.
     typecheck_program(prog, Diagnostics(), syms=syms)
-    env: Dict[str, Binding] = {}
 
     i = 0
 
@@ -238,7 +245,7 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
     - Parameters are bound positionally
     - Parameters are immutable; local declarations retain their let/var mutability.
     - Global lookup is allowed via 'caller_env' as 'outer'.
-    - ReturnSignal ends the body, including a failed return until Phase 9.
+    - ReturnSignal ends the body, including a return whose expression produces NoValue.
     """
     if fname not in syms.funcs:
         raise EvalError(f"unknown func '{fname}'")
@@ -268,9 +275,10 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
                     result = EvalResult(ProducedValue(widen_value(result.value_result.value, rs.typ,
                                                                  resolved.return_type)),
                                         result.related_event_ids)
-                # Failed returns still end the body until Phase 9.
+                # Reaching return ends the function even when no value was produced.
             ids = tuple(dict.fromkeys((*result.related_event_ids,
                                        *context.unresolved_pending(frame.call_id))))
+            context.validate_function_exit(frame.call_id)
             return EvalResult(result.value_result, ids)
         finally:
             _statement_scope.reset(token)
@@ -287,7 +295,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         if len(expr.args) != 1:
             raise EvalError("thunk expects exactly 1 argument")
         arg_expr = expr.args[0].expr
-        return EvalResult(ProducedValue(ThunkValue(arg_expr, env.copy(), outer)))
+        contract = expression_type(expr, env, syms, outer).latent_failures
+        return EvalResult(ProducedValue(ThunkValue(arg_expr, env.copy(), outer, contract)))
     
     # --- force (強制実行)---
     if expr.callee == "force":
@@ -299,7 +308,25 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         v = result.value_result.value
         if not isinstance(v, ThunkValue):
             raise EvalError("force expects Thunk")
+        context = _active_runtime.get()
+        first_event_id = context.next_event_id
         forced = eval_expr(v.expr, v.env, syms, v.outer)
+        # The latent effect describes failures produced by this evaluation.
+        # Old NoValue causes from captured bindings are dependencies, not new
+        # effects of reading an identifier (whose static effect is empty).
+        event_ids = tuple(event.event_id for event in context.failure_history
+                          if event.event_id >= first_event_id)
+        public_contract = expression_type(expr.args[0].expr, env, syms, outer).latent_failures
+        for contract in (v.potential_failure_contract, public_contract):
+            for event_id in event_ids:
+                event = context.get_event(event_id)
+                if event.status is FailureStatus.UNRESOLVED and event.failure_id not in contract:
+                    context.fail_contract(
+                        failure_id=event.failure_id, origin=event.origin,
+                        violating_call_id=context.current_call_id,
+                        violating_function_or_builtin="force",
+                        declared_contract=contract, boundary_kind="thunk",
+                        event_id=event_id)
         return EvalResult(forced.value_result, tuple(dict.fromkeys(
             (*result.related_event_ids, *forced.related_event_ids))))
 
@@ -347,8 +374,8 @@ def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[
         elif isinstance(st, ReturnStmt):
             result = eval_expr(st.expr, env=env, syms=syms, outer=outer)
             record_incomplete(st, index, result)
-            # Failed returns still end this body. No fabricated value, and no
-            # execution of statically unreachable statements before Phase 9.
+            # Value and NoValue both terminate the function. Only the caller's
+            # next independent statement may continue after a failed return.
             raise ReturnSignal(result, expression_type(st.expr, env, syms, outer))
         elif isinstance(st, ExprStmt):
             result = eval_expr(st.expr, env=env, syms=syms, outer=outer)
