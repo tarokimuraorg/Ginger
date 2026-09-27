@@ -17,7 +17,7 @@ class FailureEvent:
     """One occurrence, identified within its RuntimeContext by event_id.
 
     Immutable snapshots are updated through RuntimeContext, preserving the ID.
-    RaisedFailure remains the evaluator's exception protocol during Phase 2.
+    RaisedFailure is the internal builtin signal; events are runtime history.
     """
 
     event_id: int

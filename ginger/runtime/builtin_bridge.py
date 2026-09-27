@@ -3,26 +3,17 @@
 from typing import Any
 
 from ginger.builtin import call_builtin
-from ginger.core.failure_spec import FailureId, FailureSet
+from ginger.core.failure_spec import FailureSet
 from .context import RuntimeContext
 from .failures import RaisedFailure
 from .results import EvalResult, NoValue, Value
-
-
-def _call_with_legacy_failures(implementation: str, args: list[Any]) -> Any:
-    # Preserve the evaluator's existing division mapping. Other Python errors
-    # are not Ginger failures and must escape without being recorded as events.
-    try:
-        return call_builtin(implementation, *args)
-    except ZeroDivisionError:
-        raise RaisedFailure(FailureId.DivideByZero)
 
 
 def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
                    context: RuntimeContext, call_id: int) -> EvalResult:
     """Arguments are already values; catch only failures from this invocation."""
     try:
-        value = _call_with_legacy_failures(implementation, args)
+        value = call_builtin(implementation, *args)
     except RaisedFailure as failure:
         if failure.fid not in contract:
             context.fail_contract(

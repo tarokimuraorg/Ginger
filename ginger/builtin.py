@@ -28,6 +28,13 @@ def checked_int_result(result: int) -> int:
         raise RaisedFailure(FailureId.IntegerOverflow)
     return result
 
+def float_div(a: float, b: float) -> float:
+    # This is the builtin's declared failure, not a host-exception translation.
+    if b == 0.0:
+        raise RaisedFailure(FailureId.DivideByZero)
+    return a / b
+
+
 # いまのランタイム値（必要なら ginger/eval.py 側の Value と合わせる）
 Value = Any
 BuiltinFn = Callable[..., Value]
@@ -50,7 +57,7 @@ BUILTINS: Dict[str, BuiltinFn] = {
     "core.int.mul":   lambda a, b: checked_int_result(a * b),
     "core.float.mul": lambda a, b: a * b,
 
-    "core.float.div": lambda a, b: a / b,
+    "core.float.div": float_div,
 
     "core.int.neg": lambda a: -a,
     "core.float.neg": lambda a:-a,
