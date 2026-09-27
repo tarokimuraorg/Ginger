@@ -11,7 +11,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.numeric import INT_MIN, INT_MAX
-from ginger.runtime.failures import RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, RaisedFailure
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import effect_expr, typecheck_program
 
@@ -206,9 +206,9 @@ class IntegerOverflowTests(unittest.TestCase):
                   f'var x: Int = alias({INT_MAX},1)')
         program, diags = checked(source)
         self.assertEqual(diags.items, [])
-        with self.assertRaises(RaisedFailure) as raised:
+        with self.assertRaises(FailureContractViolation) as raised:
             eval_program(program)
-        self.assertEqual(raised.exception.fid, FailureId.IntegerOverflow)
+        self.assertEqual(raised.exception.failure_id, FailureId.IntegerOverflow)
 
     def test_return_infers_from_arguments_only(self):
         for typ, arg in [('Int', '1'), ('Float', '1.0')]:

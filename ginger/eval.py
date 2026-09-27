@@ -271,6 +271,7 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
                 # Failed returns still end the body until Phase 9.
             ids = tuple(dict.fromkeys((*result.related_event_ids,
                                        *context.unresolved_pending(frame.call_id))))
+            context.validate_function_exit(frame.call_id)
             return EvalResult(result.value_result, ids)
         finally:
             _statement_scope.reset(token)

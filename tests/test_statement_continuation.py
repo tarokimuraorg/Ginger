@@ -5,7 +5,7 @@ import ginger.eval as evaluator
 from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import FailureId
 from ginger.errors import EvalError, TypecheckError
-from ginger.runtime.failures import FailureStatus, RaisedFailure
+from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
 from test_failure_contract import checked, recorded
 
 
@@ -77,14 +77,14 @@ class StatementContinuationTests(unittest.TestCase):
                         KeyError('bug'), AssertionError('bug'), EvalError('bug')):
             with self.subTest(failure=failure):
                 printer = Mock(side_effect=failure)
-                with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(type(failure)):
+                with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation if isinstance(failure, RaisedFailure) else type(failure)):
                     self.run_source('print(1)\nprint(3)')
                 printer.assert_called_once_with(1)
         # Caller declaration must not make an undeclared builtin failure catchable.
         source = ('sig f() -> Unit { failure IOErr }\nfunc f() { print(1) }\n'
                   'try f()\ncatch IOErr print(2)\nprint(3)')
         printer = Mock(side_effect=RaisedFailure(FailureId.IOErr))
-        with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(RaisedFailure):
+        with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation):
             self.run_source(source)
         printer.assert_called_once_with(1)
 

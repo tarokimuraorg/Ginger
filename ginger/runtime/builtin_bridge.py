@@ -25,9 +25,11 @@ def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
         value = _call_with_legacy_failures(implementation, args)
     except RaisedFailure as failure:
         if failure.fid not in contract:
-            # Phase 7 will introduce contract violations. Do not legitimize an
-            # undeclared failure by registering a normal event in Phase 3.
-            raise
+            context.fail_contract(
+                failure_id=failure.fid, origin=implementation,
+                violating_call_id=call_id,
+                violating_function_or_builtin=implementation,
+                declared_contract=contract, boundary_kind="builtin")
         event = context.register_failure(failure.fid, origin=implementation, call_id=call_id)
         return EvalResult(NoValue(), (event.event_id,))
     return EvalResult(Value(value))
