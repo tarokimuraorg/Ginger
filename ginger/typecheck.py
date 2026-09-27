@@ -212,8 +212,7 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
                 
                 e = effect_expr(c.expr, env=env, syms=syms)
 
-                # その catch 自身の failure は中でも握る（ネスト禁止）
-                e = remove_failure(e, c.failure_name)
+                # Catch clauses handle only try effects, never handler effects.
                 eff_handlers = union_failures(eff_handlers, e)
 
             eff = union_failures(eff_try, eff_handlers)

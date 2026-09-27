@@ -1,0 +1,7 @@
+try print(div(1.0,0.0))
+catch DivideByZero print(2)
+print(3)
+
+//try print(div(1.0, 0.0))
+//catch DivideByZero print(div(2.0, 0.0))
+//print(3)

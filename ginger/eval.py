@@ -102,12 +102,8 @@ def eval_program(prog) -> Dict[str, Cell]:
                     if rf.fid.value == c.failure_name:
                         handled = True
 
-                        # ネスト禁止のため、catch内で同じ failure が起きたら握る
-                        try:
-                            eval_expr(c.expr, env=env, syms=syms)
-                        except RaisedFailure as rf2:
-                            if rf2.fid.value != c.failure_name:
-                                raise
+                        # Handler failures escape this try, including sibling catches.
+                        eval_expr(c.expr, env=env, syms=syms)
                         break
                 
                 if not handled:
