@@ -157,10 +157,10 @@ class BuiltinBridgeTests(unittest.TestCase):
             self.run_source('sig custom(Int) -> Unit { failure IOErr builtin core.int.print }\ncustom(1)')
         self.assertEqual([e.failure_id for e in self.context.failure_history], [FailureId.IOErr])
 
-    def test_user_functions_share_root_without_duplicate_registration(self):
+    def test_user_functions_have_child_frame_without_duplicate_registration(self):
         self.run_source('sig f() -> Float { failure DivideByZero }\n'
                         'func f() { return div(1.0,0.0) }\nprint(f())')
-        self.assertEqual(len(self.context.call_frames), 1)
+        self.assertEqual(len(self.context.call_frames), 2)
         self.assertEqual(len(self.context.failure_history), 1)
         self.assertIsNone(self.context.get_call(1).parent_call_id)
 

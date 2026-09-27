@@ -79,7 +79,7 @@ class ReturnSignal(Exception):
 
 _statement_scope: ContextVar[str] = ContextVar("ginger_statement_scope", default="<program>")
 
-_active_runtime: ContextVar[tuple[RuntimeContext, int]] = ContextVar("ginger_runtime")
+_active_runtime: ContextVar[RuntimeContext] = ContextVar("ginger_runtime")
 
 
 def eval_program(prog) -> Dict[str, Binding]:
@@ -89,15 +89,15 @@ def eval_program(prog) -> Dict[str, Binding]:
 def _eval_program_with_context(prog, context: RuntimeContext) -> Dict[str, Binding]:
     """Internal injectable entry; public results remain an environment dictionary.
 
-    One root call only through Phase 4, including builtins inside user functions.
+    Root and user calls retain their own frames and share one history.
     ContextVar scopes recursive evaluation without changing FunctionEnv or
     capturing runtime state in Thunk environments. Always restore on failure.
     """
-    root = context.create_call("<program>")
-    token = _active_runtime.set((context, root.call_id))
+    token = _active_runtime.set(context)
     scope_token = _statement_scope.set("<program>")
     try:
-        return _eval_program(prog)
+        with context.call("<program>"):
+            return _eval_program(prog)
     finally:
         _statement_scope.reset(scope_token)
         _active_runtime.reset(token)
@@ -131,10 +131,10 @@ def _eval_program(prog) -> Dict[str, Binding]:
             
             result = eval_expr(item.expr, env=env, syms=syms, outer=None)
             record_incomplete(item, i, result)
-            if isinstance(result.value_result, NoValue):
+            if result.related_event_ids:
                 # Transitional type-based catch selection, not event resolution.
                 # Only the first cause selects a handler; Phase 6 handles events.
-                context, _ = _active_runtime.get()
+                context = _active_runtime.get()
                 failure = context.get_event(result.related_event_ids[0]).failure_id
                 for offset, c in enumerate(catches, start=i + 1):
                     if failure.value == c.failure_name:
@@ -166,7 +166,8 @@ def _eval_program(prog) -> Dict[str, Binding]:
 
 def record_incomplete(stmt, index, result):
     if isinstance(result.value_result, NoValue):
-        context, call_id = _active_runtime.get()
+        context = _active_runtime.get()
+        call_id = context.current_call_id
         context.record_incomplete(call_id, _statement_scope.get(), index,
                                   type(stmt).__name__, result.related_event_ids)
 
@@ -249,17 +250,24 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
     for p, v, typ in zip(fdecl.params, args, resolved.parameter_types):
         local[p.name] = Cell(value=v, mutable=False, typ=typ)
 
-    token = _statement_scope.set(fname)
-    try:
-        return eval_block(fdecl.body, env=local, syms=syms, outer=caller_env)
-    except ReturnSignal as rs:
-        if isinstance(rs.result.value_result, NoValue):
-            return rs.result  # Phase 9 will decide continuation after failed return.
-        return EvalResult(ProducedValue(widen_value(rs.result.value_result.value, rs.typ,
-                                                    resolved.return_type)),
-                          rs.result.related_event_ids)
-    finally:
-        _statement_scope.reset(token)
+    context = _active_runtime.get()
+    with context.call(fname, syms.sig_failures[fname]) as frame:
+        token = _statement_scope.set(fname)
+        try:
+            try:
+                result = eval_block(fdecl.body, env=local, syms=syms, outer=caller_env)
+            except ReturnSignal as rs:
+                result = rs.result
+                if isinstance(result.value_result, ProducedValue):
+                    result = EvalResult(ProducedValue(widen_value(result.value_result.value, rs.typ,
+                                                                 resolved.return_type)),
+                                        result.related_event_ids)
+                # Failed returns still end the body until Phase 9.
+            ids = tuple(dict.fromkeys((*result.related_event_ids,
+                                       *context.unresolved_pending(frame.call_id))))
+            return EvalResult(result.value_result, ids)
+        finally:
+            _statement_scope.reset(token)
 
 
 def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None):
@@ -285,13 +293,17 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         v = result.value_result.value
         if not isinstance(v, ThunkValue):
             raise EvalError("force expects Thunk")
-        return eval_expr(v.expr, v.env, syms, v.outer)
+        forced = eval_expr(v.expr, v.env, syms, v.outer)
+        return EvalResult(forced.value_result, tuple(dict.fromkeys(
+            (*result.related_event_ids, *forced.related_event_ids))))
 
     args = []
+    related_ids = []
     for argument in expr.args:
         result = eval_expr(argument.expr, env, syms, outer)
+        related_ids.extend(result.related_event_ids)
         if isinstance(result.value_result, NoValue):
-            return result
+            return EvalResult(NoValue(), tuple(dict.fromkeys(related_ids)))
         args.append(result.value_result.value)
 
     actual_types = [expression_type(a.expr, env, syms, outer) for a in expr.args]
@@ -308,7 +320,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
             for value, actual, parameter in zip(args, actual_types, resolved.parameter_types)]
 
     if expr.callee in syms.funcs:
-        return eval_user_func(expr.callee, args, syms, env, resolved)
+        result = eval_user_func(expr.callee, args, syms, env, resolved)
+        return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
 
     if resolved.implementation is None:
         raise EvalError(f"function '{expr.callee}' has no resolved runtime implementation")
@@ -316,12 +329,12 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
     contract = builtin_failure_contract(syms.sig_failures[expr.callee],
                                        resolved.implementation,
                                        direct_builtin=sig.builtin is not None)
-    context, call_id = _active_runtime.get()
-    return invoke_builtin(resolved.implementation, args, contract, context, call_id)
+    context = _active_runtime.get()
+    result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id)
+    return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
 
 
 def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None) -> EvalResult:
-    missing = []
     for index, st in enumerate(block.stmts):
         if isinstance(st, (VarDecl, AssignStmt)):
             result = eval_binding_statement(st, env, syms, outer)
@@ -336,8 +349,5 @@ def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[
         else:
             raise EvalError(f"unsupported statement in func body: {st!r}")
         record_incomplete(st, index, result)
-        if isinstance(result.value_result, NoValue):
-            missing.extend(result.related_event_ids)
-    # A partly incomplete body does not manufacture a successful Unit result.
-    # This is value availability only, not per-function pending propagation.
-    return EvalResult(NoValue(), tuple(dict.fromkeys(missing))) if missing else EvalResult(ProducedValue(None))
+    # Reaching the end is normal Unit completion, independent of pending failures.
+    return EvalResult(ProducedValue(None))

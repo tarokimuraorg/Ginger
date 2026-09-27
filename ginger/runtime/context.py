@@ -1,6 +1,7 @@
 """Execution bookkeeping only; no evaluation or failure-contract policy yet."""
 
 from dataclasses import dataclass, replace
+from contextvars import ContextVar
 from types import MappingProxyType
 from typing import Mapping
 
@@ -46,6 +47,19 @@ class RuntimeContext:
         self._events: dict[int, FailureEvent] = {}
         self._calls: dict[int, CallFrame] = {}
         self._incomplete_statements: list[IncompleteStatement] = []
+        self._current_call: ContextVar[int | None] = ContextVar("ginger_current_call", default=None)
+
+    @property
+    def current_call_id(self) -> int | None:
+        return self._current_call.get()
+
+    def unresolved_pending(self, call_id: int) -> tuple[int, ...]:
+        return tuple(event_id for event_id in self.get_call(call_id).pending_event_ids
+                     if self.get_event(event_id).status is FailureStatus.UNRESOLVED)
+
+    def call(self, function_name: str, declared_failure_contract: FailureSet = EMPTY_FAILURES):
+        """Activate a retained frame and propagate unresolved references on exit."""
+        return _CallScope(self, function_name, declared_failure_contract)
 
     @property
     def incomplete_statements(self) -> tuple[IncompleteStatement, ...]:
@@ -125,3 +139,26 @@ class RuntimeContext:
                     self._calls[call_id] = replace(frame, pending_event_ids=tuple(
                         pending for pending in frame.pending_event_ids if pending != event_id))
         return event
+
+
+class _CallScope:
+    """Class-based scope: do not mutate frozen RaisedFailure traceback fields."""
+
+    def __init__(self, context, name, contract):
+        self.context, self.name, self.contract = context, name, contract
+
+    def __enter__(self):
+        self.parent = self.context.current_call_id
+        self.frame = self.context.create_call(self.name, parent_call_id=self.parent,
+                                              declared_failure_contract=self.contract)
+        self.token = self.context._current_call.set(self.frame.call_id)
+        return self.frame
+
+    def __exit__(self, exc_type, exc, traceback):
+        try:
+            if self.parent is not None:
+                for event_id in self.context.unresolved_pending(self.frame.call_id):
+                    self.context.add_pending(self.parent, event_id)
+        finally:
+            self.context._current_call.reset(self.token)
+        return False
