@@ -25,6 +25,7 @@ class FailureEvent:
     origin: str
     call_id: int
     status: FailureStatus = FailureStatus.UNRESOLVED
+    caused_by: int | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "failure_id", FailureId(self.failure_id))

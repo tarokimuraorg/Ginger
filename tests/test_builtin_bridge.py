@@ -70,15 +70,15 @@ class BuiltinBridgeTests(unittest.TestCase):
             self.assertIsInstance(result.value_result, NoValue)
         self.assertEqual(len(self.context.failure_history), 2)
 
-    def test_legacy_catch_remains_unchanged_without_event_resolution(self):
+    def test_catch_resolves_events_without_changing_output(self):
         stream = io.StringIO()
         with redirect_stdout(stream):
             self.run_source('try print(div(1.0,0.0))\ncatch DivideByZero print(2)\n'
                             'try print(div(1.0,0.0))\ncatch DivideByZero print(4)\nprint(3)')
         self.assertEqual(stream.getvalue(), '2\n4\n3\n')
         self.assertEqual([e.event_id for e in self.context.failure_history], [1, 2])
-        # Phase 6, not this bridge, will implement event-aware resolution.
-        self.assertTrue(all(e.status is FailureStatus.UNRESOLVED
+        # Catch resolves events without deleting bridge history.
+        self.assertTrue(all(e.status is FailureStatus.RESOLVED
                             for e in self.context.failure_history))
 
     def test_no_value_not_published_or_passed_to_parent(self):

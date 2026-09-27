@@ -261,9 +261,9 @@ catch DivideByZero print(0)
 - `try` 文の対象式は任意の結果型を許可します。正常終了時の結果値は破棄され、`try` 文自体は値を生成しません。将来的な値を返す `try` 式は今回の仕様には含めません。
 - `try` の後には1個以上の `catch` が必要です。catch式はUnitに限定され、関数本体内では使えません。
 - トップレベルでは、捕捉・処理後に静的集合に残る failure を警告します。警告だけでは実行を止めません。これは関数本体の上限契約違反を型エラーにする規則とは別です。
-- Phase 4 では try 式の NoValue の先頭原因に一致する最初の catch を実行します。宣言済み failure は未解決履歴に残り、未宣言の `RaisedFailure` や Python 例外は catch で通常処理せず停止します。
+- Phase 6 では try 評価中に新しく発生した各イベントについて、種類に一致する最初の catch を発生順に実行します。未宣言の `RaisedFailure` や Python 例外は catch で通常処理せず停止します。
 - 同名 catch の重複は現在も許可します。
-- handler 内で発生した宣言済み failure は、元の catch 対象と同名でも新しいイベントとして保持し、handler を未完遂として後続文へ進みます。同じ try の後続 catch では捕捉しません。イベント単位の処理・resolved 化は Phase 6 まで未実装です。
+- handler 内で発生した宣言済み failure は、元の catch 対象と同名でも新しいイベントとして保持し、handler を未完遂として後続文へ進みます。同じ try の後続 catch では捕捉しません。handler が fatal 以外で終了すると元イベントを resolved にします。handler 由来の新イベントは unresolved のままです。
 
 静的な外向き failure 集合は `(try failures - caught failures) ∪ handler failures` です。handler の failure 集合から catch 対象の failure を削除しません。重複 catch を許可する既存挙動は維持しています。
 
@@ -326,9 +326,21 @@ RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValu
 
 CallFrame.pendingが実行時の正本です。関数のEvalResultには生成された値（またはNoValue）と関連イベントIDを添えます。正常値はpendingがあっても利用でき、値を得たことだけでfailureをresolvedにしません。関数末尾への到達は正常Unit `Value(None)` であり、途中の未完遂文によるpendingがあってもNoValueにはしません。失敗したreturnはPhase 4同様、関数を終了してNoValueを返します。callerはその依存文を未完遂とし、独立した次の文へ進みます。
 
-try-catchは関連イベントの先頭原因に一致する最初のhandlerを選ぶ暫定処理です。正常値やUnitとpendingを返す関数にもこの選択を適用して、従来のhandler実行を可能な範囲で維持します。resolved化、複数イベントごとの処理はPhase 6です。incomplete statementには実際のユーザー関数call IDが記録されます。
+try-catchは関連イベントの先頭原因に一致する最初のhandlerを選ぶ暫定処理です。正常値やUnitとpendingを返す関数にもこの選択を適用して、従来のhandler実行を可能な範囲で維持します。この暫定処理は Phase 6 のイベント単位処理で置き換えました。incomplete statementには実際のユーザー関数call IDが記録されます。
 
 同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、失敗return後の継続とThunk契約の再設計はPhase 9に残しています。
+
+## イベント単位の try-catch（Phase 6）
+
+try 開始時の次の event ID を境界として記録し、try 式評価が終わった時点で、その期間に新しく登録されたイベントIDを履歴順に固定します。評価結果の Value / NoValue や関連IDの先頭だけで判断しません。try 以前の同種イベントや、未初期化変数の参照で再利用した古い原因イベントは対象外です。
+
+各 unresolved イベントについて、種類が一致する最初のhandlerを実行します。同種failureが2回発生すればhandlerも2回実行します。未対応の種類は未解決のまま残り、実行を継続します。handlerが正常終了または宣言済みfailureによるNoValueで終了した場合に限り、対象イベントをresolvedにします。fatalな未宣言RaisedFailure・Python例外・EvalErrorでは停止し、対象はunresolvedのままです。
+
+handlerが起こしたfailureは新しいIDのunresolvedイベントとして残ります。元イベントを再利用せず、`caused_by`に処理対象のevent IDを記録します。処理対象リストは固定済みなので、同じtryの後続catchではhandler由来イベントを捕捉しません。handlerのNoValueはCatchStmtとして既存のincomplete記録にも残します。
+
+resolvedイベントも履歴に残ります。CallFrame.pending_event_idsの参照も伝播履歴として保持し、現在有効なpendingは `RuntimeContext.unresolved_pending` でstatusを照合して取得します。callee終了時もunresolvedだけをcallerへ渡します。関数内try-catch構文は未対応のため、この境界は共通runtime helperのテストで確認しています。
+
+静的集合 `(F(try) - caught) ∪ F(handlers)` は変更していません。tryは引き続きstatementで、式として値を返す新構文はありません。評価中に正常値が生成されればその値の利用・副作用は維持し、failure処理だけを独立して行います。tryネスト・関数内try構文、FailureContractViolation（Phase 7）、失敗return後の継続（Phase 9）、公開ExecutionResult APIは未実装です。
 
 ## Thunk と遅延評価
 
