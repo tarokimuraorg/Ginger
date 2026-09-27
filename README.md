@@ -263,9 +263,9 @@ catch DivideByZero print(0)
 - トップレベルでは、捕捉・処理後に静的集合に残る failure を警告します。警告だけでは実行を止めません。これは関数本体の上限契約違反を型エラーにする規則とは別です。
 - 実行時は一致する最初の catch を処理します。未捕捉の `RaisedFailure` は外へ伝播します。
 - 同名 catch の重複は現在も許可します。
-- handler 内で同種の failure が再発生すると現在は握りつぶします。別種は外へ伝播し、後続の catch では処理しません。
+- handler 内で発生した failure は、元の catch 対象と同名でも新たな failure として外へ伝播します。同じ try の後続 catch では捕捉しません。現在は try-catch のネストに対応していないため、未捕捉の failure は実行を停止し、後続のトップレベル文は実行しません。
 
-重複 catch と handler の再失敗規則は既存挙動の記録であり、今回の上限契約整備で将来の仕様まで確定したものではありません。
+静的な外向き failure 集合は `(try failures - caught failures) ∪ handler failures` です。handler の failure 集合から catch 対象の failure を削除しません。重複 catch を許可する既存挙動は維持しています。
 
 builtin の宣言は静的解析が信頼する契約であり、Python 実装から実際の failure を自動推論・検証してはいません。独自 builtin sig の宣言漏れも検出できません。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や、独自 builtin が契約違反の巨大整数を返した場合の toFloat 変換失敗は Python 例外として伝播し、Ginger の catch が捕捉する `RaisedFailure` には変換されません。
 
@@ -330,7 +330,7 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 | 型変数推論 | sig 仮引数と実引数から call site ごとに推論。外側 expected type / 関数本体からの逆推論はしない |
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 型変数の保証を本体内の呼び出し検査に十分反映できない。複数保証やメソッドの型契約と実装選択の関係も未確定 |
-| failure の契約 | 通常関数の上限検証と catch の静的集合制限は導入済み。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告、重複 catch・handler 再失敗は既存挙動を維持 |
+| failure の契約 | 通常関数の上限検証と catch の静的集合制限は導入済み。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告、重複 catch は許可。handler の failure は同名でも外へ伝播 |
 | handled | 中核仕様として保留。意味・付与先・builtin との整合性は未確定で、依存する関数の上限検証は保留 |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。handled依存の検証保留は維持 |
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |

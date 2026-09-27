@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from ginger.ast import Program
 from ginger.builtin import BUILTINS
@@ -124,11 +124,16 @@ catch DivideByZero print(3)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), "2\n")
 
-    def test_handler_same_failure_is_swallowed(self):
+    def test_handler_same_failure_escapes_sibling_and_stops_execution(self):
         program, diags = checked("try print(div(1.0,0.0))\n"
-                                 "catch DivideByZero print(div(2.0,0.0))\nprint(3)")
-        self.assertEqual(diags.items, [])
-        self.assertEqual(output(program), "3\n")
+                                 "catch DivideByZero print(div(2.0,0.0))\n"
+                                 "catch DivideByZero print(2)\nprint(3)")
+        self.assertEqual([d.message for d in diags], ["unhandled failures: DivideByZero"])
+        stream = io.StringIO()
+        with redirect_stdout(stream), self.assertRaises(RaisedFailure) as raised:
+            eval_program(program)
+        self.assertEqual(raised.exception.fid, FailureId.DivideByZero)
+        self.assertEqual(stream.getvalue(), "")
 
     def test_handler_different_failure_escapes_sibling(self):
         source = """
@@ -138,6 +143,7 @@ sig ioFail(Int) -> Unit { failure IOErr builtin core.int.print }
 try f()
 catch DivideByZero ioFail(1)
 catch IOErr print(2)
+print(3)
 """
         program, diags = checked(source)
         self.assertEqual([d.message for d in diags], ["unhandled failures: IOErr"])
@@ -145,9 +151,11 @@ catch IOErr print(2)
         def fail(_):
             raise RaisedFailure(FailureId.IOErr)
 
-        with patch.dict(BUILTINS, {"core.int.print": fail}):
+        handler = Mock(side_effect=fail)
+        with patch.dict(BUILTINS, {"core.int.print": handler}):
             with self.assertRaises(RaisedFailure) as raised:
                 output(program)
+            handler.assert_called_once_with(1)
         self.assertEqual(raised.exception.fid, FailureId.IOErr)
 
     def test_source_declarations(self):
