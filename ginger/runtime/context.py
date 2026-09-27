@@ -48,6 +48,7 @@ class RuntimeContext:
         self._calls: dict[int, CallFrame] = {}
         self._incomplete_statements: list[IncompleteStatement] = []
         self._current_call: ContextVar[int | None] = ContextVar("ginger_current_call", default=None)
+        self._handling_event: ContextVar[int | None] = ContextVar("ginger_handling_event", default=None)
 
     @property
     def current_call_id(self) -> int | None:
@@ -110,7 +111,8 @@ class RuntimeContext:
     def register_failure(self, failure_id: FailureId, *, origin: str,
                          call_id: int) -> FailureEvent:
         self.get_call(call_id)
-        event = FailureEvent(self._next_event_id, failure_id, origin, call_id)
+        event = FailureEvent(self._next_event_id, failure_id, origin, call_id,
+                             caused_by=self._handling_event.get())
         self._events[event.event_id] = event
         self._next_event_id += 1
         self.add_pending(call_id, event.event_id)
@@ -134,11 +136,20 @@ class RuntimeContext:
         if event.status is FailureStatus.UNRESOLVED:
             event = replace(event, status=FailureStatus.RESOLVED)
             self._events[event_id] = event
-            for call_id, frame in self._calls.items():
-                if event_id in frame.pending_event_ids:
-                    self._calls[call_id] = replace(frame, pending_event_ids=tuple(
-                        pending for pending in frame.pending_event_ids if pending != event_id))
+            # Keep frame references as propagation history. Live pending is
+            # obtained through unresolved_pending, using event status as truth.
         return event
+
+    def run_handler(self, event_id: int, handler):
+        """Resolve only after nonfatal completion, including NoValue."""
+        self.get_event(event_id)
+        token = self._handling_event.set(event_id)
+        try:
+            result = handler()
+        finally:
+            self._handling_event.reset(token)
+        self.resolve(event_id)
+        return result
 
 
 class _CallScope:

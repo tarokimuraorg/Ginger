@@ -12,6 +12,7 @@ from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
+from ginger.runtime.catches import handle_try_events
 from ginger.runtime.results import EvalResult, NoValue, Value as ProducedValue
 
 from .ast import (
@@ -129,18 +130,23 @@ def _eval_program(prog) -> Dict[str, Binding]:
             if not catches:
                 raise EvalError("try must be followed by at least one catch")
             
+            context = _active_runtime.get()
+            first_new_event_id = context.next_event_id
             result = eval_expr(item.expr, env=env, syms=syms, outer=None)
             record_incomplete(item, i, result)
-            if result.related_event_ids:
-                # Transitional type-based catch selection, not event resolution.
-                # Only the first cause selects a handler; Phase 6 handles events.
-                context = _active_runtime.get()
-                failure = context.get_event(result.related_event_ids[0]).failure_id
-                for offset, c in enumerate(catches, start=i + 1):
-                    if failure.value == c.failure_name:
-                        handler_result = eval_expr(c.expr, env=env, syms=syms)
-                        record_incomplete(c, offset, handler_result)
-                        break
+            # IDs are monotonic per context. Snapshot before executing handlers;
+            # an old NoValue cause is not a new occurrence in this try.
+            targets = tuple(event.event_id for event in context.failure_history
+                            if event.event_id >= first_new_event_id)
+
+            def handler(catch, index):
+                handler_result = eval_expr(catch.expr, env=env, syms=syms)
+                record_incomplete(catch, index, handler_result)
+                return handler_result
+
+            handle_try_events(context, targets, [
+                (c.failure_name, lambda c=c, index=index: handler(c, index))
+                for index, c in enumerate(catches, start=i + 1)])
 
             i = j
             continue

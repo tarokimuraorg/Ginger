@@ -122,13 +122,13 @@ class CallFrameTests(unittest.TestCase):
                     raise EvalError('fatal')
             self.assertEqual(self.context.current_call_id, parent.call_id)
 
-    def test_try_keeps_first_handler_without_resolving(self):
+    def test_try_keeps_first_handler_and_resolves(self):
         _, stdout = self.run_source('sig f() -> Unit { failure DivideByZero }\n'
                                     'func f() { print(div(1.0,0.0)) }\n'
                                     'try f()\ncatch DivideByZero print(2)\nprint(3)')
         self.assertEqual(stdout, '2\n3\n')
         self.assertEqual(self.context.failure_history[0].call_id, 2)
-        self.assertEqual(self.context.failure_history[0].status, FailureStatus.UNRESOLVED)
+        self.assertEqual(self.context.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(self.context.get_call(1).pending_event_ids, (1,))
 
     def test_recursion_has_distinct_frames_and_unwinds_safely(self):
