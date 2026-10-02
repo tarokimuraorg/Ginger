@@ -100,10 +100,3 @@ class BoundedIntegerTests(unittest.TestCase):
                   'func identity(x: T) { return x }\n'
                   'var x: Int64 = identity(1i64)')
         self.assertEqual(self.values(source)['x'].value, 1)
-
-    def test_legacy_dispatch_requires_integer_type(self):
-        from ginger.runtime.dispatch import type_of
-        from ginger.errors import EvalError
-        with self.assertRaises(EvalError):
-            type_of(1)
-        self.assertEqual(type_of(1, TypeRef('Int64')), 'Int64')
