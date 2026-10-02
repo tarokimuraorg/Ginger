@@ -84,9 +84,6 @@ BUILTINS: Dict[str, BuiltinFn] = {
 
 }
 
-def has_builtin(builtin_id: str) -> bool:
-    return builtin_id in BUILTINS
-
 def call_builtin(builtin_id: str, *args: Value) -> Value:
     try:
         fn = BUILTINS[builtin_id]
