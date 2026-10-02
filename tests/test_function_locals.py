@@ -5,7 +5,7 @@ from unittest.mock import patch
 from test_failure_contract import checked, output
 from ginger.ast import VarDecl, AssignStmt, CallExpr, TypeRef
 from ginger.diagnostics import Diagnostics
-from ginger.errors import TypecheckError
+from ginger.errors import EvalError, TypecheckError
 from ginger.eval import eval_program, eval_block
 from ginger.numeric import INT_MAX
 from ginger.parser import parse
@@ -128,7 +128,7 @@ class FunctionLocalTests(unittest.TestCase):
                     checked(function(body, ret='Unit'))
 
     def test_integer_overflow_acceptance_and_upper_bounds(self):
-        body = 'var y: Int = add(x,1)\nreturn y'
+        body = 'return add(x,1)'
         source = function(body, params='x: Int', sig_params='Int', contract='failure IntegerOverflow')
         program, diags = checked(source + f'try print(f({INT_MAX}))\ncatch IntegerOverflow print(999)')
         self.assertEqual(diags.items, [])
@@ -149,7 +149,11 @@ class FunctionLocalTests(unittest.TestCase):
                 environments.append(env)
                 return eval_block(block, env, syms, outer)
             with patch('ginger.eval.eval_block', side_effect=observe):
-                eval_program(program)
+                if exists:
+                    self.assertEqual(eval_program(program).environment['result'].value, 5)
+                else:
+                    with self.assertRaisesRegex(EvalError, "uninitialized binding 'y'"):
+                        eval_program(program)
             self.assertEqual(isinstance(environments[0]['y'], UninitializedBinding), not exists)
             if exists:
                 self.assertEqual(environments[0]['y'].value, 5)

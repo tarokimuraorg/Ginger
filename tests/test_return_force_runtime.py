@@ -18,18 +18,18 @@ class ReturnForceRuntimeTests(unittest.TestCase):
             result = evaluator.eval_program(checked(source)[0])
         return result, stream.getvalue()
 
-    def test_return_ends_body_and_no_value_cause_flows_to_dependents(self):
+    def test_return_ends_body_and_no_value_cause_reaches_initializer(self):
         result, stdout = self.run_source(
             'sig f() -> Int { failure IntegerOverflow }\n'
             'func f() { return add(9007199254740991,1)\nprint(99)\nreturn 4 }\n'
-            'var x: Int = f()\nvar y: Int = add(x,3)\nprint(y)\nprint(3)')
+            'var x: Int = f()\nprint(3)')
         self.assertEqual(stdout, '3\n')
         self.assertIsNone(result.contract_violation)
         self.assertEqual(len(result.failure_history), 1)
-        for name in ('x', 'y'):
+        for name in ('x',):
             self.assertIsInstance(result.environment[name], evaluator.UninitializedBinding)
             self.assertEqual(result.environment[name].related_event_ids, (1,))
-        self.assertEqual([s.related_event_ids for s in result.incomplete_statements], [(1,)] * 4)
+        self.assertEqual([s.related_event_ids for s in result.incomplete_statements], [(1,)] * 2)
         result, stdout = self.run_source('sig f() -> Int {}\nfunc f() { return 3\nprint(99)\nreturn 4 }\nprint(f())')
         self.assertEqual(stdout, '3\n')
 

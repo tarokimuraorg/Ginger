@@ -23,10 +23,14 @@ class EventCatchTests(unittest.TestCase):
         self.assertEqual(context.get_call(1).pending_event_ids, (1, 2))
         self.assertEqual(context.unresolved_pending(1), (1,))
 
-    def test_old_no_value_cause_does_not_select_handler(self):
-        _, context, stdout = self.run_source('var x: Float = div(1.0,0.0)\n'
-            'try print(div(x,1.0))\ncatch DivideByZero print(9)\nprint(3)')
-        self.assertEqual(stdout, '3\n')
+    def test_old_binding_cause_stops_before_handler(self):
+        context, env = RuntimeContext(), {}
+        printer = Mock()
+        with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaisesRegex(
+                EvalError, "uninitialized binding 'x'"):
+            _eval_program_with_context(checked('var x: Float = div(1.0,0.0)\n'
+                'try print(div(x,1.0))\ncatch DivideByZero print(9)\nprint(3)')[0], context, env)
+        printer.assert_not_called()
         self.assertEqual(len(context.failure_history), 1)
         self.assertEqual(context.failure_history[0].status, Status.UNRESOLVED)
 

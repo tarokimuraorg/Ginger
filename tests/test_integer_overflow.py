@@ -43,12 +43,12 @@ class IntegerOverflowTests(unittest.TestCase):
                  ('mul', INT_MAX, -2), ('mul', INT_MIN, -2)]
         for op, a, b in cases:
             with self.subTest(op=op, a=a, b=b):
-                source = f'var a: Int = {literal(a)}\nvar b: Int = {literal(b)}\nvar y: Int = {op}(a,b)\nprint(y)'
+                source = f'var a: Int = {literal(a)}\nvar b: Int = {literal(b)}\nvar y: Int = {op}(a,b)\nprint(999)'
                 program, diags = checked(source)
                 self.assertEqual([d.message for d in diags], ['unhandled failures: IntegerOverflow'])
                 env, context, stdout = recorded(program)
                 self.assertIsInstance(env['y'], UninitializedBinding)
-                self.assertEqual(stdout, '')
+                self.assertEqual(stdout, '999\n')
                 self.assertEqual(context.failure_history[0].failure_id, FailureId.IntegerOverflow)
                 with self.assertRaises(RaisedFailure) as raised:
                     call_builtin(f'core.int.{op}', a, b)

@@ -199,7 +199,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 try/catch・nested function・一般的な closure は追加していません。
 
-ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は `999` を出力します。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
+ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は overflow による初期化失敗後、`return y` で未初期化値を要求するため EvalError で停止します。catch は実行されません。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
 
 ```ginger
 sig increment(Int) -> Int {
@@ -310,13 +310,13 @@ print(3)
 
 この例は静的警告に続いて `3` を出力します。最初の print は呼び出されず、DivideByZero のイベントは unresolved のまま残ります。同じ failure の再発は別イベントです。`RuntimeContext.incomplete_statements` で root call ID、scope、文の index / 種類、原因 event ID を内部的に確認できます。index は program items または関数 body 内の0始まりで、source locationではありません。
 
-初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。参照すると同じ原因の NoValue を返し、新しい failure を生成せず、その依存文も未完遂にします。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
+初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は通常の catch 対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
 
 関数本体の通常文でもNoValueなら次の独立文へ継続します。Phase 5以降は関数ごとのpendingを保持し、正常値・正常Unitと未解決failureが共存できます。明示returnなしで本体末尾へ到達した場合は、途中に未完遂文があっても正常Unitです。return式がNoValueなら関数を終了し、caller側で継続します。
 
 Phase 4当時の先頭原因だけを使う暫定catchは撤去済みです。現在はPhase 6の固定した新規event集合を発生順に処理し、非fatalなhandler終了後に対象eventをresolvedにします。
 
-Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約のruntime照合は Phase 9 で追加しました。Phase 4 時点の公開 API は環境辞書でした。Phase 7 で契約違反、Phase 8 で ExecutionResult と履歴公開・main診断を導入しました。未初期化bindingも結果環境に保持します。
+Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約のruntime照合は Phase 9 で追加しました。Phase 4 時点の公開 API は環境辞書でした。Phase 7 で契約違反、Phase 8 で ExecutionResult と履歴公開・main診断を導入しました。正常終了・契約違反時は未初期化bindingも結果環境に保持します。未初期化値の読み出しによる EvalError は他の fatal EvalError と同様に例外として表面化し、ExecutionResult は返しません。内部入口へ渡した環境と RuntimeContext には停止までの状態が残ります。
 
 ## 関数呼び出しごとの pending 伝播（Phase 5）
 
@@ -332,7 +332,7 @@ Phase 5当時の先頭原因によるcatch選択は、Phase 6のイベント単�
 
 ## イベント単位の try-catch（Phase 6）
 
-try 開始時の次の event ID を境界として記録し、try 式評価が終わった時点で、その期間に新しく登録されたイベントIDを履歴順に固定します。評価結果の Value / NoValue や関連IDの先頭だけで判断しません。try 以前の同種イベントや、未初期化変数の参照で再利用した古い原因イベントは対象外です。
+try 開始時の次の event ID を境界として記録し、try 式評価が終わった時点で、その期間に新しく登録されたイベントIDを履歴順に固定します。評価結果の Value / NoValue や関連IDの先頭だけで判断しません。try 以前の同種イベントは対象外です。未初期化 binding の読み出しは新イベントを作らず EvalError で停止し、handler は実行しません。
 
 各 unresolved イベントについて、種類が一致する最初のhandlerを実行します。同種failureが2回発生すればhandlerも2回実行します。未対応の種類は未解決のまま残り、実行を継続します。handlerが正常終了または宣言済みfailureによるNoValueで終了した場合に限り、対象イベントをresolvedにします。fatalな未宣言RaisedFailure・Python例外・EvalErrorでは停止し、対象はunresolvedのままです。
 
@@ -517,13 +517,13 @@ Phase 9でreturnの既存終了規則を確定し、Thunk/forceの潜在契約�
 
 `return expr` に到達すると、Value/NoValueにかかわらず現在の関数を終了します。NoValueでも後続文や第二returnは実行せず、静的解析のreturn以降到達不能という規則を維持します。NoValueは原因event IDとともにcallerへ返り、callerの依存statementを未完遂にした後、次の独立statementで継続します。関数終了時のfailure契約検証は必ず適用します。
 
-正常値とpending failureは共存し、正常Unit `Value(None)` とNoValueは別です。未初期化bindingから別変数やprintへ値欠落が伝わっても同じ原因event IDを使い、新eventは生成しません。
+正常値とpending failureは共存し、正常Unit `Value(None)` とNoValueは別です。未初期化bindingの値を別変数のinitializer・print・returnなどが要求すると EvalError で停止します。原因event IDはbindingに保持しますが、NoValueとして伝播せず、新eventも生成しません。
 
 Thunkは非memoizedです。作成時には式を実行せず、FailureEventも生成しません。作成時のlexical environmentと、型検査で推論した潜在failure契約を保持します。forceごとに再評価するため、実際に同じfailureが再発すれば別eventになります。既存の環境capture方式は変更していません。
 
 force時は通常のEvalResult経路を使います。NoValueなら親演算を実行せず、正常値とpendingが共存するなら両方を保持します。builtinとユーザー関数の契約検証を通した後、今回のforce中に新しく生じたunresolved eventを、Thunkが保持する推論契約およびforce引数の公開Thunk型の潜在契約に照合します。契約外なら境界種別 `thunk`、境界名 `force` のFailureContractViolationとして停止し、既存eventを履歴へ残します。
 
-捕捉した未初期化bindingが参照する過去の原因eventは、forceが新しく発生させたfailureではありません。識別子参照の静的effectは空であるため、これをThunkの新しい潜在effectとして再判定せず、元のNoValue因果参照として伝えます。
+Thunkが未初期化bindingをcaptureすること自体は許可します。forceがその値を実際に要求すると同じ読み出し境界で EvalError により停止し、過去の原因eventを再発生させず、新しいFailureEventや潜在failureとして扱いません。lexical environment snapshotは維持するため、capture後に元のvarを回復しても、snapshot内の未初期化bindingをforceで読むと停止します。
 
 force専用CallFrameは追加していません。builtin failureはforce実行中のcurrent callへ帰属し、Thunk内のユーザー関数呼び出しは通常のchild frameを作ります。lexical environmentを作成元から取得してもcall identityを作成元へ戻しません。
 
