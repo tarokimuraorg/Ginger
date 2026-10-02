@@ -48,14 +48,23 @@ class StatementContinuationTests(unittest.TestCase):
         self.assertEqual(stdout, '4\n')
         self.assertEqual(len(context.failure_history), 1)
 
-    def test_uninitialized_reference_and_later_recovery(self):
+    def test_thunk_capture_of_uninitialized_binding_does_not_read_value(self):
         env, context, stdout = self.run_source(
-            'var x: Float = div(1.0,0.0)\nprint(x)\nprint(3)\nx = 4.0\nprint(x)')
-        self.assertEqual(stdout, '3\n4.0\n')
-        self.assertEqual(env['x'].value, 4.0)
-        self.assertEqual([r.related_event_ids for r in context.incomplete_statements], [(1,), (1,)])
+            'var x: Float = div(1.0,0.0)\nvar t: Thunk[Float, Never] = thunk(x)\n'
+            'x = 4.0\nprint(x)')
+        self.assertEqual(stdout, '4.0\n')
+        self.assertIsInstance(env['t'].value.env['x'], evaluator.UninitializedBinding)
         self.assertEqual(len(context.failure_history), 1)
-        env, _, _ = self.run_source('let x: Float = div(1.0,0.0)\nprint(x)')
+        self.assertEqual([r.related_event_ids for r in context.incomplete_statements], [(1,)])
+
+    def test_uninitialized_later_recovery(self):
+        env, context, stdout = self.run_source(
+            'var x: Float = div(1.0,0.0)\nx = 4.0\nprint(x)')
+        self.assertEqual(stdout, '4.0\n')
+        self.assertEqual(env['x'].value, 4.0)
+        self.assertEqual([r.related_event_ids for r in context.incomplete_statements], [(1,)])
+        self.assertEqual(len(context.failure_history), 1)
+        env, _, _ = self.run_source('let x: Float = div(1.0,0.0)\nprint(3)')
         self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
         self.assertFalse(hasattr(env['x'], 'value'))
 
@@ -113,13 +122,6 @@ class StatementContinuationTests(unittest.TestCase):
         self.assertEqual(stdout, '4\n')
         self.assertEqual(len(context.failure_history), 1)
 
-    def test_thunk_snapshot_of_uninitialized_binding_is_safe(self):
-        _, context, stdout = self.run_source(
-            'var x: Float = div(1.0,0.0)\nvar t: Thunk[Float, Never] = thunk(x)\n'
-            'x = 4.0\nprint(force(t))\nprint(x)')
-        self.assertEqual(stdout, '4.0\n')
-        self.assertEqual(len(context.failure_history), 1)
-        self.assertEqual([r.related_event_ids for r in context.incomplete_statements], [(1,), (1,)])
 
 
 if __name__ == '__main__':

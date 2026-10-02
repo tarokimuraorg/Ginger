@@ -212,7 +212,8 @@ def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[st
         if binding is None and outer is not None:
             binding = outer.get(expr.name)
         if isinstance(binding, UninitializedBinding):
-            return EvalResult(NoValue(), binding.related_event_ids)
+            raise EvalError(f"cannot read uninitialized binding '{expr.name}' "
+                            f"(cause event IDs: {binding.related_event_ids})")
         if binding is not None:
             return EvalResult(ProducedValue(binding.value))
         raise EvalError(f"unknown identifier '{expr.name}'")
@@ -306,8 +307,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         first_event_id = context.next_event_id
         forced = eval_expr(v.expr, v.env, syms, v.outer)
         # The latent effect describes failures produced by this evaluation.
-        # Old NoValue causes from captured bindings are dependencies, not new
-        # effects of reading an identifier (whose static effect is empty).
+        # Reading a captured uninitialized binding raises EvalError above;
+        # it does not produce a new event or reach this contract check.
         event_ids = tuple(event.event_id for event in context.failure_history
                           if event.event_id >= first_event_id)
         public_contract = expression_type(expr.args[0].expr, env, syms, outer).latent_failures

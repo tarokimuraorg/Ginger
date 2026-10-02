@@ -1,0 +1,5 @@
+var a: Float = div(1.0,0.0)
+a = 10
+var b: Float = add(a,1.0)
+print(a)
+print(b)

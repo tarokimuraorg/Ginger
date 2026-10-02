@@ -1,0 +1,12 @@
+sig broken(Float) -> Float {
+    failure DivideByZero
+}
+
+func broken(x: Float) {
+    var a: Float = div(x,0.0)
+    var b: Float = add(a,1.0)
+    return b
+}
+
+print(broken(1.0))
+print(999)
