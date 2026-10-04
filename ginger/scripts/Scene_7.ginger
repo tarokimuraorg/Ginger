@@ -8,5 +8,5 @@ print(a)
 print(b)
 print(c)
 
-//let x: Int = 1 - -2
-//print(x)
+//let y: Int = 1 - -2
+//print(y)

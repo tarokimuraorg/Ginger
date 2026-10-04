@@ -1,13 +1,16 @@
 var x: Float = div(1.0, 0.0)
 resolve x {
     DivideByZero {
-        x = 2
         print(2)
     }
 }
 print(3)
 
 // handler の代入も失敗すると、元の event と新しい event は unresolved のまま。
-//var y: Float = div(1.0, 0.0)
-//resolve y { DivideByZero { y = div(2.0, 0.0) } }
-//print(3)
+var y: Float = div(1.0, 0.0)
+resolve y { 
+    DivideByZero { 
+        y = div(2.0, 0.0)
+    }
+}
+print(4)

@@ -1,20 +1,29 @@
 var a: Int = 9007199254740991
-var b: Int = add(a, 0)
+a = add(a, 0)
 
-print(b)
+print(a)
 
-//var c: Int = 9007199254740991
+var overflow: Int = add(a, 1)
+resolve overflow { 
+    IntegerOverflow { 
+        overflow = 999
+    }
+}
 
-//var overflow: Int = add(c, 1)
-//resolve overflow { IntegerOverflow { overflow = 999 } }
-//print(overflow)
+print(overflow)
 
 // Float initializer には IntegerOverflow がないため、次の resolve は静的エラー。
 //var normal: Float = add(1.0, 2.0)
-//resolve normal { IntegerOverflow { normal = 999 } }
+//resolve normal { 
+//    IntegerOverflow { 
+//        normal = 999
+//    }
+//}
 
-//var d: Int64 = 9007199254740992i64
-//print(d)
+//print(normal)
 
-//var e: Int64 = add(1i64,2i64)
-//print(e)
+var d: Int64 = 9007199254740992i64
+print(d)
+
+var e: Int64 = add(1i64,2i64)
+print(e)

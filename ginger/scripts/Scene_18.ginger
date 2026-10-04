@@ -50,10 +50,12 @@ resolve x {
 
 print(x)
 
-//resolve y {
-//    IntegerOverflow {
-//        x = 0
-//    }
-//}
+resolve y {
+    IntegerOverflow {
+        x = 999
+    }
+}
+
+print(x)
 
 //print(y)
