@@ -241,7 +241,7 @@ class CallInferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
             checked(source.replace('choose(1i64,2.0)', 'choose(1.0,2i64)'))
 
-    def test_existing_generic_body_guarantee_limit_is_explicit(self):
-        with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
-            checked('sig twice(T) -> T { require T guarantees Addable failure IntegerOverflow }\n'
-                    'func twice(x: T) { return add(x,x) }')
+    def test_generic_body_uses_declared_guarantee(self):
+        program, _ = checked('sig twice(T) -> T { require T guarantees Addable failure IntegerOverflow }\n'
+                             'func twice(x: T) { return add(x,x) }\nprint(twice(2))')
+        self.assertEqual(output(program), '4\n')

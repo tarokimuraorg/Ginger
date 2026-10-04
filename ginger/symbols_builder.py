@@ -3,6 +3,7 @@ from typing import Dict, Tuple
 from .builtin import BUILTINS
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, FailureSet
+from ginger.core.failure_contract import ConditionalFailure, FailureContract, substitute_contract
 from .attrs import is_defined, get_attr
 from ginger.core.prelude import prelude_items
 
@@ -15,6 +16,7 @@ from .ast import (
     RegisterDecl,
     ImplDecl,
     SigDecl,
+    ConditionalFailureDecl,
     FuncDecl,
     VarDecl,
 )
@@ -30,6 +32,8 @@ class ResolvedCall:
     parameter_types: Tuple[TypeRef, ...]
     return_type: TypeRef
     implementation: str | None
+    deferred_guarantee: str | None = None
+    deferred_method: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,7 @@ class Symbols:
     type_guarantees: Dict[str, set[str]]             # type -> {"Addable",...}
     sigs: Dict[str, SigDecl]
     sig_failures: Dict[str, FailureSet]
+    sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]]
     failuresets: Dict[str, FailureSet]
     sig_attrs: Dict[str, set[str]]
     funcs: Dict[str, FuncDecl]                       # name -> decl
@@ -56,6 +61,8 @@ def _is_typevar(name: str) -> bool:
 def _same_type(a: TypeRef, b: TypeRef) -> bool:
     """Compare normalized types, including recursive arguments and latent contracts."""
     if a.latent_failures != b.latent_failures:
+        return False
+    if a.latent_conditions != b.latent_conditions:
         return False
     if a.name != b.name:
         return False
@@ -131,7 +138,8 @@ def normalize_types(value, failuresets):
             latent = value.latent_failures
             if latent is None:
                 latent = normalize_failures(value.failure_specs, failuresets, "Thunk")
-            return TypeRef("Thunk", args, latent_failures=latent)
+            return TypeRef("Thunk", args, latent_failures=latent,
+                           latent_conditions=value.latent_conditions)
         return replace(value, args=args)
     if isinstance(value, list):
         return [normalize_types(v, failuresets) for v in value]
@@ -148,6 +156,7 @@ def build_symbols(prog: Program) -> Symbols:
     type_guarantees: Dict[str, set[str]] = {}
     sigs: Dict[str, SigDecl] = {}
     sig_failures: Dict[str, FailureSet] = {}
+    sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]] = {}
     sig_attrs: Dict[str, set[str]] = {}
     funcs: Dict[str, FuncDecl] = {}
     impls: Dict[Tuple[str, str, str], str] = {}
@@ -229,10 +238,11 @@ def build_symbols(prog: Program) -> Symbols:
                 if b not in BUILTINS:
                     raise TypecheckError(f"unknown builtin '{b}' for sig '{item.name}'")
                 
-            # failure は SigDecl.failures: list[str]
+            # Keep concrete FailureSets independent of conditional clauses.
             fnames = list(getattr(item, "failures", []) or [])
 
-            sig_failures[item.name] = normalize_failures(fnames, failuresets, f"sig '{item.name}'")
+            sig_failures[item.name] = normalize_failures(
+                [f for f in fnames if isinstance(f, str)], failuresets, f"sig '{item.name}'")
 
         elif isinstance(item, FuncDecl):
 
@@ -310,6 +320,7 @@ def build_symbols(prog: Program) -> Symbols:
         type_guarantees=type_guarantees,
         sigs=sigs,
         sig_failures=sig_failures,
+        sig_conditional_failures=sig_conditional_failures,
         failuresets=failuresets,
         sig_attrs=sig_attrs,
         funcs=funcs,
@@ -326,6 +337,44 @@ def build_symbols(prog: Program) -> Symbols:
 # Catalog validation
 # =====================
 def _validate_catalog(syms: Symbols) -> None:
+    # Validate conditions after all declarations and named sets are available.
+    for name, sig in syms.sigs.items():
+        variables = set()
+        def collect(typ):
+            if _is_typevar(typ.name):
+                variables.add(typ.name)
+            for arg in typ.args:
+                collect(arg)
+        for typ in [*sig.params, sig.ret]:
+            collect(typ)
+        clauses = set()
+        for failure in sig.failures:
+            if isinstance(failure, str):
+                continue
+            if not isinstance(failure, ConditionalFailureDecl):
+                raise TypecheckError(f"invalid failure clause in sig '{name}'")
+            if failure.failure_name == "Never":
+                raise TypecheckError("conditional Never is not allowed")
+            if failure.failure_name in syms.failuresets:
+                raise TypecheckError("conditional failureset is not supported; use an individual FailureId")
+            try:
+                fid = FailureId(failure.failure_name)
+            except ValueError:
+                raise TypecheckError(f"unknown failure '{failure.failure_name}' in sig '{name}'") from None
+            if failure.type_var not in variables:
+                raise TypecheckError(f"unknown type variable '{failure.type_var}' in failure condition of sig '{name}'")
+            if failure.guarantee_name not in syms.guarantees:
+                raise TypecheckError(f"unknown guarantee '{failure.guarantee_name}' in failure condition of sig '{name}'")
+            clause = ConditionalFailure(fid, failure.type_var, failure.guarantee_name)
+            if clause in clauses:
+                raise TypecheckError(f"duplicate conditional failure in sig '{name}'")
+            if fid in syms.sig_failures[name]:
+                raise TypecheckError(f"redundant conditional failure '{fid.value}' in sig '{name}'")
+            if "Never" in sig.failures:
+                raise TypecheckError(f"cannot combine 'Never' with other failures in sig '{name}'")
+            clauses.add(clause)
+        syms.sig_conditional_failures[name] = frozenset(clauses)
+
     # 1) impl/register が参照する guarantee は存在するか
     for t, gs in syms.type_guarantees.items():
         for g in gs:
@@ -349,3 +398,12 @@ def _validate_catalog(syms: Symbols) -> None:
             raise TypecheckError(
                 f"unknown builtin '{builtin_name}' for impl {t} guarantees {g}.{m}"
             )
+
+
+def signature_contract(syms: Symbols, name: str) -> FailureContract:
+    return FailureContract(syms.sig_failures[name], syms.sig_conditional_failures[name])
+
+
+def instantiated_signature_failures(syms: Symbols, name: str, bindings) -> FailureSet:
+    return substitute_contract(signature_contract(syms, name), bindings,
+                               syms.type_guarantees).concrete_failures()

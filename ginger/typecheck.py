@@ -3,8 +3,11 @@ from typing import Dict, Optional
 from .errors import TypecheckError
 from .numeric import can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
 from .builtin import builtin_failure_contract
-from .symbols_builder import build_symbols, normalize_types, ResolvedCall, _same_type
+from .symbols_builder import build_symbols, normalize_types, ResolvedCall, _same_type, signature_contract
 from ginger.core.failure_spec import FailureId, FailureSet, EMPTY_FAILURES, union_failures
+from ginger.core.failure_contract import (
+    FailureContract, substitute_contract, union_contracts, uncovered_contract,
+)
 from .diagnostics import Diagnostics
 
 from .ast import (
@@ -37,43 +40,46 @@ def same_type(a: TypeRef, b: TypeRef) -> bool:
 def compatible(actual, declared):
     if actual.name == declared.name == "Thunk":
         return (same_type(actual.args[0], declared.args[0])
-                and actual.latent_failures <= declared.latent_failures)
+                and not uncovered_contract(latent_contract(actual), latent_contract(declared)).potential_failures())
     return same_type(actual, declared) or can_widen(actual, declared)
 
 
 def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
+    # Concrete call sites retain the existing FailureSet interface. A generic
+    # expression's conservative projection is useful for latent upper bounds.
+    return symbolic_effect_expr(expr, env, syms).potential_failures()
 
-    # literals
-    if isinstance(expr, (IntLit, Int64Lit)):
-        return EMPTY_FAILURES
-    
-    if isinstance(expr, FloatLit):
-        return EMPTY_FAILURES
-    
-    # identifier
-    if isinstance(expr, IdentExpr):
-        return EMPTY_FAILURES
-    
-    # call
+
+def latent_contract(typ: TypeRef) -> FailureContract:
+    return FailureContract(typ.latent_failures or EMPTY_FAILURES, typ.latent_conditions)
+
+
+def symbolic_effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureContract:
+    if isinstance(expr, (IntLit, Int64Lit, FloatLit, IdentExpr)):
+        return FailureContract()
     if isinstance(expr, CallExpr):
-        return effect_call(expr, env, syms)
-    
-    
+        return symbolic_effect_call(expr, env, syms)
+
+
 def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
+    return symbolic_effect_call(call, env, syms).potential_failures()
+
+
+def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureContract:
 
     if call.callee not in syms.sigs:
         raise TypecheckError(f"call to undeclared function '{call.callee}'")
     
     sig = syms.sigs[call.callee]
     if call.callee == "thunk":
-        return EMPTY_FAILURES
+        return FailureContract()
     if call.callee == "force":
         arg = call.args[0].expr
         # Use the type checked with its original context, including generic calls.
         typ = syms.expression_types.get(id(arg))
         if typ is None:
             typ = type_expr(arg, None, env, syms)
-        return union_failures(effect_expr(arg, env, syms), typ.latent_failures)
+        return union_contracts(symbolic_effect_expr(arg, env, syms), latent_contract(typ))
 
     # sig は引数名がないので named args 禁止
     if call.arg_style != "pos":
@@ -85,23 +91,35 @@ def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
             )
     
     # 引数側のeffect
-    arg_effects: list[FailureSet] = []
+    arg_effects: list[FailureContract] = []
 
     for a in call.args:
         # pos only
-        arg_effects.append(effect_expr(a.expr, env, syms))
+        arg_effects.append(symbolic_effect_expr(a.expr, env, syms))
 
-    callee_eff: FailureSet = syms.sig_failures.get(call.callee, EMPTY_FAILURES)
-    # The checked call's implementation is the same one runtime dispatch uses.
+    if id(call) not in syms.resolved_calls:
+        type_expr(call, None, env, syms)
+    resolved = syms.resolved_calls[id(call)]
+    callee_eff = substitute_contract(signature_contract(syms, call.callee),
+                                     resolved.type_bindings, syms.type_guarantees)
+    # Conditional declarations are the caller-visible contract. Runtime impl
+    # validation remains separate. Preserve conservative legacy dispatch for
+    # implementation failures absent from conditional declarations.
     if call.callee not in syms.funcs:
-        if id(call) not in syms.resolved_calls:
-            type_expr(call, None, env, syms)
-        resolved = syms.resolved_calls[id(call)]
-        callee_eff = builtin_failure_contract(
-            callee_eff, resolved.implementation, direct_builtin=sig.builtin is not None)
-    eff_args = union_failures(EMPTY_FAILURES, *arg_effects)
+        implementation_effect = builtin_failure_contract(
+            EMPTY_FAILURES, resolved.implementation, direct_builtin=sig.builtin is not None)
+        if resolved.deferred_guarantee is not None:
+            # Only implementations of this capability and method contribute.
+            implementation_effect = union_failures(implementation_effect, *(
+                builtin_failure_contract(EMPTY_FAILURES, implementation, direct_builtin=False)
+                for (_, guarantee, method), implementation in syms.impls.items()
+                if guarantee == resolved.deferred_guarantee and method == resolved.deferred_method
+            ))
+        implementation_effect -= frozenset(
+            c.failure_id for c in syms.sig_conditional_failures[call.callee])
+        callee_eff = union_contracts(callee_eff, FailureContract(implementation_effect))
 
-    return union_failures(callee_eff, eff_args)
+    return union_contracts(callee_eff, *arg_effects)
 
 # =====================
 # Type inference helpers
@@ -111,13 +129,15 @@ def is_typevar(name: str) -> bool:
     # minimal rule: single uppercase letter is a type var (T, U, V...)
     return len(name) == 1 and name.isalpha() and name.isupper()
 
-def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
+def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], type_guarantees=None) -> TypeRef:
     if is_typevar(t.name):
         if t.name not in tmap:
             raise TypecheckError(f"cannot determine type variable '{t.name}'")
         return tmap[t.name]
-    return TypeRef(t.name, tuple(resolve_typeref(a, tmap) for a in t.args),
-                   latent_failures=t.latent_failures)
+    latent = substitute_contract(latent_contract(t), tmap, type_guarantees or {})
+    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, type_guarantees) for a in t.args),
+                   latent_failures=latent.unconditional if t.latent_failures is not None else None,
+                   latent_conditions=latent.conditional)
 
 # =====================
 # Typechecking
@@ -283,20 +303,25 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
 def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
     for fname, func in syms.funcs.items():
         env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
-        inferred_failures = EMPTY_FAILURES
+        inferred_failures = FailureContract()
         for stmt in func.body.stmts:
-            inferred_failures = union_failures(
-                inferred_failures, effect_expr(stmt.expr, env, syms)
+            inferred_failures = union_contracts(
+                inferred_failures, symbolic_effect_expr(stmt.expr, env, syms)
             )
             if isinstance(stmt, VarDecl):
                 env[stmt.name] = Binding(ty=stmt.typ, mutable=stmt.mutable)
             if isinstance(stmt, ReturnStmt):
                 break
-        declared_failures = syms.sig_failures[fname]
-        missing = inferred_failures - declared_failures
-        if missing:
-            names = ", ".join(sorted(f.value for f in missing))
-            declared = ", ".join(sorted(f.value for f in declared_failures)) or "Never"
+        declared_failures = signature_contract(syms, fname)
+        missing = uncovered_contract(inferred_failures, declared_failures)
+        if missing.potential_failures():
+            def describe(contract):
+                names = [f.value for f in contract.unconditional]
+                names += [f"{c.failure_id.value} when {c.type_var} guarantees {c.guarantee_name}"
+                          for c in contract.conditional]
+                return ", ".join(sorted(names)) or "Never"
+            names = describe(missing)
+            declared = describe(declared_failures)
             raise TypecheckError(
                 f"func '{fname}' may propagate undeclared failures: {names}; "
                 f"declared failures: {declared}"
@@ -406,7 +431,9 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
         arg_expr = call.args[0].expr
 
         t = type_expr(arg_expr, None, env, syms, tv_guars)
-        return TypeRef("Thunk", (t,), latent_failures=effect_expr(arg_expr, env, syms))
+        contract = symbolic_effect_expr(arg_expr, env, syms)
+        return TypeRef("Thunk", (t,), latent_failures=contract.unconditional,
+                       latent_conditions=contract.conditional)
 
     # =====================
     # special: force
@@ -460,8 +487,8 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             raise
     tmap = {name: reconcile_type_evidence(name, candidates)
             for name, candidates in evidence.items()}
-    parameter_types = tuple(resolve_typeref(t, tmap) for t in sig.params)
-    return_type = resolve_typeref(sig.ret, tmap)
+    parameter_types = tuple(resolve_typeref(t, tmap, syms.type_guarantees) for t in sig.params)
+    return_type = resolve_typeref(sig.ret, tmap, syms.type_guarantees)
 
     # =====================
     # ③ requireチェック
@@ -493,7 +520,8 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
                 )
 
             concrete = tmap[req.type_var]
-            has = syms.type_guarantees.get(concrete.name, set())
+            has = (tv_guars.get(concrete.name, set()) if is_typevar(concrete.name)
+                   else syms.type_guarantees.get(concrete.name, set()))
 
             if req.guarantee_name not in has:
                 raise TypecheckError(
@@ -510,6 +538,8 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             raise TypecheckError(f"type mismatch: expected {parameter}, got {actual}")
 
     implementation = None
+    deferred_guarantee = None
+    deferred_method = None
     if call.callee not in syms.funcs:
         implementation = sig.builtin
         if implementation is None:
@@ -517,6 +547,11 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             if len(requirements) == 1:
                 requirement = requirements[0]
                 selected_type = tmap[requirement.type_var]
-                implementation = syms.impls.get((selected_type.name, requirement.guarantee_name, sig.name))
-    syms.resolved_calls[id(call)] = ResolvedCall(tmap, parameter_types, return_type, implementation)
+                if is_typevar(selected_type.name):
+                    deferred_guarantee = requirement.guarantee_name
+                    deferred_method = sig.name
+                else:
+                    implementation = syms.impls.get((selected_type.name, requirement.guarantee_name, sig.name))
+    syms.resolved_calls[id(call)] = ResolvedCall(
+        tmap, parameter_types, return_type, implementation, deferred_guarantee, deferred_method)
     return return_type

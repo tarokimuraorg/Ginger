@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, TYPE_CHECKING
 from ginger.core.failure_spec import FailureSet
 
+if TYPE_CHECKING:
+    from ginger.core.failure_contract import ConditionalFailure
 
 # =====================
 # AST
@@ -68,6 +70,7 @@ class TypeRef:
     # Source names are resolved before type checking; args contain only result types.
     failure_specs: Tuple[str, ...] | None = None
     latent_failures: FailureSet | None = None
+    latent_conditions: frozenset["ConditionalFailure"] = frozenset()
 
 @dataclass(frozen=True)
 class Param:
@@ -138,12 +141,19 @@ class RequireGuarantees:
 # --- sig / func ---
 
 @dataclass(frozen=True)
+class ConditionalFailureDecl:
+    failure_name: str
+    type_var: str
+    guarantee_name: str
+
+
+@dataclass(frozen=True)
 class SigDecl:
     name: str
     params: List[TypeRef]
     ret: TypeRef
     requires: List[RequireClause]
-    failures: list[str] = field(default_factory=list)
+    failures: list[str | ConditionalFailureDecl] = field(default_factory=list)
     attrs: list[str] = field(default_factory=list)
     builtin: str | None = None
 

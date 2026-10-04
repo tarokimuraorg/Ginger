@@ -1,0 +1,43 @@
+sig addTwo(T, T) -> T {
+    require T guarantees Addable
+    failure IntegerOverflow when T guarantees BoundedArithmetic
+}
+
+func addTwo(a:T, b:T) {
+    return add(a,b)
+}
+
+print(addTwo(1,2))
+print(addTwo(1.0,2.0))
+
+// 3. Int overflow + resolve
+var x: Int = addTwo(9007199254740991, 1)
+
+resolve x {
+    IntegerOverflow {
+        x = 0
+    }
+}
+
+print(x)
+
+// 4. Addableなしの裏口確認
+//sig bad(T, T) -> T {
+//    failure IntegerOverflow
+//}
+//func bad(a: T, b: T) {
+//    return (a + b)
+//}
+
+//print(bad(1.2))
+
+// 5. Floatではresolve資格そのものがない
+var y: Float = addTwo(1.0, 2.0)
+
+//resolve y {
+//    IntegerOverflow {
+//        y = 0.0
+//    }
+//}
+
+print(y)
