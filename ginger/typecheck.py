@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 from .errors import TypecheckError
 from .numeric import can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
 from .builtin import builtin_failure_contract
-from .symbols_builder import build_symbols, normalize_types, ResolvedCall
-from ginger.core.failure_spec import failures, FailureId, FailureSet, EMPTY_FAILURES, union_failures
+from .symbols_builder import build_symbols, normalize_types, ResolvedCall, _same_type
+from ginger.core.failure_spec import FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from .diagnostics import Diagnostics
 
 from .ast import (
@@ -21,7 +21,6 @@ from .ast import (
     ExprStmt,
     ResolveStmt,
     FuncDecl,
-    BlockStmt,
     ReturnStmt,
     TypeRef,
 )
@@ -33,13 +32,7 @@ class Binding:
     initializer_failures: FailureSet = EMPTY_FAILURES
 
 def same_type(a: TypeRef, b: TypeRef) -> bool:
-    if a.latent_failures != b.latent_failures:
-        return False
-    if a.name != b.name:
-        return False
-    if len(a.args) != len(b.args):
-        return False
-    return all(same_type(x, y) for x, y in zip(a.args, b.args))
+    return _same_type(a, b)
 
 def compatible(actual, declared):
     if actual.name == declared.name == "Thunk":
@@ -126,14 +119,6 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef]) -> TypeRef:
     return TypeRef(t.name, tuple(resolve_typeref(a, tmap) for a in t.args),
                    latent_failures=t.latent_failures)
 
-# def resolve_typeref(t, tmap: Dict[str, TypeRef]) -> TypeRef:
-#     if is_typevar(t.name):
-#         if t.name not in tmap:
-#             raise TypecheckError(f"cannot determine type variable '{t.name}'")
-#         return tmap[t.name]
-#     return t
-
-
 # =====================
 # Typechecking
 # =====================
@@ -156,12 +141,7 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
             initializer_warnings[stmt.name] = len(warning_effects)
         warning_effects.append(eff)
 
-    i = 0
-
-    while i < len(prog.items):
-
-        item = prog.items[i]
-
+    for item in prog.items:
         if isinstance(item, ResolveStmt):
             if item.target not in env:
                 raise TypecheckError(f"unknown identifier '{item.target}' in resolve")
@@ -170,48 +150,27 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
                 raise TypecheckError(f"cannot resolve immutable binding '{item.target}'; target must be var")
             if not binding.initializer_failures:
                 raise TypecheckError(f"cannot resolve '{item.target}': initializer has no declared or inferred failures")
-            handled = set()
+            resolve_failures = set()
             for handler in item.handlers:
                 try:
                     fid = FailureId(handler.failure_name)
                 except ValueError:
                     raise TypecheckError(f"unknown failure '{handler.failure_name}' in resolve") from None
-                if fid in handled:
+                if fid in resolve_failures:
                     raise TypecheckError(f"duplicate failure '{handler.failure_name}' in resolve")
                 if fid not in binding.initializer_failures:
                     raise TypecheckError(
                         f"cannot resolve '{handler.failure_name}': initializer of '{item.target}' "
                         f"has no declared or inferred {handler.failure_name} failure"
                     )
-                handled.add(fid)
+                resolve_failures.add(fid)
             index = initializer_warnings[item.target]
-            warning_effects[index] = warning_effects[index] - handled
+            warning_effects[index] = warning_effects[index] - resolve_failures
             for handler in item.handlers:
                 for stmt in handler.body.stmts:
                     check_statement(stmt)
-            i += 1
-            continue
-
-        # --- VarDecl ---
-        if isinstance(item, VarDecl):
+        elif isinstance(item, (VarDecl, AssignStmt, ExprStmt)):
             check_statement(item)
-            i += 1
-            continue
-
-        # --- AssignStmt ---
-        if isinstance(item, AssignStmt):
-            check_statement(item)
-            i += 1
-            continue
-
-        # --- ExprStmt ---
-        if isinstance(item, ExprStmt):
-            check_statement(item)
-            i += 1
-            continue
-
-        # --- それ以外（Catalog/Impl/func etc.）は型検査対象外 ---
-        i += 1
 
     for eff in warning_effects:
         if eff:
@@ -246,7 +205,7 @@ def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
 
 def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> None:
 
-    # func の本文を sig に照合する（return型のみ確認）
+    # func のローカル束縛・式・return 型を sig に照合する
     for item in syms.funcs.values():
         
         if not isinstance(item, FuncDecl):

@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import ginger.eval as evaluator
 from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import FailureId
-from ginger.errors import EvalError, TypecheckError
+from ginger.errors import EvalError
 from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
 from test_failure_contract import checked, recorded
 

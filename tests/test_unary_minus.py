@@ -1,5 +1,4 @@
 from test_failure_contract import recorded
-from ginger.eval import UninitializedBinding
 import unittest
 from pathlib import Path
 
@@ -10,7 +9,6 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
 from ginger.parser import parse
-from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols
 from ginger.tokenizer import tokenize
 from ginger.typecheck import effect_expr, typecheck_program

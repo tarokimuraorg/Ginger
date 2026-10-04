@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict
-from .ast import CallExpr, SigDecl, FuncDecl, PosArg, NamedArg, Expr
+from .ast import CallExpr, SigDecl, PosArg, NamedArg, Expr
 
 @dataclass
 class BindError(Exception):

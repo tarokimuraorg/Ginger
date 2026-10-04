@@ -106,7 +106,7 @@ class RegisterDecl:
     guarantee: str
 
 
-# ---- impl (legacy: builtin mapping) ----
+# ---- impl (builtin mapping) ----
 
 @dataclass(frozen=True)
 class ImplMethod:

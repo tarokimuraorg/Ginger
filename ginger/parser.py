@@ -59,7 +59,7 @@ class Parser:
     
     def parse_attrs(self) -> List[str]:
         """
-        Parse attribute lines preceding a func declaration.
+        Parse attribute lines preceding a sig or func declaration.
         
         Syntax:
             @attr.<name>
@@ -71,15 +71,6 @@ class Parser:
         
         while self.match("SYM", "@"):
 
-            # Catalog以外で@attrの付与を禁止する
-            """
-            if getattr(self, "origin", "unknown") != "catalog":
-                t = self.cur()
-                raise SyntaxError(
-                    f"@attr is only allowed in Catalog (got '@' at {t.pos})"
-                )
-            """
-            
             self.eat("SYM", "@")
 
             # must be: attr . NAME
@@ -215,9 +206,6 @@ class Parser:
             return TypeRef(name, tuple(args))
     
         return TypeRef(name)
-
-    # def parse_type(self) -> TypeRef:
-    #     return TypeRef(self.eat("IDENT").text)
 
     def parse_params(self) -> List[Param]:
 

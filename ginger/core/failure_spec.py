@@ -19,7 +19,7 @@ def failures(*ids: FailureId) -> FailureSet:
     return frozenset(ids)
 
 def union_failures(*sets) -> FailureSet:
-    """Union multipie FailureSets."""
+    """Union multiple FailureSets."""
     out = set()
 
     for i, s in enumerate(sets):

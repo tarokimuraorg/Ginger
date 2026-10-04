@@ -33,7 +33,7 @@ class FailureEvent:
 
 
 class FailureContractViolation(Exception):
-    """Fatal boundary error, never a catchable Ginger failure event."""
+    """Fatal boundary error, never a Ginger failure event eligible for resolve."""
 
     def __init__(self, failure_id, *, origin, violating_call_id,
                  violating_function_or_builtin, declared_contract,

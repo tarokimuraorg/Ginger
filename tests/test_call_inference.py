@@ -12,7 +12,6 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_program, eval_block
 from ginger.numeric import INT_MAX
-from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import effect_expr, reconcile_type_evidence, typecheck_program
 
