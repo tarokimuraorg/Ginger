@@ -327,9 +327,6 @@ def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
                 f"declared failures: {declared}"
             )
 
-def to_typeref(x):
-    return x if isinstance(x, TypeRef) else TypeRef(x)
-
 def type_expr(expr, expected, env, syms, tv_guars=None):
     typ = _type_expr(expr, expected, env, syms, tv_guars)
     if expected is not None and not compatible(typ, expected):
