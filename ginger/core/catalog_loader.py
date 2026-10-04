@@ -11,6 +11,8 @@ from ginger.ast import (
     ImplMethod,
     SigDecl,
     RequireGuarantees,
+    ConditionalFailureDecl,
+    RegisterDecl,
 )
 
 Json = Dict[str, Any]
@@ -60,10 +62,25 @@ def _require(obj: Any):
     return RequireGuarantees(type_var=type_var, guarantee_name=guarantee)
 
 
+def _failure(obj: Any) -> str | ConditionalFailureDecl:
+    if isinstance(obj, str):
+        return obj
+    if not isinstance(obj, dict) or set(obj) != {"failure", "when"}:
+        raise ValueError(f"Invalid conditional failure: {obj!r}")
+    condition = obj["when"]
+    if (not isinstance(condition, dict)
+            or set(condition) != {"typevar", "guarantees"}
+            or not isinstance(obj["failure"], str)
+            or not isinstance(condition["typevar"], str)
+            or not isinstance(condition["guarantees"], str)):
+        raise ValueError(f"Invalid conditional failure: {obj!r}")
+    return ConditionalFailureDecl(obj["failure"], condition["typevar"], condition["guarantees"])
+
+
 def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
     """
     Load catalog JSON and return a flat list of Ginger AST decl items
-    (GuaranteeDecl, ImplDecl, SigDecl)
+    (GuaranteeDecl, RegisterDecl, ImplDecl, SigDecl)
     """
     p = Path(path)
     data = json.loads(p.read_text(encoding="utf-8"))
@@ -93,6 +110,16 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
             methods.append(FuncSig(name=mname, params=params, ret=ret))
 
         out.append(GuaranteeDecl(name=gname, methods=methods))
+
+    # --- marker guarantee registrations ---
+    for registration in data.get("registers", []):
+        if not isinstance(registration, dict):
+            raise ValueError(f"Invalid register: {registration!r}")
+        typ = _type_ref(registration.get("type", registration.get("typ")))
+        guarantee = registration.get("guarantee")
+        if not isinstance(guarantee, str):
+            raise ValueError(f"Register.guarantee must be str: {registration!r}")
+        out.append(RegisterDecl(typ=typ, guarantee=guarantee))
 
     # --- impls ---
     for imp in data.get("impls", []):
@@ -126,7 +153,10 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         params = [_type_ref(x) for x in s.get("params", [])]
         ret = _type_ref(s.get("ret"))
         requires = [_require(x) for x in s.get("requires", [])]
-        failures = s.get("failures", [])
+        failure_entries = s.get("failures", [])
+        if not isinstance(failure_entries, list):
+            raise ValueError(f"Sig '{sname}' failures must be an array")
+        failures = [_failure(entry) for entry in failure_entries]
         attrs = s.get("attrs", [])
         builtin = s.get("builtin")
         if builtin is not None and not isinstance(builtin, str):

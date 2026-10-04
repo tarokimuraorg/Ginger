@@ -167,9 +167,9 @@ class IntegerOverflowTests(unittest.TestCase):
             self.assertEqual(diags.items, [])
             self.assertEqual(eval_program(program).environment['x'].value, INT_MAX + 1)
 
-    def test_user_function_override_does_not_inherit_builtin_effect(self):
+    def test_user_function_override_keeps_catalog_signature_contract(self):
         program, diags = checked('func add(a: T,b: T) { return a }\nvar x: Int = add(1,2)')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: IntegerOverflow'])
         self.assertEqual(eval_program(program).environment['x'].value, 1)
 
     def test_direct_float_resolve_rejected_but_argument_effect_preserved(self):

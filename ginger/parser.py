@@ -6,7 +6,7 @@ from .ast import (
     FailureSetDecl, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
+    ConditionalFailureDecl, SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
     BlockStmt, ReturnStmt, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, Int64Lit, FloatLit,
     Arg, PosArg, NamedArg,
@@ -345,7 +345,7 @@ class Parser:
         ret = self.parse_type()
 
         requires: List[RequireClause] = []
-        failures: list[str] = []
+        failures: list[str | ConditionalFailureDecl] = []
         builtin: str | None = None
 
         self.eat("SYM", "{")
@@ -368,12 +368,26 @@ class Parser:
                 if failure_type.args:
                     raise SyntaxError("failure names cannot have type arguments")
                 f = failure_type.name
-                if f in failures:
+                clause: str | ConditionalFailureDecl = f
+                if self.match("KW", "when"):
+                    self.eat("KW", "when")
+                    if f == "Never":
+                        raise SyntaxError("Never cannot have a failure condition")
+                    type_var = self.eat("IDENT").text
+                    self.eat("KW", "guarantees")
+                    guarantee = self.eat("IDENT").text
+                    clause = ConditionalFailureDecl(f, type_var, guarantee)
+                if clause in failures:
                     raise SyntaxError(f"duplicate failure '{f}'")
                 if failures and (f == "Never" or "Never" in failures):
                     raise SyntaxError("cannot combine 'Never' with other failures")
+                if (isinstance(clause, ConditionalFailureDecl) and f in failures
+                        or isinstance(clause, str) and any(
+                            isinstance(previous, ConditionalFailureDecl)
+                            and previous.failure_name == f for previous in failures)):
+                    raise SyntaxError(f"redundant conditional failure '{f}'")
                 # Preserve Never until symbols_builder normalizes source/catalog alike.
-                failures.append(f)
+                failures.append(clause)
                 continue
 
             if self.match("KW", "builtin"):

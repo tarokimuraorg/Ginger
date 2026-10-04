@@ -1,9 +1,9 @@
 from typing import Dict, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from contextvars import ContextVar
 from .ast import TypeRef
 from .numeric import widen_value
-from .symbols_builder import build_symbols, normalize_types, ResolvedCall
+from .symbols_builder import build_symbols, normalize_types, ResolvedCall, instantiated_signature_failures
 from .typecheck import typecheck_program, resolve_typeref
 from .diagnostics import Diagnostics
 from .errors import EvalError
@@ -28,6 +28,7 @@ from .ast import (
     ReturnStmt,
     ExprStmt,
     ResolveStmt,
+    RequireGuarantees,
 )
 
 
@@ -65,13 +66,19 @@ class FunctionEnv(dict):
     def __init__(self, type_bindings, values=()):
         super().__init__(values)
         self.type_bindings = type_bindings
+        self.call_frame_id = None
 
     def copy(self):
-        return FunctionEnv(self.type_bindings, self)
+        snapshot = FunctionEnv(self.type_bindings, self)
+        snapshot.call_frame_id = self.call_frame_id
+        return snapshot
 
 
-def instantiated_type(typ, env):
-    return resolve_typeref(typ, getattr(env, "type_bindings", {}))
+def instantiated_type(typ, env, syms):
+    frame_id = getattr(env, "call_frame_id", None)
+    bindings = (_active_runtime.get().get_call(frame_id).type_bindings
+                if frame_id is not None else getattr(env, "type_bindings", {}))
+    return resolve_typeref(typ, bindings, syms.type_guarantees)
 
 
 @dataclass
@@ -162,7 +169,7 @@ def record_incomplete(stmt, index, result):
 def eval_binding_statement(stmt, env, syms, outer=None):
     """Evaluate/coerce before publishing a new Cell, including on reassignment."""
     if isinstance(stmt, VarDecl):
-        typ, mutable = instantiated_type(stmt.typ, env), stmt.mutable
+        typ, mutable = instantiated_type(stmt.typ, env, syms), stmt.mutable
     else:
         if stmt.name not in env:
             raise EvalError(f"unknown identifier '{stmt.name}'")
@@ -211,7 +218,7 @@ def expression_type(expr, env, syms, outer=None):
             cell = outer.get(expr.name)
         if cell is not None:
             return cell.typ
-    return instantiated_type(syms.expression_types[id(expr)], env)
+    return instantiated_type(syms.expression_types[id(expr)], env, syms)
 
 
 def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Binding], resolved: ResolvedCall) -> EvalResult:
@@ -239,7 +246,10 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
         local[p.name] = Cell(value=v, mutable=False, typ=typ)
 
     context = _active_runtime.get()
-    with context.call(fname, syms.sig_failures[fname]) as frame:
+    contract = instantiated_signature_failures(syms, fname, resolved.type_bindings)
+    with context.call(fname, contract,
+                      type_bindings=resolved.type_bindings) as frame:
+        local.call_frame_id = frame.call_id
         token = _statement_scope.set(fname)
         try:
             try:
@@ -318,12 +328,19 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
     checked = syms.resolved_calls[id(expr)]
     # Only substitute already inferred symbolic types for a generic function
     # frame. Never infer again from runtime values or from the caller's target.
-    resolved = ResolvedCall(
-        {name: instantiated_type(typ, env) for name, typ in checked.type_bindings.items()},
-        tuple(instantiated_type(typ, env) for typ in checked.parameter_types),
-        instantiated_type(checked.return_type, env),
-        checked.implementation,
+    resolved = replace(
+        checked,
+        type_bindings={name: instantiated_type(typ, env, syms) for name, typ in checked.type_bindings.items()},
+        parameter_types=tuple(instantiated_type(typ, env, syms) for typ in checked.parameter_types),
+        return_type=instantiated_type(checked.return_type, env, syms),
     )
+    if resolved.deferred_guarantee is not None:
+        requirement = next(r for r in syms.sigs[expr.callee].requires
+                           if isinstance(r, RequireGuarantees)
+                           and r.guarantee_name == resolved.deferred_guarantee)
+        selected_type = resolved.type_bindings[requirement.type_var]
+        resolved = replace(resolved, implementation=syms.impls.get(
+            (selected_type.name, resolved.deferred_guarantee, resolved.deferred_method)))
     args = [widen_value(value, actual, parameter)
             for value, actual, parameter in zip(args, actual_types, resolved.parameter_types)]
 
@@ -334,7 +351,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
     if resolved.implementation is None:
         raise EvalError(f"function '{expr.callee}' has no resolved runtime implementation")
     sig = syms.sigs[expr.callee]
-    contract = builtin_failure_contract(syms.sig_failures[expr.callee],
+    declared = instantiated_signature_failures(syms, expr.callee, resolved.type_bindings)
+    contract = builtin_failure_contract(declared,
                                        resolved.implementation,
                                        direct_builtin=sig.builtin is not None)
     context = _active_runtime.get()

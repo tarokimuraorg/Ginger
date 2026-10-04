@@ -55,7 +55,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | 型名の集合と `require T in Group` による所属検査 |
-| `failure` / `resolve` | failure 上限契約と initializer の静的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
+| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、initializer の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
 
@@ -87,7 +87,9 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 
 範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。Float の add / sub / mul と Infinity の挙動も変更しません。
 
-**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul に一律の IntegerOverflow 宣言は追加していません。`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES` に管理対象の3実装 `core.int.add/sub/mul` の契約を定義し、`effect_call` が呼び出しメタデータに保存された選択実装から契約を合算します。runtime dispatch も同じ実装を使用します。この限定的な特殊化により Int 呼び出しだけが IntegerOverflow を持ち、Float 呼び出しには混入しません。一般的な型依存 effect・overload・failure 型変数は導入していません。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
+**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul は、呼び出し側へ `failure IntegerOverflow when T guarantees BoundedArithmetic` を公開します。call-site で T = Int なら IntegerOverflow、T = Float なら空集合になります。`BoundedArithmetic` はメソッドを持たない marker guarantee で、現在の標準登録は Int のみです。Addable・Subtractable・Multipliable とは独立し、marker の登録だけで算術を使用できるようにはなりません。Int64 算術は未対応のままです。
+
+`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
 型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。resolve 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
 
@@ -115,7 +117,7 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | 変数・引数・return・Thunk | 標準演算が範囲外の値を返さないため、その値を格納・伝播しない。入力自体は既存の型契約を信頼 |
 | 独自 builtin sig / impl・Python API の直接呼び出し | 引き続き信頼境界。宣言と実装の型・値域・failure を全面検証しない。範囲外 Python int を Int として返す実装は技術的に可能 |
 
-独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。runtime の標準算術結果検査は実行されます。任意の独自 builtin が不正な Int を生成した場合は、neg・widening・toFloat などの保証の前提を破ります。builtin sandbox や全面的な runtime validation は導入していません。
+独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。任意の独自 builtin が不正な Int を生成した場合は、neg・widening・toFloat などの保証の前提を破ります。builtin sandbox や全面的な runtime validation は導入していません。
 
 ```ginger
 let initial: Int = 1
@@ -179,11 +181,11 @@ print(result)
 
 根拠がない型変数は `cannot determine type variable`、統合不能は `cannot reconcile`、候補が複数残る場合は ambiguity として拒否します。`sig make() -> T` / `sig strange(Int) -> T` は、`var x: Int = make()` / `strange(1)` でも T を決定できません。
 
-TypeRef は再帰的に照合・置換するため、`Thunk[T, Never]` と `Thunk[Int, Never]` から T = Int を得られます。`SomeType[T]` のような既存 TypeRef 構造も同様ですが、型コンストラクタの不一致は拒否します。置換後の引数全体を既存 compatibility で検査するため、Thunk の結果型を含む型引数の variance は追加しません。latent failure 集合は具体的な既存契約として検査し、failure 型変数や集合の推論・統合は導入しません。同じ裸の T に異なる latent failure を持つ Thunk 型が渡された場合も、集合の共通上限を新たに推論しません。
+TypeRef は再帰的に照合・置換するため、`Thunk[T, Never]` と `Thunk[Int, Never]` から T = Int を得られます。`SomeType[T]` のような既存 TypeRef 構造も同様ですが、型コンストラクタの不一致は拒否します。置換後の引数全体を既存 compatibility で検査するため、Thunk の結果型を含む型引数の variance は追加しません。generic 本体で推論した Thunk の条件付き潜在 effect は TypeRef に保持し、具体的な binding で既存の FailureSet に置換します。failure 型変数や集合の推論・統合は導入しません。同じ裸の T に異なる latent failure を持つ Thunk 型が渡された場合も、集合の共通上限を新たに推論しません。
 
 型変数決定後に guarantee / typegroup の要件を検査します。`add(1,2i64)` は T = Int64 まで解決した後、Int64 が Addable を持たないため拒否します。Int64 算術は未解禁です。
 
-型検査は呼び出しごとに `Symbols.resolved_calls` へ型変数 binding、置換済み parameter / return TypeRef、選択実装を保存します。runtime は actual Ginger TypeRef と解決済み parameter TypeRef に従って call boundary widening を行い、保存された実装を呼びます。effect 判定も同じ選択実装を使い、Python int から Int / Int64 や T を推測しません。
+型検査は呼び出しごとに `Symbols.resolved_calls` へ型変数 binding と置換済み parameter / return TypeRef を保存します。具体型の call は選択実装を持ち、generic 本体の保証メソッド call は必要 guarantee / method を持つ deferred call として保持し、implementation は未確定です。runtime は call-site で解決した `CallFrame.type_bindings` から本体の symbolic TypeRef を置換し、`Symbols.impls[(具体型, guarantee, method)]` から実装を選びます。actual Ginger TypeRef と解決済み parameter TypeRef に従って call boundary widening を行い、Python 値から Int / Int64 や T を推測しません。generic 本体を invocation ごとに再型検査することもありません。
 
 call expression 自体の型は置換済み return TypeRef です。外側の expected type はその後の compatibility 検査にのみ使います。
 
@@ -196,7 +198,7 @@ call expression 自体の型は置換済み return TypeRef です。外側の ex
 
 `print(add(1,2))` は `3`（未処理 IntegerOverflow 警告あり）、`print(add(1,2.0))` は `3.0`（警告なし）を出力します。Float 演算の引数式自体が failure を持つ場合は、その effect は従来どおり合算します。
 
-user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使います。`first(1,2.0)` は両 parameter を Float として束縛します。nested call は内側を解決した静的型を外側の evidence に使います。generic 関数フレームは call site で解決した binding を保持し、本体の symbolic TypeRef を置換します（本体からの再推論はしません）。Thunk の環境スナップショットにもこの binding を保持します。generic 本体内で型変数の guarantee を使う演算は既存の検証上の制限が残ります。sig / func の厳密な構造照合、型変数名の一致条件は変更しません。
+user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使います。`first(1,2.0)` は両 parameter を Float として束縛します。nested call は内側を解決した静的型を外側の evidence に使います。generic 関数フレームは call site で解決した binding を保持し、本体の symbolic TypeRef を置換します。本体内では sig に明示した guarantee を能力証明として使います。Thunk の環境スナップショットは作成元の retained frame ID を保持し、関数終了後の force でも元 frame の型 binding を参照できます。sig / func の厳密な構造照合、型変数名の一致条件は変更しません。
 
 関数本体では型注釈付きの `let name: Type = expr` / `var name: Type = expr` と再代入を使用できます。`let` と parameter は再代入不可、`var` は再代入可能です。宣言型は固定し、トップレベルと同じ安全な `Int → Float` / `Int → Int64` widening を初期化・再代入の境界で適用します。逆方向や `Int64 → Float` は許可しません。型注釈省略の `let x = 1` / `var x = 1` は未対応です。
 
@@ -229,9 +231,39 @@ print(result)
 
 `guarantee` はメソッドを宣言し、`impl` は型・保証・メソッドから builtin への対応を登録します。現在検証するのは、保証の存在、必要メソッドの存在、builtin 名の存在などです。処理の意味や builtin の実際の型契約までは検証していません。
 
-`require T guarantees G` は型の保証登録を、`require T in Group` は typegroup への所属を検査します。メソッドを持つ guarantee には `impl` が必要で、`register` はメソッドを持たない保証に使います。
+`require T guarantees G` は、call-site で具体型の保証登録を検査するとともに、generic func 本体で T に使用できる能力を明示します。本体の検査は `tv_guars` の `型変数 → guarantee 集合` を能力証明として参照します。T の具体型が未知でも G のメソッドを使用できますが、require のない操作は拒否します。本体から require を自動推論しません。`require T in Group` は typegroup への所属制約で、guarantee の能力制約とは別です。両方を同じ T に指定できます。
+
+```ginger
+sig addTwo(T, T) -> T {
+    require T guarantees Addable
+    failure IntegerOverflow when T guarantees BoundedArithmetic
+}
+func addTwo(a: T, b: T) {
+    return (a + b)
+}
+print(addTwo(1, 2))
+print(addTwo(1.0, 2.0))
+```
+
+この例は `3` と `3.0` を出力し、IntegerOverflow の未処理警告は Int の call にだけ出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
+
+能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。メソッドを持つ guarantee には `impl` が必要で、`register` はメソッドを持たない保証に使います。guarantee 間の継承・包含は導入していません。
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
+
+catalog の `failures` は従来の文字列と条件付き object を混在できます。object は以下の形式だけを許可します。marker 登録は `"registers": [{"type": {"ref": "Int"}, "guarantee": "BoundedArithmetic"}]` と記述します。
+
+```json
+{
+  "failures": [
+    "DivideByZero",
+    {
+      "failure": "IntegerOverflow",
+      "when": {"typevar": "T", "guarantees": "BoundedArithmetic"}
+    }
+  ]
+}
+```
 
 実行時は `thunk` / `force` を特別扱いし、通常の呼び出しは同名の `func`、sig 直結の builtin、guarantee 経由の impl の順に処理します。最後の経路は保証1個に対応する解決済み型変数から選んだ実装を使います。先頭引数の元の型や Python 実行時型からは選びません。
 
@@ -239,7 +271,7 @@ print(result)
 
 ## failure と binding の解決
 
-現在採用している仕様では、sig に宣言する failure は、呼び出し側が考慮すべき意味のある失敗可能性を記録する契約であり、その関数から外部へ漏れ得る failure の上限集合です。通常の検証対象では、静的に推論した本体の `inferred_failures` が宣言の `declared_failures` の部分集合でなければなりません。
+現在採用している仕様では、sig に宣言する failure は、呼び出し側が考慮すべき意味のある失敗可能性を記録する契約であり、その関数から外部へ漏れ得る failure の上限です。具体的な契約では、静的に推論した本体の `inferred_failures` が宣言の `declared_failures` の部分集合でなければなりません。generic 本体の条件付き契約には、下記の限定的な包含規則を適用します。
 
 ```text
 inferred_failures ⊆ declared_failures
@@ -255,7 +287,39 @@ sig 本体に `failure DivideByZero` などを列挙できます。使える fai
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 Int 算術では、上記の具体的な impl の IntegerOverflow 契約も合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve は未対応です。handled による上限検証の保留は廃止しました。
+条件付き宣言の構文は `failure <FailureId> when <TypeVariable> guarantees <Guarantee>` だけです。条件の型変数はその sig の有効な型変数、guarantee は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T guarantees BoundedArithmetic` のために `require T guarantees BoundedArithmetic` を追加する必要はありません。
+
+内部の `FailureContract` は無条件の FailureSet と、`ConditionalFailure(FailureId, 型変数, guarantee)` の集合を保持します。generic 本体では条件を保存し、nested generic call は通常の型 binding で条件内の変数も置換します。
+
+```ginger
+sig relay(U, U) -> U {
+    require U guarantees Addable
+    failure IntegerOverflow when U guarantees BoundedArithmetic
+}
+func relay(a: U, b: U) {
+    return addTwo(a, b)
+}
+```
+
+先の addTwo と組み合わせると、callee の `T guarantees BoundedArithmetic` は caller の `U guarantees BoundedArithmetic` に置換されます。具体型が決まった call-site では marker の登録を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
+
+上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure IntegerOverflow` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure Never` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
+
+```ginger
+var integer: Int = addTwo(9007199254740991, 1)
+resolve integer {
+    IntegerOverflow {
+        integer = 0
+    }
+}
+var floating: Float = addTwo(1.0, 2.0)
+```
+
+integer の resolve は許可され、実際の overflow を回復できます。floating の initializer は IntegerOverflow を持たないため、floating に対する同じ handler は静的エラーです。`thunk(addTwo(...))` の潜在契約も concrete binding で既存の FailureSet に具体化し、runtime ThunkValue に symbolic contract は追加しません。
+
+conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・typegroup 条件・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
+
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve は未対応です。handled による上限検証の保留は廃止しました。
 
 標準 `div` は `DivideByZero` を宣言しています。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -298,7 +362,7 @@ Phase 1 時点では failure 履歴や statement 単位の継続は未導入で�
 
 ## 内部 runtime の骨格（Phase 2）
 
-`ginger/runtime/failures.py` に `FailureEvent` / `FailureStatus`、`context.py` に `RuntimeContext` / `CallFrame`、`results.py` に `Value` / `NoValue` / `EvalResult` / `ExecutionResult` を追加しました。静的契約は FailureId の集合、実行時履歴は発生ごとに異なる event ID を持つ記録として分離します。
+`ginger/runtime/failures.py` に `FailureEvent` / `FailureStatus`、`context.py` に `RuntimeContext` / `CallFrame`、`results.py` に `Value` / `NoValue` / `EvalResult` / `ExecutionResult` を追加しました。具体的な静的契約と runtime 境界契約は FailureId の集合、generic 本体の静的契約は無条件集合と conditional clause、実行時履歴は発生ごとに異なる event ID を持つ記録として分離します。
 
 RuntimeContext 内で event / call ID を採番します。イベントとフレームは不変のスナップショットで、context の操作が同じ ID の記録を更新します。更新後の状態は context から再取得します。resolved にしても履歴から削除しません。pending はイベント ID の参照です。Phase 2 時点では関数境界の自動伝播は未実装でしたが、現在は終了時に unresolved な参照だけを親 frame へ伝播します。
 
@@ -308,7 +372,7 @@ Phase 2 時点では単体で使用できる内部構造のみを導入しまし
 
 ## builtin failure bridge（Phase 3）
 
-`ginger/runtime/builtin_bridge.py` を実際の builtin 呼び出し境界へ接続しました。正常終了は `EvalResult(Value(v))`、builtin 自身の宣言済み `RaisedFailure` はイベント登録と `EvalResult(NoValue(), related_event_ids)` に変換します。静的解析と runtime は `builtin_failure_contract` を共有し、既存の sig failure と標準整数演算の実装別契約を参照します。独自の直接 builtin sig は自身の宣言を使用し、実装名だけで契約を補いません。
+`ginger/runtime/builtin_bridge.py` を実際の builtin 呼び出し境界へ接続しました。正常終了は `EvalResult(Value(v))`、builtin 自身の宣言済み `RaisedFailure` はイベント登録と `EvalResult(NoValue(), related_event_ids)` に変換します。runtime は具体化済みの sig 契約と標準整数演算の実装別契約を `builtin_failure_contract` で検証します。静的解析では caller-visible な conditional contract を使用し、そこに表現されていない実装由来 failure の保守的な合算に同じ helper を使用します。独自の直接 builtin sig は自身の宣言を使用し、実装名だけで契約を補いません。
 
 引数評価は bridge の外で先に行い、引数の failure を外側 builtin の契約で判定・再登録しません。origin は `core.int.add` などの実装 ID です。実行ごとに内部 RuntimeContext と `<program>` の root call を作り、ユーザー関数内の builtin にも暫定的に同じ root call ID を使用します。これは Phase 3 時点の制限で、Phase 5 で関数別 CallFrame を導入しました。
 
@@ -337,7 +401,7 @@ Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅
 
 ## 関数呼び出しごとの pending 伝播（Phase 5）
 
-実行開始時の `<program>` に加え、ユーザー関数を呼ぶたびに一意の CallFrame を作成します。parent_call_id は呼び出し元、declared_failure_contract は型検査と同じ Symbols.sig_failures の集合です。実際に発生したイベントの pending_event_ids とは別に保持し、この段階では関数境界の runtime 契約違反判定を追加しません。
+実行開始時の `<program>` に加え、ユーザー関数を呼ぶたびに一意の CallFrame を作成します。parent_call_id は呼び出し元、declared_failure_contract は sig の契約を call-site binding で具体化した FailureSet です。type_bindings は解決済みの Ginger 型を保持します。実際に発生したイベントの pending_event_ids とは別に保持し、関数終了時の runtime 契約検証に使います。
 
 RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValue・fatal 例外のいずれでも親へ復元します。終了したframeの履歴は削除しません。builtinイベントは発生時のcurrent call IDと実装originを保持し、callee終了時は未解決イベントIDだけをcallerへ渡します。イベントは作り直さず、発生元call IDも変更しません。resolvedイベントは履歴に残し、親pendingには追加しません。fatal終了時も、それ以前に発生した未解決イベントの参照は親へ伝播します。
 
@@ -425,8 +489,8 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 |---|---|
 | 型変数推論 | sig 仮引数と実引数から call site ごとに推論。外側 expected type / 関数本体からの逆推論はしない |
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
-| guarantee の契約 | 型変数の保証を本体内の呼び出し検査に十分反映できない。複数保証やメソッドの型契約と実装選択の関係も未確定 |
-| failure の契約 | 通常関数の上限検証と initializer に基づく resolve 資格検査に対応。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告。重複 handler は拒否し、handler の failure は同名でも別に保持 |
+| guarantee の契約 | 明示した require を generic 本体の能力証明に使用。型・guarantee・method による既存 impl dispatch を維持し、継承・associated types・overload は未対応 |
+| failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO / toFloat の契約は未確定。未処理は警告 |
 | resolve | トップレベルの var のみ。let・関数内・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
@@ -441,7 +505,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 
 ## テスト
 
-failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
+failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
 
 ```sh
 python3 -B -m unittest discover -s tests -v
@@ -492,7 +556,7 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 なります。同じ名前を sig に繰り返し記述する既存の重複エラーは維持します。
 定義位置にかかわらず参照でき、catalog JSON の既存の `failures` 配列からも、
 同じプログラム内の source failureset を参照できます。catalog 単独での解決には
-その定義が必要です。新しい catalog JSON 形式は追加していません。
+その定義が必要です。failureset は既存の文字列 entry を維持し、conditional object の failure には指定できません。
 
 要素は直接の既知 FailureId に限定します。未知の要素、要素の重複、`Never`、
 集合名の重複、ネスト（自己参照を含む）はエラーです。空の定義は現段階では未対応として
@@ -506,7 +570,7 @@ initializer から静的に発生しうる個別の FailureId を指定してく
 
 宣言済みfailureは引き続きイベントとして保持し、statement単位で継続できます。unresolvedであること自体は契約違反ではなく、root programは未処理イベントを保持できます。
 
-builtinは引数評価後、実装自身が送出したRaisedFailureだけを、選択された実装の契約と照合します。静的解析と同じ `builtin_failure_contract` を使用します。直接builtin aliasやcustom builtinも自身のsig契約で判定し、callerの宣言で救済しません。未宣言failureは通常イベントを作らず、fatalな `FailureContractViolation` として停止します。Python内部例外はこの型へ変換しません。
+builtinは引数評価後、実装自身が送出したRaisedFailureだけを、具体化済みのsig契約と選択された実装のruntime契約を扱う `builtin_failure_contract` で照合します。caller-visible な静的 conditional contract とは区別します。直接builtin aliasやcustom builtinも自身のsig契約で判定し、callerの宣言で救済しません。未宣言failureは通常イベントを作らず、fatalな `FailureContractViolation` として停止します。Python内部例外はこの型へ変換しません。
 
 ユーザー関数は戻り値をcallerへ渡す直前に、CallFrameのunresolved pendingを自身のsig契約と照合します。callee由来イベントも対象ですが、resolved履歴は対象外です。正常値・Unit・NoValueのいずれでも同じ検証を行います。合法なイベントは同じIDのまま伝播します。違反時は既存履歴をunresolvedのまま残し、通常のpending伝播を停止します。current frameは例外経路でも復元します。
 
