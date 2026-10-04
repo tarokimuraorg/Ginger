@@ -44,11 +44,13 @@ class ExecutionResultTests(unittest.TestCase):
         self.assertEqual(result.call_frames[1].pending_event_ids, (1, 2))
 
     def test_resolved_and_caused_by(self):
-        result, _ = self.capture('try print(div(1.0,0.0))\ncatch DivideByZero print(2)')
+        result, _ = self.capture('var x: Float = div(1.0,0.0)\n'
+                                'resolve x { DivideByZero { x = 2 } }')
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(result.unresolved_events, ())
         self.assertEqual(result.call_frames[1].pending_event_ids, (1,))
-        result, _ = self.capture('try print(div(1.0,0.0))\ncatch DivideByZero print(div(2.0,0.0))')
+        result, _ = self.capture('var x: Float = div(1.0,0.0)\n'
+                                'resolve x { DivideByZero { x = 2\nx = div(2.0,0.0) } }')
         original, new = result.failure_history
         self.assertEqual(new.caused_by, original.event_id)
         self.assertEqual(result.unresolved_events, (new,))
@@ -135,12 +137,13 @@ class ExecutionResultTests(unittest.TestCase):
         with patch.dict(BUILTINS, {'test.broken': broken}):
             with self.assertRaises(ZeroDivisionError) as caught:
                 self.capture('sig broken() -> Float { failure DivideByZero builtin test.broken }\n'
-                             'try print(broken())\ncatch DivideByZero print(9)\nprint(3)')
+                             'var x: Float = broken()\n'
+                             'resolve x { DivideByZero { x = 9 } }\nprint(3)')
         self.assertIs(caught.exception, error)
 
     def test_cli_diagnostics_and_exit_codes(self):
         cases = [('', 0, ''),
-                 ('try print(div(1.0,0.0))\ncatch DivideByZero print(2)', 0, ''),
+                 ('var x: Float = div(1.0,0.0)\nresolve x { DivideByZero { x = 2 } }', 0, ''),
                  ('print(div(1.0,0.0))\nprint(div(2.0,0.0))\nprint(3)', 0, 'Unresolved failure: DivideByZero'),
                  ('sig raw(Float,Float) -> Float { builtin core.float.div }\nprint(raw(1.0,0.0))\nprint(3)', 1, 'Failure contract violation')]
         for source, code, diagnostic in cases:
@@ -161,5 +164,9 @@ class ExecutionResultTests(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(main(), 0)
-        self.assertEqual(out.getvalue(), '2\n3\n')
-        self.assertEqual(err.getvalue(), '')
+        self.assertEqual(out.getvalue(), '9\n4.5\n-9\n')
+        self.assertEqual(err.getvalue().splitlines(), [
+            'warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow',
+            'warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow',
+            'warning[UNHANDLED_FAILURES]: unhandled failures: DivideByZero',
+        ])

@@ -12,7 +12,8 @@ KEYWORDS = {
     "failureset", "func", "sig", "require","failure", "return",
     "guarantees", "in",
     "builtin",
-    "try", "catch",
+    "resolve",
+    "try", "catch",  # Reserved so removed syntax cannot become identifiers.
     "let","var",
 }
 

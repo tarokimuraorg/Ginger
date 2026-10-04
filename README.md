@@ -12,7 +12,7 @@ Ginger は、Python で実装された独自のプログラミング言語処理
 python3 -B -m ginger.main
 ```
 
-現在の `ginger/main.py` は `ginger/scripts/Scene_12.ginger` を固定で読み込み、標準出力へ `2`、`3` を出力します。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
+現在の `ginger/main.py` は `ginger/scripts/Scene_1.ginger` を固定で読み込み、標準出力へ `9`、`4.5`、`-9` を出力します。IntegerOverflow の未処理警告が2件、DivideByZero が1件出ますが、実際の failure は発生しません。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
 
 別のサンプルは Python API から実行できます。次の例もプロジェクトルートで実行します。
 
@@ -37,7 +37,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
 2. `lower`: 括弧内の演算子式を `add`・`sub`・`mul`・`div` の呼び出しへ変換します。
-3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、catch の資格を検査し、トップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
+3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding initializer に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
 `compile(src)` は型検査済み AST を返し、`execute(prog)` が評価します。`run(src)` は両方を実行します。型検査の通過だけで、未完成部分を含むすべての実行時契約が保証されるわけではありません。
@@ -55,7 +55,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | 型名の集合と `require T in Group` による所属検査 |
-| `failure` / `try` / `catch` | failure 上限契約の検査、静的集合に基づく捕捉制限、未処理警告。try/catch はトップレベルのみ |
+| `failure` / `resolve` | failure 上限契約と initializer の静的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
 
@@ -87,14 +87,19 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 
 範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。Float の add / sub / mul と Infinity の挙動も変更しません。
 
-**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul に一律の IntegerOverflow 宣言は追加していません。`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES` に管理対象の3実装 `core.int.add/sub/mul` の契約を定義し、`effect_call` が呼び出しメタデータに保存された選択実装から契約を合算します。runtime dispatch も同じ実装を使用します。この限定的な特殊化により Int 呼び出しだけが IntegerOverflow を持ち、Float 呼び出しには混入しません。一般的な型依存 effect・overload・failure 型変数は導入していません。式全体の effect には引数評価の failure も含むため、Float 演算でもその引数が IntegerOverflow を起こす式なら catch できます。
+**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul に一律の IntegerOverflow 宣言は追加していません。`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES` に管理対象の3実装 `core.int.add/sub/mul` の契約を定義し、`effect_call` が呼び出しメタデータに保存された選択実装から契約を合算します。runtime dispatch も同じ実装を使用します。この限定的な特殊化により Int 呼び出しだけが IntegerOverflow を持ち、Float 呼び出しには混入しません。一般的な型依存 effect・overload・failure 型変数は導入していません。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
-型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。既存の catch 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
+型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。resolve 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
 
 ```ginger
 var t: Thunk[Int, IntegerOverflow] = thunk(mul(9007199254740991, 2))
-try force(t)
-catch IntegerOverflow print(1)
+var x: Int = force(t)
+resolve x {
+    IntegerOverflow {
+        x = 1
+    }
+}
+print(x)
 ```
 
 return 式には宣言戻り値型を generic 型変数の推論用期待型として渡しません。`return add(x,1)` や `return neg(x)` は、実引数から型変数を決定できるため有効です。`make() -> T` のように引数側に T の根拠がなければ、外側の return 型が具体型でも拒否します。
@@ -123,7 +128,7 @@ var negative: Int = neg(x)
 print(negative)
 ```
 
-この例の評価結果は `9`、`4.5`、`-9` です。実行前に、未捕捉の `div` 呼び出しに対する `DivideByZero` の警告も表示されます。
+この例の評価結果は `9`、`4.5`、`-9` です。実行前に、Int 算術の IntegerOverflow 警告が2件と、未処理の `div` 呼び出しに対する DivideByZero 警告が1件表示されます。
 
 - 中置演算は `a + b` のように使用できます。`*`・`/` は `+`・`-` より優先され、同じ優先順位では左から結合します。括弧で評価順序を指定できます。
 - `(x)` や `(f())` は通常の括弧式として使用できます。
@@ -197,9 +202,9 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 関数本体全体がひとつのローカルスコープです。引数とローカル変数は同じ名前空間に属し、引数名や宣言済みローカル名の再宣言は禁止します。宣言は順番に処理し、initializer の型検査・評価が成功してから binding を追加します。宣言前参照や `var x: Int = x` は拒否します。呼び出しごとにローカル環境を作り、関数外や次の呼び出しへ binding は漏れません。
 
-同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 try/catch・nested function・一般的な closure は追加していません。
+同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 resolve・nested function・一般的な closure は追加していません。
 
-ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は overflow による初期化失敗後、`return y` で未初期化値を要求するため EvalError で停止します。catch は実行されません。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
+ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は overflow による初期化失敗後、`return y` で未初期化値を要求するため EvalError で停止し、トップレベルの resolve には到達しません。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
 
 ```ginger
 sig increment(Int) -> Int {
@@ -209,8 +214,13 @@ func increment(x: Int) {
     var y: Int = add(x, 1)
     return y
 }
-try print(increment(9007199254740991))
-catch IntegerOverflow print(999)
+var result: Int = increment(9007199254740991)
+resolve result {
+    IntegerOverflow {
+        result = 999
+    }
+}
+print(result)
 ```
 
 `failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int, Never]` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
@@ -227,7 +237,7 @@ catch IntegerOverflow print(999)
 
 現在は単一ソースに宣言と実行文を記述できます。`Catalog.ginger`・`Code.ginger`・`Impl.ginger` を役割別に自動読み込みする仕組みはありません。Catalog とソースの責務や標準実装の置換は未確定です。
 
-## failure と捕捉
+## failure と binding の解決
 
 現在採用している仕様では、sig に宣言する failure は、呼び出し側が考慮すべき意味のある失敗可能性を記録する契約であり、その関数から外部へ漏れ得る failure の上限集合です。通常の検証対象では、静的に推論した本体の `inferred_failures` が宣言の `declared_failures` の部分集合でなければなりません。
 
@@ -245,39 +255,46 @@ sig 本体に `failure DivideByZero` などを列挙できます。使える fai
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 Int 算術では、上記の具体的な impl の IntegerOverflow 契約も合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 try/catch は未対応です。handled による上限検証の保留は廃止しました。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 Int 算術では、上記の具体的な impl の IntegerOverflow 契約も合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve は未対応です。handled による上限検証の保留は廃止しました。
 
-標準 `div` は `DivideByZero` を宣言しています。catch せずにトップレベルで使うと未処理警告の対象になります。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
+標準 `div` は `DivideByZero` を宣言しています。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
 ```ginger
-try print(div(1.0, 0.0))
-catch DivideByZero print(0)
+var x: Float = div(1.0, 0.0)
+resolve x {
+    DivideByZero {
+        x = 0
+    }
+}
+print(x)
 ```
 
-この例は警告なしで `0` を出力します。
+この例は警告なしで `0.0` を出力します。initializer が値を生成できないと、x は型・可変性・原因 event ID を持つ `UninitializedBinding` になります。`resolve x` はその原因 `FailureEvent` の FailureId に一致する handler を実行し、x が有効な値を持った場合だけ元 event を resolved にします。
 
-現在採用している catch の規則は、try 対象式から静的に発生し得ると宣言・推論された failure だけを捕捉対象として認めることです。すべての catch を、捕捉分を削除する前の元の try 集合に対して検査します。集合外の既知 failure、未知の failure 名、Never は catch できません。実行時にたまたま未宣言の `RaisedFailure` が発生しても、静的集合外の catch を許可する根拠にはしません。
+resolve の静的資格は対象 binding の元の initializer から宣言・推論した failure 集合で検査します。後の代入でこの集合を書き換えません。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、failure を持たない initializer の var は拒否します。
 
-- `try` 文の対象式は任意の結果型を許可します。正常終了時の結果値は破棄され、`try` 文自体は値を生成しません。将来的な値を返す `try` 式は今回の仕様には含めません。
-- `try` の後には1個以上の `catch` が必要です。catch式はUnitに限定され、関数本体内では使えません。
-- トップレベルでは、捕捉・処理後に静的集合に残る failure を警告します。警告だけでは実行を止めません。これは関数本体の上限契約違反を型エラーにする規則とは別です。
-- Phase 6 では try 評価中に新しく発生した各イベントについて、種類に一致する最初の catch を発生順に実行します。未宣言の `RaisedFailure` や Python 例外は catch で通常処理せず停止します。
-- 同名 catch の重複は現在も許可します。
-- handler 内で発生した宣言済み failure は、元の catch 対象と同名でも新しいイベントとして保持し、handler を未完遂として後続文へ進みます。同じ try の後続 catch では捕捉しません。handler が fatal 以外で終了すると元イベントを resolved にします。handler 由来の新イベントは unresolved のままです。
+- resolve はトップレベルの statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。return、関数内 resolve、handler 内 resolve は許可しません。新しい block scope は作らず、実行された handler の宣言はトップレベル環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
+- 対象が通常値を持っていれば no-op です。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
+- handler が `print(1)` などを正常に終えても、対象が未初期化のままなら元 event は unresolved のままです。
+- handler の代入が新しい宣言済み failure で失敗して対象が未初期化のままなら、元 event と新 event は両方 unresolved です。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
+- 成功時も event を削除せず、`ExecutionResult.failure_history` に resolved として保持します。`unresolved_events` は status に基づいて除外します。
+- FailureContractViolation、EvalError、Python 内部例外は resolve の対象外で、従来どおり fatal です。
 
-静的な外向き failure 集合は `(try failures - caught failures) ∪ handler failures` です。handler の failure 集合から catch 対象の failure を削除しません。重複 catch を許可する既存挙動は維持しています。
+トップレベル未処理警告は後続 resolve を含めて集計します。概念的には `(initializer failures - resolve の FailureId) ∪ handler failures` です。initializer が `{IntegerOverflow, DivideByZero}` を持ち、後続 resolve に IntegerOverflow だけを書けば、元 initializer の警告には DivideByZero だけが残ります。handler 内の式や代入の failure は別に合算し、元 initializer の処理対象を指定しただけでは消しません。静的な処理対象の指定は runtime の回復成功を保証しません。警告だけでは実行を止めず、関数本体の上限契約違反を型エラーにする規則は維持します。
 
-builtin の宣言は静的解析が信頼する契約です。Python実装から契約を自動推論しませんが、runtimeでは実際のRaisedFailureを宣言と照合します。独自 builtin sig の宣言漏れは静的には検出できませんが、Phase 7 では実際に未宣言 RaisedFailure が出た境界で契約違反として検出します。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や、独自 builtin が契約違反の巨大整数を返した場合の toFloat 変換失敗は Python 例外として伝播し、Ginger の catch が捕捉する `RaisedFailure` には変換されません。
+builtin の宣言は静的解析が信頼する契約です。Python実装から契約を自動推論しませんが、runtimeでは実際のRaisedFailureを宣言と照合します。独自 builtin sig の宣言漏れは静的には検出できませんが、実際に未宣言 RaisedFailure が出た境界で契約違反として検出します。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や、独自 builtin が契約違反の巨大整数を返した場合の toFloat 変換失敗は Python 例外として伝播し、通常の `FailureEvent` には変換されません。
+
+旧 `try` / `catch` 構文は削除しました。予約語として保持し、使用すると `try/catch has been removed; use resolve <binding>` という構文エラーになります。失敗し得る式の結果を var の initializer に置き、resolve でその binding を回復してください。
 
 ## @attr.handled の廃止（failure runtime 再設計 Phase 1）
 
-`@attr.handled` は廃止しました。sig・func・builtin sig・catalog JSON の属性として指定すると、未知の属性として明示的にエラーになります。旧コードは属性を削除し、通常の failure 宣言と必要に応じた catch へ移行してください。
+`@attr.handled` は廃止しました。sig・func・builtin sig・catalog JSON の属性として指定すると、未知の属性として明示的にエラーになります。旧コードは属性を削除し、通常の failure 宣言と必要に応じた binding の resolve へ移行してください。
 
 failure の種類を指定しない runtime の握りつぶし、呼び出し先の静的 failure の除去、自身・直接依存・間接依存を理由とする上限契約検証の保留は行いません。`FAILURE_CONTRACT_DEFERRED` の note も生成しません。builtin の宣言を信頼する既存の検証境界は引き続き存在します。
 
 汎用の `@attr.<name>` 構文は維持し、`@attr.io` は引き続き使用できます。属性は sig / func の前にのみ置けます。不正な位置の属性は黙って破棄せず、構文エラーにします。
 
-Phase 1 時点では failure 履歴や statement 単位の継続は未導入でした。未捕捉の `RaisedFailure` は従来どおり伝播して実行を停止します。将来の runtime 再設計とは段階を分け、`@suppress` も導入していません。
+Phase 1 時点では failure 履歴や statement 単位の継続は未導入で、未処理の `RaisedFailure` は例外として伝播して実行を停止していました。属性の廃止と、以下の runtime 導入は別の段階で行いました。`@suppress` は導入していません。
 
 ## 内部 runtime の骨格（Phase 2）
 
@@ -310,11 +327,11 @@ print(3)
 
 この例は静的警告に続いて `3` を出力します。最初の print は呼び出されず、DivideByZero のイベントは unresolved のまま残ります。同じ failure の再発は別イベントです。`RuntimeContext.incomplete_statements` で root call ID、scope、文の index / 種類、原因 event ID を内部的に確認できます。index は program items または関数 body 内の0始まりで、source locationではありません。
 
-初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は通常の catch 対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
+初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は resolve の対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
 
 関数本体の通常文でもNoValueなら次の独立文へ継続します。Phase 5以降は関数ごとのpendingを保持し、正常値・正常Unitと未解決failureが共存できます。明示returnなしで本体末尾へ到達した場合は、途中に未完遂文があっても正常Unitです。return式がNoValueなら関数を終了し、caller側で継続します。
 
-Phase 4当時の先頭原因だけを使う暫定catchは撤去済みです。現在はPhase 6の固定した新規event集合を発生順に処理し、非fatalなhandler終了後に対象eventをresolvedにします。
+現在の resolve は対象 binding の未初期化原因だけを扱います。handler が実行されたこと自体では resolved にせず、対象 binding が有効な値を得た場合に status を更新します。
 
 Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約のruntime照合は Phase 9 で追加しました。Phase 4 時点の公開 API は環境辞書でした。Phase 7 で契約違反、Phase 8 で ExecutionResult と履歴公開・main診断を導入しました。正常終了・契約違反時は未初期化bindingも結果環境に保持します。未初期化値の読み出しによる EvalError は他の fatal EvalError と同様に例外として表面化し、ExecutionResult は返しません。内部入口へ渡した環境と RuntimeContext には停止までの状態が残ります。
 
@@ -326,21 +343,30 @@ RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValu
 
 CallFrame.pendingが実行時の正本です。関数のEvalResultには生成された値（またはNoValue）と関連イベントIDを添えます。正常値はpendingがあっても利用でき、値を得たことだけでfailureをresolvedにしません。関数末尾への到達は正常Unit `Value(None)` であり、途中の未完遂文によるpendingがあってもNoValueにはしません。失敗したreturnはPhase 4同様、関数を終了してNoValueを返します。callerはその依存文を未完遂とし、独立した次の文へ進みます。
 
-Phase 5当時の先頭原因によるcatch選択は、Phase 6のイベント単位処理で置き換えました。incomplete statementには実際のユーザー関数call IDが記録されます。
+incomplete statementには実際のユーザー関数call IDが記録されます。resolve の選択根拠は未初期化 binding が保持する直接の原因 event ID であり、関数の pending 全体を処理しません。
 
 同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、returnの終了規則とThunk契約の統合はPhase 9で確定しました。
 
-## イベント単位の try-catch（Phase 6）
+## binding に基づく resolve runtime
 
-try 開始時の次の event ID を境界として記録し、try 式評価が終わった時点で、その期間に新しく登録されたイベントIDを履歴順に固定します。評価結果の Value / NoValue や関連IDの先頭だけで判断しません。try 以前の同種イベントは対象外です。未初期化 binding の読み出しは新イベントを作らず EvalError で停止し、handler は実行しません。
+resolve 判定の正本は runtime の binding 状態と FailureEvent 履歴です。
 
-各 unresolved イベントについて、種類が一致する最初のhandlerを実行します。同種failureが2回発生すればhandlerも2回実行します。未対応の種類は未解決のまま残り、実行を継続します。handlerが正常終了または宣言済みfailureによるNoValueで終了した場合に限り、対象イベントをresolvedにします。fatalな未宣言RaisedFailure・Python例外・EvalErrorでは停止し、対象はunresolvedのままです。
+```text
+failure 発生
+→ initializer が値を生成できない
+→ UninitializedBinding が原因 event ID を保持
+→ resolve binding
+→ 原因 event の FailureId に一致する handler
+→ binding が有効な値を得た場合だけ event を resolved に更新
+```
 
-handlerが起こしたfailureは新しいIDのunresolvedイベントとして残ります。元イベントを再利用せず、`caused_by`に処理対象のevent IDを記録します。処理対象リストは固定済みなので、同じtryの後続catchではhandler由来イベントを捕捉しません。handlerのNoValueはCatchStmtとして既存のincomplete記録にも残します。
+`UninitializedBinding.related_event_ids` の既存 tuple は維持します。正常値と pending が共存した earlier event と、最後に値を失わせた直接原因を区別するため、`cause_event_id` property はこの tuple の最新 event ID を返します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、最新の関連 event が直接原因になります。resolve はこの ID で `RuntimeContext.get_event` を呼び、同名 event を履歴全体から検索しません。
 
-resolvedイベントも履歴に残ります。CallFrame.pending_event_idsの参照も伝播履歴として保持し、現在有効なpendingは `RuntimeContext.unresolved_pending` でstatusを照合して取得します。callee終了時もunresolvedだけをcallerへ渡します。関数内try-catch構文は未対応のため、この境界は共通runtime helperのテストで確認しています。
+例えば x と y の initializer がそれぞれ IntegerOverflow を発生させても、`resolve x` は x の原因 event だけを選びます。同じ initializer の途中で別の failure が pending として残っている場合も、直接原因以外の event を resolved にしません。initializer が正常値を生成した binding は、pending があっても通常値として扱い、resolve は no-op です。
 
-静的集合 `(F(try) - caught) ∪ F(handlers)` は変更していません。tryは引き続きstatementで、式として値を返す新構文はありません。評価中に正常値が生成されればその値の利用・副作用は維持し、failure処理だけを独立して行います。tryネスト・関数内try構文は未実装です。失敗return後のcallee内継続は採用せず、Phase 9で関数終了を正式仕様としました。公開ExecutionResult APIはPhase 8で導入しました。FailureContractViolation は Phase 7 で導入しました。
+handler は既存の block evaluator で statement 単位に継続します。実行後に target binding を再取得し、有効な値があれば元 event の status を更新します。代入が failure で完了しなければ未初期化 binding の原因 tuple は保持します。handler 中の新 event には `caused_by = 元 event ID` を設定し、元 event と区別します。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
+
+resolved event も履歴に残ります。CallFrame.pending_event_ids の参照は伝播履歴として保持し、現在有効な pending は `RuntimeContext.unresolved_pending` が status を照合して取得します。callee 終了時も unresolved だけを caller へ渡します。ExecutionResult の公開フィールドは変更していません。
 
 ## Thunk と遅延評価
 
@@ -364,16 +390,23 @@ print(x)
 failureset CalculationFailure { DivideByZero IOErr }
 // 型の例: Thunk[Int, Never], Thunk[Int, DivideByZero], Thunk[Int, CalculationFailure]
 var t: Thunk[Float, CalculationFailure] = thunk(div(1.0, 0.0))
-try force(t)
-catch DivideByZero print(0)
-catch IOErr print(1)
+var x: Float = force(t)
+resolve x {
+    DivideByZero {
+        x = 0
+    }
+    IOErr {
+        x = 1
+    }
+}
+print(x)
 ```
 
 Thunkのfailure指定はforce時に発生しうるfailureの上限契約であり、Thunk作成時のfailureではありません。
 `thunk(expr)` は結果型とexprのfailure集合を保存し、作成式のcurrent failureは空です。
 `force(t)` は保存された契約をcurrent failureへ復元します。引数を評価するfailureも合算し、
 `print(force(t))` にも通常の引数effect伝播で届きます。`force(thunk(expr))` も同じ経路です。
-`try force(t)` も通常の `try` 文の規則に従い、対象式は任意の結果型を許可します。正常終了時の結果値は破棄され、`try` 文自体は値を生成しません。値を返す `try` 式は今回の仕様には含めません。catch式は引き続きUnitです。
+`force(t)` が initializer で失敗すると、対象 var に原因 event ID が保存され、通常の resolve と同じ規則で回復できます。handler 名は公開された潜在契約の個別 FailureId に限ります。潜在契約が failureset で書かれていても、handler にはその集合名を使用できません。正常な force で値を得た binding に対する resolve は no-op です。
 
 failure指定には個別FailureId、failureset、単独のNeverを使えます。Neverは空集合です。
 指定省略、未知名、Neverとの混在、同じ指定名の重複は拒否します。failureset展開後の重なりは統合します。
@@ -383,7 +416,7 @@ sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
 `sig make() -> Thunk[Float, DivideByZero] { failure Never }` は有効です。
 静的に解決されたThunkは本体上限検証の対象です。
-静的契約はruntimeオブジェクトへ追加していません。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
+ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
 
 ## 現在の制限・未確定事項
@@ -393,13 +426,14 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 | 型変数推論 | sig 仮引数と実引数から call site ごとに推論。外側 expected type / 関数本体からの逆推論はしない |
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 型変数の保証を本体内の呼び出し検査に十分反映できない。複数保証やメソッドの型契約と実装選択の関係も未確定 |
-| failure の契約 | 通常関数の上限検証と catch の静的集合制限は導入済み。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告、重複 catch は許可。handler の failure は同名でも外へ伝播 |
+| failure の契約 | 通常関数の上限検証と initializer に基づく resolve 資格検査に対応。builtin 実装の自動検証はなく、print / IO / toFloat の契約は未確定。未処理は警告。重複 handler は拒否し、handler の failure は同名でも別に保持 |
+| resolve | トップレベルの var のみ。let・関数内・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |
 | 名前付き引数 | 構文解析は対応するが、通常の型検査・実行では拒否 |
 | スコープ | 関数外変数への参照は通常の型検査で拒否。評価器には外側環境を参照する処理が残る |
-| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。型注釈省略・nested block scope・関数内 try/catch は未対応 |
+| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。型注釈省略・nested block scope・関数内 resolve は未対応 |
 | CLI | main がサンプル固定。入力パス指定の CLI は未実装 |
 | String・制御構文など | 文字列リテラル、条件分岐、ループ、ユーザー定義データ構造は未実装。String の実行時処理や builtin は一部存在する |
 
@@ -407,7 +441,7 @@ Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは�
 
 ## テスト
 
-failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、catch 資格、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。
+failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
 
 ```sh
 python3 -B -m unittest discover -s tests -v
@@ -427,6 +461,7 @@ python3 -B -m unittest discover -s tests -v
 | `ginger/catalog/` / `core/` | 標準 JSON 定義、読み込み、failure 定義 |
 | `ginger/scripts/` | 現行の動作例と過去の試行サンプル |
 | `tests/test_failure_contract.py` | failure 契約・検証境界・既存動作の自動回帰テスト |
+| `tests/test_resolve.py` | binding に基づく resolve の静的検査・runtime・警告の回帰テスト |
 
 ## 開発上の注意
 
@@ -463,8 +498,8 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 拒否します。FailureId および `Never` と同名の集合は曖昧になるため禁止し、
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
 
-集合名自体は FailureId ではなく、catch には使用できません。catch の対象は従来どおり
-try 対象から静的に発生しうる個別の FailureId です。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
+集合名自体は FailureId ではなく、resolve の handler 名には使用できません。対象 binding の
+initializer から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
 
 ## runtime failure 契約検証（Phase 7）
 
@@ -474,7 +509,7 @@ builtinは引数評価後、実装自身が送出したRaisedFailureだけを、
 
 ユーザー関数は戻り値をcallerへ渡す直前に、CallFrameのunresolved pendingを自身のsig契約と照合します。callee由来イベントも対象ですが、resolved履歴は対象外です。正常値・Unit・NoValueのいずれでも同じ検証を行います。合法なイベントは同じIDのまま伝播します。違反時は既存履歴をunresolvedのまま残し、通常のpending伝播を停止します。current frameは例外経路でも復元します。
 
-Violationは通常catchの対象ではありません。handler中の違反では元のcatch対象はunresolvedのままです。診断にはfailure、origin、違反境界名、call ID、宣言集合、存在する場合event IDを含めます。内部RuntimeContextの `last_contract_violation` で参照できます。公開ExecutionResultとmain表示への統合はPhase 8です。
+Violationはresolveの対象ではありません。handler中の違反はfatalで、元の原因eventをresolvedにはしません。診断にはfailure、origin、違反境界名、call ID、宣言集合、存在する場合event IDを含めます。内部RuntimeContextの `last_contract_violation` で参照できます。公開ExecutionResultとmain表示への統合はPhase 8です。
 
 forceで実際に評価されたbuiltinとユーザー関数には同じ境界検証が適用されます。Thunkの潜在契約照合とforce時のcall帰属はPhase 9で統合しました。returnはNoValueでも関数を終了します。
 
@@ -527,4 +562,4 @@ Thunkが未初期化bindingをcaptureすること自体は許可します。forc
 
 force専用CallFrameは追加していません。builtin failureはforce実行中のcurrent callへ帰属し、Thunk内のユーザー関数呼び出しは通常のchild frameを作ります。lexical environmentを作成元から取得してもcall identityを作成元へ戻しません。
 
-force中に生成されたeventもtryの対象となり、handler内forceの新eventには通常どおりcaused_byが付きます。同じtryで再catchしません。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。新しい公開結果フィールドやfailure構文は追加していません。
+force中に生成されたeventがbindingの初期化失敗の原因になれば、resolveでそのbindingを回復できます。handler内forceの新eventには通常どおりcaused_byが付き、対象が回復しなければ元eventもunresolvedのままです。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。公開結果フィールドは変更していません。

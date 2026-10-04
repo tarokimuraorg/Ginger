@@ -5,11 +5,13 @@ print(b)
 
 //var c: Int = 9007199254740991
 
-//try add(c, 1)
-//catch IntegerOverflow print(999)
+//var overflow: Int = add(c, 1)
+//resolve overflow { IntegerOverflow { overflow = 999 } }
+//print(overflow)
 
-//try add(1.0, 2.0)
-//catch IntegerOverflow print(999)
+// Float initializer には IntegerOverflow がないため、次の resolve は静的エラー。
+//var normal: Float = add(1.0, 2.0)
+//resolve normal { IntegerOverflow { normal = 999 } }
 
 //var d: Int64 = 9007199254740992i64
 //print(d)

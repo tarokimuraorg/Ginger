@@ -23,8 +23,7 @@ TopLevel = Union[
     "VarDecl",
     "AssignStmt",
     "ExprStmt",
-    "TryStmt",
-    "CatchStmt",
+    "ResolveStmt",
 ]
 
 
@@ -34,8 +33,6 @@ Stmt = Union[
     "VarDecl", 
     "AssignStmt",
     "ExprStmt", 
-    "TryStmt",
-    "CatchStmt",
     "ReturnStmt", 
     ]
 
@@ -48,13 +45,14 @@ class ReturnStmt:
     expr: "Expr"
 
 @dataclass(frozen=True)
-class TryStmt:
-    expr: "Expr"
+class ResolveHandler:
+    failure_name: str
+    body: BlockStmt
 
 @dataclass(frozen=True)
-class CatchStmt:
-    failure_name: str
-    expr: "Expr"
+class ResolveStmt:
+    target: str
+    handlers: List[ResolveHandler]
 
 @dataclass(frozen=True)
 class ExprStmt:

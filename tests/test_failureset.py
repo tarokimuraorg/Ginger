@@ -93,19 +93,20 @@ failureset B { IOErr DivideByZero }
             with self.subTest(clause=clause), self.assertRaises(SyntaxError):
                 parse(SET + f'sig f() -> Unit {{ {clause} }}')
 
-    def test_catch_only_individual_ids(self):
+    def test_resolve_only_individual_ids(self):
         prefix = SET + '''
 sig f() -> Float { failure CalculationFailure }
 func f() { return div(1.0, 0.0) }
-try print(f())
+var x: Float = f()
 '''
         with self.assertRaisesRegex(TypecheckError, "unknown failure 'CalculationFailure'"):
-            checked(prefix + 'catch CalculationFailure print(0)')
-        program, diags = checked(prefix + 'catch DivideByZero print(0)\ncatch IOErr print(1)')
+            checked(prefix + 'resolve x { CalculationFailure { x = 0 } }')
+        program, diags = checked(prefix + 'resolve x { DivideByZero { x = 0\nprint(0) }\n'
+                                 'IOErr { x = 1\nprint(1) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '0\n')
-        with self.assertRaisesRegex(TypecheckError, "cannot catch 'PrintErr'"):
-            checked(prefix + 'catch PrintErr print(0)')
+        with self.assertRaisesRegex(TypecheckError, "cannot resolve 'PrintErr'"):
+            checked(prefix + 'resolve x { PrintErr { x = 0 } }')
 
     def test_catalog_reference(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,5 +136,6 @@ try print(f())
                 self.assertEqual(named.items, explicit.items)
                 self.assertFalse(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named))
         _, diags = checked(SET + 'sig h(Int) -> Unit { failure CalculationFailure '
-                           'builtin core.int.print }\ntry h(1)\ncatch IOErr print(0)')
+                           'builtin core.int.print }\nvar x: Unit = h(1)\n'
+                           'resolve x { IOErr { x = print(0) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero'])

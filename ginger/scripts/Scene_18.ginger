@@ -1,0 +1,59 @@
+// 1. 正常時はresolveが何もしない
+var a: Int = add(1, 2)
+
+resolve a {
+    IntegerOverflow {
+        a = 0
+    }
+}
+
+print(a)
+
+// 2. 本当に回復する
+var b: Int = mul(9007199254740991, 2)
+
+resolve b {
+    IntegerOverflow {
+        b = 0
+    }
+}
+
+print(b)
+
+// 3. handlerが値を直さなければ未解決のまま
+var c: Int = mul(9007199254740991, 2)
+
+resolve c {
+    IntegerOverflow {
+        print(999)
+    }
+}
+
+resolve c {
+    IntegerOverflow {
+        c = 0
+    }
+}
+
+//print(b)
+print(c)
+
+// 4. 同種failureを取り違えない
+var x: Int = mul(9007199254740991, 2)
+var y: Int = mul(9007199254740991, 2)
+
+resolve x {
+    IntegerOverflow {
+        x = 0
+    }
+}
+
+print(x)
+
+//resolve y {
+//    IntegerOverflow {
+//        x = 0
+//    }
+//}
+
+//print(y)

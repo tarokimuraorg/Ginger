@@ -10,7 +10,7 @@ from .ast import (
     BlockStmt, ReturnStmt, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, Int64Lit, FloatLit,
     Arg, PosArg, NamedArg,
-    ExprStmt, TryStmt, CatchStmt,
+    ExprStmt, ResolveStmt, ResolveHandler,
 )
 
 # 演算子の優先順位
@@ -45,12 +45,17 @@ class Parser:
 
     def eat(self, kind: str, text: Optional[str] = None) -> Token:
 
+        self.reject_removed_syntax()
         t = self.cur()
         if not self.match(kind, text):
             exp = f"{kind}('{text}')" if text else kind
             raise SyntaxError(f"Expected {exp} but got {t.kind}('{t.text}') at {t.pos}")
         self.i += 1
         return t
+
+    def reject_removed_syntax(self) -> None:
+        if self.match("KW", "try") or self.match("KW", "catch"):
+            raise SyntaxError("try/catch has been removed; use resolve <binding>")
     
     def parse_attrs(self) -> List[str]:
         """
@@ -122,6 +127,8 @@ class Parser:
         return Program(items)
 
     def parse_toplevel(self) -> TopLevel:
+
+        self.reject_removed_syntax()
         
         if self.match("EOF"):
             # parse_program の while not EOF に戻る設定
@@ -154,52 +161,9 @@ class Parser:
             return self.parse_let_var_decl(mutable=False)
         if self.match("KW", "var"):
             return self.parse_let_var_decl(mutable=True)
-        
-        """
-        try print(1) 
-        catch PrintErr try print(0) 
-        catch breath()
-        
-        のような構文を禁止する 
-        """
-        
-        # --- try/catch (toplevel statement) ---
-        if self.match("KW", "try"):
 
-            self.i += 1
-            expr = self.parse_expr()
-            return TryStmt(expr=expr)
-        
-        if self.match("KW", "catch"):
-
-            self.i += 1
-            
-            if not self.match("IDENT"):
-                raise SyntaxError("expected failure name after catch")
-            
-            failure_name = self.toks[self.i].text
-            self.i += 1
-
-            handler_tokens = []
-
-            while not self.match("NEWLINE") and not self.match("EOF"):
-                handler_tokens.append(self.toks[self.i])
-                self.i += 1
-            
-            if self.match("NEWLINE"):
-                self.i += 1
-
-            if not handler_tokens:
-                raise SyntaxError("catch must have a handler expression on the same line")
-            
-            # ネスト禁止：handlerの先頭が try/catch ならアウト
-            if handler_tokens[0].kind == "KW" and handler_tokens[0].text in ("try", "catch"):
-                raise SyntaxError("nested try/catch is forbidden in catch body")
-            
-            sub = Parser(handler_tokens + [Token("EOF", "", handler_tokens[-1].pos)])
-            expr = sub.parse_expr()
-
-            return CatchStmt(failure_name=failure_name, expr=expr)
+        if self.match("KW", "resolve"):
+            return self.parse_resolve()
         
         # --- AssignStmt ---
         if (self.match("IDENT") and self.toks[self.i + 1].kind == "SYM" and self.toks[self.i + 1].text == "="):
@@ -508,8 +472,24 @@ class Parser:
         self.eat("SYM", "=")
         expr = self.parse_expr()
         return AssignStmt(name=name, expr=expr)
+
+    def parse_resolve(self) -> ResolveStmt:
+        self.eat("KW", "resolve")
+        target = self.eat("IDENT").text
+        self.skip_newlines()
+        self.eat("SYM", "{")
+        handlers: List[ResolveHandler] = []
+        self.skip_newlines()
+        while not self.match("SYM", "}"):
+            failure_name = self.eat("IDENT").text
+            self.skip_newlines()
+            body = self.parse_block(allow_return=False)
+            handlers.append(ResolveHandler(failure_name=failure_name, body=body))
+            self.skip_newlines()
+        self.eat("SYM", "}")
+        return ResolveStmt(target=target, handlers=handlers)
     
-    def parse_block(self) -> BlockStmt:
+    def parse_block(self, *, allow_return: bool = True) -> BlockStmt:
 
         self.eat("SYM", "{")
         stmts: List[Stmt] = []
@@ -521,8 +501,13 @@ class Parser:
             if self.match("SYM", "}"):
                 break
 
+            if self.match("KW", "resolve"):
+                raise SyntaxError("resolve is only allowed at top level")
+
             # return <expr>
             if self.match("KW", "return"):
+                if not allow_return:
+                    raise SyntaxError("return is not allowed in resolve handler")
                 self.eat("KW", "return")
                 expr = self.parse_expr()
                 stmts.append(ReturnStmt(expr=expr))
@@ -538,7 +523,7 @@ class Parser:
                 stmts.append(self.parse_assign_stmt())
                 continue
 
-            # Remaining function statements are expressions; try/catch stay unsupported.
+            # Remaining block statements are expressions.
             expr = self.parse_expr()
             stmts.append(ExprStmt(expr=expr))
             self.skip_newlines()
@@ -587,6 +572,8 @@ class Parser:
         return left
 
     def parse_operand(self) -> Expr:
+
+        self.reject_removed_syntax()
         
         # 裸の単項 '-' は operand にならない
         if self.match("SYM", "-"):

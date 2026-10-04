@@ -3,7 +3,7 @@ from typing import List
 
 from .ast import (
     Program, TopLevel,
-    ExprStmt, TryStmt, CatchStmt, VarDecl, AssignStmt,
+    ExprStmt, ResolveStmt, ResolveHandler, VarDecl, AssignStmt,
     FuncDecl, BlockStmt, ReturnStmt,
     Expr, BinaryExpr, UnaryMinusExpr, CallExpr, PosArg,
 )
@@ -27,10 +27,12 @@ def lower_toplevel(it: TopLevel) -> TopLevel:
     # statements at top level
     if isinstance(it, ExprStmt):
         return ExprStmt(expr=lower_expr(it.expr))
-    if isinstance(it, TryStmt):
-        return TryStmt(expr=lower_expr(it.expr))
-    if isinstance(it, CatchStmt):
-        return CatchStmt(failure_name=it.failure_name, expr=lower_expr(it.expr))
+    if isinstance(it, ResolveStmt):
+        return ResolveStmt(
+            target=it.target,
+            handlers=[ResolveHandler(failure_name=h.failure_name, body=lower_block(h.body))
+                      for h in it.handlers],
+        )
     if isinstance(it, VarDecl):
         return VarDecl(mutable=it.mutable, typ=it.typ, name=it.name, expr=lower_expr(it.expr))
     if isinstance(it, AssignStmt):
@@ -62,10 +64,6 @@ def lower_block(b: BlockStmt) -> BlockStmt:
             out.append(VarDecl(mutable=st.mutable, typ=st.typ, name=st.name, expr=lower_expr(st.expr)))
         elif isinstance(st, AssignStmt):
             out.append(AssignStmt(name=st.name, expr=lower_expr(st.expr)))
-        elif isinstance(st, TryStmt):
-            out.append(TryStmt(expr=lower_expr(st.expr)))
-        elif isinstance(st, CatchStmt):
-            out.append(CatchStmt(failure_name=st.failure_name, expr=lower_expr(st.expr)))
         else:
             out.append(st)
     
