@@ -50,6 +50,16 @@
           "ret": { "ref": "Self" }
         }
       ]
+    },
+    {
+      "name": "BoundedArithmetic",
+      "methods": []
+    }
+  ],
+  "registers": [
+    {
+      "type": { "ref": "Int" },
+      "guarantee": "BoundedArithmetic"
     }
   ],
   "impls": [
@@ -114,7 +124,12 @@
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Addable" }
       ],
-      "failures": [],
+      "failures": [
+        {
+          "failure": "IntegerOverflow",
+          "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+        }
+      ],
       "attrs": [],
       "builtin": null
     },
@@ -125,7 +140,12 @@
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Subtractable" }
       ],
-      "failures": [],
+      "failures": [
+        {
+          "failure": "IntegerOverflow",
+          "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+        }
+      ],
       "attrs": [],
       "builtin": null
     },
@@ -136,7 +156,12 @@
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Multipliable" }
       ],
-      "failures": [],
+      "failures": [
+        {
+          "failure": "IntegerOverflow",
+          "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+        }
+      ],
       "attrs": [],
       "builtin": null
     },

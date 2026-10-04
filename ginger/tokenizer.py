@@ -10,7 +10,7 @@ class Token:
 KEYWORDS = {
     "guarantee", "typegroup", "register", "impl",
     "failureset", "func", "sig", "require","failure", "return",
-    "guarantees", "in",
+    "guarantees", "in", "when",
     "builtin",
     "resolve",
     "try", "catch",  # Reserved so removed syntax cannot become identifiers.

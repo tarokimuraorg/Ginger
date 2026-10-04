@@ -1,10 +1,11 @@
 """Execution bookkeeping and boundary contract validation."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from contextvars import ContextVar
 from types import MappingProxyType
 from typing import Mapping
 
+from ginger.ast import TypeRef
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, FailureSet
 from .failures import FailureEvent, FailureStatus, FailureContractViolation
 
@@ -19,10 +20,13 @@ class CallFrame:
     declared_failure_contract: FailureSet = EMPTY_FAILURES
     # Retained propagation references, including events resolved later.
     pending_event_ids: tuple[int, ...] = ()
+    # Ginger types inferred at the call site; deferred operations use these.
+    type_bindings: Mapping[str, TypeRef] = field(default_factory=dict)
 
     def __post_init__(self):
         object.__setattr__(self, "declared_failure_contract", frozenset(self.declared_failure_contract))
         object.__setattr__(self, "pending_event_ids", tuple(self.pending_event_ids))
+        object.__setattr__(self, "type_bindings", MappingProxyType(dict(self.type_bindings)))
 
 
 @dataclass(frozen=True)
@@ -61,9 +65,10 @@ class RuntimeContext:
         return tuple(event_id for event_id in self.get_call(call_id).pending_event_ids
                      if self.get_event(event_id).status is FailureStatus.UNRESOLVED)
 
-    def call(self, function_name: str, declared_failure_contract: FailureSet = EMPTY_FAILURES):
+    def call(self, function_name: str, declared_failure_contract: FailureSet = EMPTY_FAILURES,
+             *, type_bindings: Mapping[str, TypeRef] | None = None):
         """Activate a retained frame and propagate unresolved references on exit."""
-        return _CallScope(self, function_name, declared_failure_contract)
+        return _CallScope(self, function_name, declared_failure_contract, type_bindings)
 
     @property
     def incomplete_statements(self) -> tuple[IncompleteStatement, ...]:
@@ -102,11 +107,13 @@ class RuntimeContext:
         return self._calls[call_id]
 
     def create_call(self, function_name: str, *, parent_call_id: int | None = None,
-                    declared_failure_contract: FailureSet = EMPTY_FAILURES) -> CallFrame:
+                    declared_failure_contract: FailureSet = EMPTY_FAILURES,
+                    type_bindings: Mapping[str, TypeRef] | None = None) -> CallFrame:
         if parent_call_id is not None:
             self.get_call(parent_call_id)
         frame = CallFrame(self._next_call_id, parent_call_id, function_name,
-                          frozenset(declared_failure_contract))
+                          frozenset(declared_failure_contract),
+                          type_bindings={} if type_bindings is None else type_bindings)
         self._calls[frame.call_id] = frame
         self._next_call_id += 1
         return frame
@@ -175,13 +182,15 @@ class RuntimeContext:
 class _CallScope:
     """Class-based scope: do not mutate frozen RaisedFailure traceback fields."""
 
-    def __init__(self, context, name, contract):
+    def __init__(self, context, name, contract, type_bindings):
         self.context, self.name, self.contract = context, name, contract
+        self.type_bindings = type_bindings
 
     def __enter__(self):
         self.parent = self.context.current_call_id
         self.frame = self.context.create_call(self.name, parent_call_id=self.parent,
-                                              declared_failure_contract=self.contract)
+                                              declared_failure_contract=self.contract,
+                                              type_bindings=self.type_bindings)
         self.token = self.context._current_call.set(self.frame.call_id)
         return self.frame
 
