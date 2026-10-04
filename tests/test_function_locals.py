@@ -9,7 +9,6 @@ from ginger.errors import EvalError, TypecheckError
 from ginger.eval import eval_program, eval_block
 from ginger.numeric import INT_MAX
 from ginger.parser import parse
-from ginger.runtime.failures import RaisedFailure, FailureId
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import typecheck_program
 

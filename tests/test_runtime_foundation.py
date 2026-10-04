@@ -25,7 +25,7 @@ class RuntimeFoundationTests(unittest.TestCase):
         self.assertNotEqual(first.event_id, second.event_id)
         self.assertEqual(self.context.next_event_id, 4)
         self.assertEqual(self.context.get_call(self.frame.call_id).pending_event_ids, (1, 2, 3))
-        # Registration does not enforce contracts during Phase 2.
+        # Registration records events; invocation boundaries enforce contracts.
         self.assertNotIn(third.failure_id, self.frame.declared_failure_contract)
 
     def test_resolution_preserves_identity_origin_and_history_order(self):

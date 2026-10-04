@@ -9,7 +9,7 @@ from ginger.core.failure_spec import FailureId, failures
 from ginger.errors import EvalError
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
-from ginger.runtime.results import Value, NoValue
+from ginger.runtime.results import Value
 from test_failure_contract import checked
 
 

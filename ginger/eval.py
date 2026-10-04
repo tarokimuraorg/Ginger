@@ -119,28 +119,13 @@ def _eval_program(prog, env) -> Dict[str, Binding]:
     # Keep the exact checked expressions alive for runtime boundary/dispatch types.
     typecheck_program(prog, Diagnostics(), syms=syms)
 
-    i = 0
-
-    while i < len(prog.items):
-
-        item = prog.items[i]
-
+    for index, item in enumerate(prog.items):
         if isinstance(item, ResolveStmt):
             eval_resolve_statement(item, env, syms)
-            i += 1
-            continue
-
-        if isinstance(item, (VarDecl, AssignStmt)):
-            record_incomplete(item, i, eval_binding_statement(item, env, syms))
-            i += 1
-            continue
-
-        if isinstance(item, ExprStmt):
-            record_incomplete(item, i, eval_expr(item.expr, env=env, syms=syms))
-            i += 1
-            continue
-
-        i += 1
+        elif isinstance(item, (VarDecl, AssignStmt)):
+            record_incomplete(item, index, eval_binding_statement(item, env, syms))
+        elif isinstance(item, ExprStmt):
+            record_incomplete(item, index, eval_expr(item.expr, env=env, syms=syms))
 
     return env
 

@@ -28,19 +28,6 @@ def _type_ref(obj: Any) -> TypeRef:
 
     raise ValueError(f"Invalid type ref: {obj!r}")
 
-# def _type_ref(obj: Any) -> TypeRef:
-#     """
-#     Accepts either:
-#         - {"ref": "Int"}
-#         - "Int"     (optional convenience)
-#     """
-#     if isinstance(obj, str):
-#         return TypeRef(obj)
-#     if isinstance(obj, dict) and "ref" in obj and isinstance(obj["ref"], str):
-#         return TypeRef(obj["ref"])
-#     raise ValueError(f"Invalid type ref: {obj!r}")
-
-
 def _param(obj: Any) -> Param:
     """
     Accepts:
@@ -161,10 +148,3 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         )
 
     return out
-
-# if __name__ == "__main__":
-#     t = _type_ref({
-#         "ref": "Thunk",
-#         "args": [{"ref": "Int"}]
-#     })
-#     print(t)

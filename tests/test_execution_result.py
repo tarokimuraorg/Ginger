@@ -2,6 +2,7 @@ import io
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from unittest.mock import patch
 
 import ginger.eval as evaluator
@@ -162,7 +163,9 @@ class ExecutionResultTests(unittest.TestCase):
                 else:
                     self.assertEqual(err.getvalue(), '')
         out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
+        # Keep this regression independent of the demo selected by main.
+        source = (Path(__file__).parents[1] / 'ginger/scripts/Scene_1.ginger').read_text(encoding='utf-8')
+        with patch('ginger.main.run', side_effect=lambda _: run(source)), redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(main(), 0)
         self.assertEqual(out.getvalue(), '9\n4.5\n-9\n')
         self.assertEqual(err.getvalue().splitlines(), [

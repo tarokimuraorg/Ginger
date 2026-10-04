@@ -317,7 +317,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.incomplete_statements[-1].related_event_ids, (new.event_id,))
         self.assertEqual(messages, ['unhandled failures: IOErr'])
 
-    def test_handler_same_failure_is_not_recaught(self):
+    def test_handler_same_failure_does_not_rerun_resolve(self):
         result, stdout = self.public_result(OVERFLOW +
             'resolve x { IntegerOverflow { x = add(9007199254740991,2)\nprint(1) } }\nprint(3)')
         self.assertEqual(stdout, '1\n3\n')

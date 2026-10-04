@@ -300,7 +300,7 @@ Phase 1 時点では failure 履歴や statement 単位の継続は未導入で�
 
 `ginger/runtime/failures.py` に `FailureEvent` / `FailureStatus`、`context.py` に `RuntimeContext` / `CallFrame`、`results.py` に `Value` / `NoValue` / `EvalResult` / `ExecutionResult` を追加しました。静的契約は FailureId の集合、実行時履歴は発生ごとに異なる event ID を持つ記録として分離します。
 
-RuntimeContext 内で event / call ID を採番します。イベントとフレームは不変のスナップショットで、context の操作が同じ ID の記録を更新します。更新後の状態は context から再取得します。resolved にしても履歴から削除しません。pending はイベント ID の参照であり、関数境界の自動伝播は未実装です。
+RuntimeContext 内で event / call ID を採番します。イベントとフレームは不変のスナップショットで、context の操作が同じ ID の記録を更新します。更新後の状態は context から再取得します。resolved にしても履歴から削除しません。pending はイベント ID の参照です。Phase 2 時点では関数境界の自動伝播は未実装でしたが、現在は終了時に unresolved な参照だけを親 frame へ伝播します。
 
 `Value(None)` は正常な Unit、`NoValue()` は値の欠落です。ExecutionResult は環境の対応表と履歴のスナップショットを保持しますが、環境内の値そのものを深くコピーしません。未解決イベントは保持した履歴から取得します。
 
@@ -455,9 +455,10 @@ python3 -B -m unittest discover -s tests -v
 | `ginger/tokenizer.py` / `parser.py` | 字句解析・構文解析 |
 | `ginger/ast.py` / `lower.py` | AST・型参照の定義と演算子式の変換 |
 | `ginger/symbols_builder.py` | 宣言の収集、sig / func の対応・catalog の検証 |
-| `ginger/typecheck.py` | 型・制約・failure の静的検査 |
-| `ginger/eval.py` / `builtin.py` | 評価と Python の組み込み実装 |
-| `ginger/runtime/` | Thunk・実行時 failure・ディスパッチ補助 |
+| `ginger/typecheck.py` | 型・制約・failure 契約と resolve 資格の静的検査、call-site 推論 |
+| `ginger/eval.py` | 文・式の評価、binding 回復の確認、ユーザー関数と Thunk の評価境界 |
+| `ginger/builtin.py` | Python の組み込み実装と静的解析・runtime 共通の builtin failure 契約 |
+| `ginger/runtime/` | event / call frame 履歴・status・caused_by、契約検証、builtin bridge、評価結果・実行スナップショット、Thunk の保持データ |
 | `ginger/catalog/` / `core/` | 標準 JSON 定義、読み込み、failure 定義 |
 | `ginger/scripts/` | 現行の動作例と過去の試行サンプル |
 | `tests/test_failure_contract.py` | failure 契約・検証境界・既存動作の自動回帰テスト |

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import ginger.eval as evaluator
 from ginger.builtin import BUILTINS
-from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
+from ginger.core.failure_spec import EMPTY_FAILURES
 from ginger.runtime.failures import FailureStatus
 from ginger.runtime.thunk import ThunkValue
 from test_failure_contract import checked

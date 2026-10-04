@@ -23,6 +23,12 @@ class NoValue:
 
 @dataclass(frozen=True)
 class EvalResult:
+    """Value outcome and related event references, not a live unresolved set.
+
+    References can include failures from earlier successful subexpressions.
+    Later resolution changes event status without rewriting this snapshot.
+    """
+
     value_result: Value | NoValue
     related_event_ids: tuple[int, ...] = ()
 

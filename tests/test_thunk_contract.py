@@ -6,7 +6,6 @@ from ginger.core.catalog_loader import _type_ref
 from ginger.core.failure_spec import FailureId
 from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
-from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program, same_type
 
 SET = 'failureset CalculationFailure { DivideByZero IOErr }\n'
