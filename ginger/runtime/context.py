@@ -160,14 +160,13 @@ class RuntimeContext:
         return event
 
     def run_handler(self, event_id: int, handler):
-        """Resolve only after nonfatal completion, including NoValue."""
+        """Run with cause attribution, without changing resolution status."""
         self.get_event(event_id)
         token = self._handling_event.set(event_id)
         try:
             result = handler()
         finally:
             self._handling_event.reset(token)
-        self.resolve(event_id)
         return result
 
 

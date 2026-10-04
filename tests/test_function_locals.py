@@ -88,8 +88,8 @@ class FunctionLocalTests(unittest.TestCase):
 
     def test_required_annotations_and_unsupported_local_constructs(self):
         for body in ['let x = 1', 'var x = 2.0',
-                     'try print(1)\ncatch IntegerOverflow print(2)',
-                     'catch IntegerOverflow print(1)', '{ let x: Int = 1 }',
+                     'var x: Int = add(1,2)\nresolve x { IntegerOverflow { x = 0 } }',
+                     '{ let x: Int = 1 }',
                      'func nested() {}']:
             with self.subTest(body=body), self.assertRaises(SyntaxError):
                 parse(function(body, ret='Unit'))
@@ -130,7 +130,8 @@ class FunctionLocalTests(unittest.TestCase):
     def test_integer_overflow_acceptance_and_upper_bounds(self):
         body = 'return add(x,1)'
         source = function(body, params='x: Int', sig_params='Int', contract='failure IntegerOverflow')
-        program, diags = checked(source + f'try print(f({INT_MAX}))\ncatch IntegerOverflow print(999)')
+        program, diags = checked(source + f'var x: Int = f({INT_MAX})\n'
+            'resolve x { IntegerOverflow { x = 999 } }\nprint(x)')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '999\n')
         self.assertEqual(output(checked(source + 'print(f(1))')[0]), '2\n')
@@ -179,7 +180,8 @@ class FunctionLocalTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
             checked(function(body + 'return force(t)'))
         source = function(body + 'return force(t)', contract='failure IntegerOverflow')
-        self.assertEqual(output(checked(source + 'try print(f())\ncatch IntegerOverflow print(7)')[0]), '7\n')
+        self.assertEqual(output(checked(source + 'var x: Int = f()\n'
+            'resolve x { IntegerOverflow { x = 7 } }\nprint(x)')[0]), '7\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(function(body.replace('Thunk[Int, IntegerOverflow]', 'Thunk[Int, Never]'), ret='Unit'))
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):

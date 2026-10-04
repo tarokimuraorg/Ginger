@@ -81,7 +81,7 @@ class StatementContinuationTests(unittest.TestCase):
         self.assertTrue(all(e.status is FailureStatus.UNRESOLVED for e in context.failure_history))
         self.assertEqual([r.related_event_ids for r in context.incomplete_statements], [(1,), (2,)])
 
-    def test_fatal_errors_do_not_continue_or_enter_catch(self):
+    def test_fatal_errors_do_not_continue_or_enter_resolve(self):
         for failure in (RaisedFailure(FailureId.IOErr), TypeError('bug'),
                         KeyError('bug'), AssertionError('bug'), EvalError('bug')):
             with self.subTest(failure=failure):
@@ -89,9 +89,9 @@ class StatementContinuationTests(unittest.TestCase):
                 with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation if isinstance(failure, RaisedFailure) else type(failure)):
                     self.run_source('print(1)\nprint(3)')
                 printer.assert_called_once_with(1)
-        # Caller declaration must not make an undeclared builtin failure catchable.
+        # Caller declaration must not legitimize an undeclared builtin failure.
         source = ('sig f() -> Unit { failure IOErr }\nfunc f() { print(1) }\n'
-                  'try f()\ncatch IOErr print(2)\nprint(3)')
+                  'var x: Unit = f()\nresolve x { IOErr { x = print(2) } }\nprint(3)')
         printer = Mock(side_effect=RaisedFailure(FailureId.IOErr))
         with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation):
             self.run_source(source)

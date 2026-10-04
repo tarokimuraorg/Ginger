@@ -7,5 +7,12 @@ func f(x: Int) {
     return y
 }
 
-try f(9007199254740991)
-catch IntegerOverflow print(999)
+// f 内の return y が未初期化 binding を読むため、fatal な EvalError で停止する。
+// 関数呼び出し自体が完了しないので、後続の resolve には到達しない。
+var result: Int = f(9007199254740991)
+resolve result {
+    IntegerOverflow {
+        result = 999
+    }
+}
+print(result)

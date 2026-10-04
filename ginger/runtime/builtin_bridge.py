@@ -11,7 +11,7 @@ from .results import EvalResult, NoValue, Value
 
 def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
                    context: RuntimeContext, call_id: int) -> EvalResult:
-    """Arguments are already values; catch only failures from this invocation."""
+    """Arguments are already values; register failures from this invocation only."""
     try:
         value = call_builtin(implementation, *args)
     except RaisedFailure as failure:

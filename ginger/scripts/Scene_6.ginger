@@ -5,11 +5,24 @@ failureset CalculationFailure {
 
 var t1: Thunk[Float, CalculationFailure] = thunk(div(1.0,0.0))
 
-try force(t1)
-catch DivideByZero print(0)
-catch IOErr print(1)
+var first: Float = force(t1)
+resolve first {
+    DivideByZero {
+        first = 0
+        print(0)
+    }
+    IOErr {
+        first = 1
+        print(1)
+    }
+}
 
 var t2: Thunk[Float, DivideByZero] = thunk(div(10.0,2.0))
 
-try print(force(t2))
-catch DivideByZero print(0)
+var second: Float = force(t2)
+resolve second {
+    DivideByZero {
+        second = 0
+    }
+}
+print(second)

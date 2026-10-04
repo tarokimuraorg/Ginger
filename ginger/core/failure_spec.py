@@ -33,7 +33,7 @@ def union_failures(*sets) -> FailureSet:
 
     
 def remove_failure(s: FailureSet, fid: FailureId) -> FailureSet:
-    """Remove one failure id (for catch)."""
+    """Remove one failure id from a static effect set."""
     if fid not in s:
         return s
     

@@ -19,8 +19,7 @@ from .ast import (
     Int64Lit,
     FloatLit,
     ExprStmt,
-    TryStmt,
-    CatchStmt,
+    ResolveStmt,
     FuncDecl,
     BlockStmt,
     ReturnStmt,
@@ -31,6 +30,7 @@ from .ast import (
 class Binding:
     ty: TypeRef
     mutable: bool   # let=False, var=True
+    initializer_failures: FailureSet = EMPTY_FAILURES
 
 def same_type(a: TypeRef, b: TypeRef) -> bool:
     if a.latent_failures != b.latent_failures:
@@ -47,9 +47,6 @@ def compatible(actual, declared):
                 and actual.latent_failures <= declared.latent_failures)
     return same_type(actual, declared) or can_widen(actual, declared)
 
-
-def remove_failure(eff: FailureSet, name: str) -> FailureSet:
-    return frozenset(f for f in eff if f.value != name)
 
 def effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureSet:
 
@@ -148,6 +145,16 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
         prog = normalize_types(prog, syms.failuresets)
     typecheck_func_bodies(prog, syms, diags)
     env: Dict[str, Binding] = {}
+    # Defer warnings until later resolve statements have contributed coverage.
+    # Each entry belongs to one source statement; handler effects stay separate.
+    warning_effects: list[FailureSet] = []
+    initializer_warnings: dict[str, int] = {}
+
+    def check_statement(stmt):
+        eff = typecheck_binding_or_expression(stmt, env, syms)
+        if isinstance(stmt, VarDecl):
+            initializer_warnings[stmt.name] = len(warning_effects)
+        warning_effects.append(eff)
 
     i = 0
 
@@ -155,133 +162,87 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
 
         item = prog.items[i]
 
-        # --- try/catch (2行セット) ---
-        if isinstance(item, TryStmt):
-            # catch連鎖を集める
-            j = i + 1
-            catches = []
-
-            while j < len(prog.items) and isinstance(prog.items[j], CatchStmt):
-                catches.append(prog.items[j])
-                j += 1
-
-            if not catches:
-                raise TypecheckError("try must be followed by at least one catch")
-            
-            # --- try側 ---
-            t_try = type_expr(item.expr, expected=None, env=env, syms=syms)
-
-            original_try_effects = effect_expr(item.expr, env=env, syms=syms)
-            for c in catches:
+        if isinstance(item, ResolveStmt):
+            if item.target not in env:
+                raise TypecheckError(f"unknown identifier '{item.target}' in resolve")
+            binding = env[item.target]
+            if not binding.mutable:
+                raise TypecheckError(f"cannot resolve immutable binding '{item.target}'; target must be var")
+            if not binding.initializer_failures:
+                raise TypecheckError(f"cannot resolve '{item.target}': initializer has no declared or inferred failures")
+            handled = set()
+            for handler in item.handlers:
                 try:
-                    fid = FailureId(c.failure_name)
+                    fid = FailureId(handler.failure_name)
                 except ValueError:
-                    raise TypecheckError(f"unknown failure '{c.failure_name}' in catch") from None
-                if fid not in original_try_effects:
+                    raise TypecheckError(f"unknown failure '{handler.failure_name}' in resolve") from None
+                if fid in handled:
+                    raise TypecheckError(f"duplicate failure '{handler.failure_name}' in resolve")
+                if fid not in binding.initializer_failures:
                     raise TypecheckError(
-                        f"cannot catch '{c.failure_name}': try expression has no declared or inferred "
-                        f"{c.failure_name} failure"
+                        f"cannot resolve '{handler.failure_name}': initializer of '{item.target}' "
+                        f"has no declared or inferred {handler.failure_name} failure"
                     )
-            eff_try = original_try_effects
-
-            # try側から、catchされるfailureを全部消す
-            caught = {c.failure_name for c in catches}
-
-            for name in caught:
-                eff_try = remove_failure(eff_try, name)
-
-            # --- catch側 ---
-            eff_handlers = EMPTY_FAILURES
-
-            for c in catches:
-
-                t_c = type_expr(c.expr, expected=None, env=env, syms=syms)
-
-                #if t_c != "Unit":
-                if not same_type(t_c, TypeRef("Unit")):
-                    raise TypecheckError(
-                        f"only Unit expression are allowed in catch, got '{t_c}'"
-                    )
-                
-                e = effect_expr(c.expr, env=env, syms=syms)
-
-                # Catch clauses handle only try effects, never handler effects.
-                eff_handlers = union_failures(eff_handlers, e)
-
-            eff = union_failures(eff_try, eff_handlers)
-
-            if eff != EMPTY_FAILURES:
-                names = ", ".join(f.value for f in eff)
-                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
-            
-            # TryStmt + 連鎖 CatchStmt を全部消費
-            i = j
+                handled.add(fid)
+            index = initializer_warnings[item.target]
+            warning_effects[index] = warning_effects[index] - handled
+            for handler in item.handlers:
+                for stmt in handler.body.stmts:
+                    check_statement(stmt)
+            i += 1
             continue
-            
-        # --- catch 単体は禁止 (try が消費するのは「次行の catch」のみ) ---
-        if isinstance(item, CatchStmt):
-            raise TypecheckError("catch without preceding try.")
 
         # --- VarDecl ---
         if isinstance(item, VarDecl):
-
-            if item.name in env:
-                raise TypecheckError(f"variable '{item.name}' already defined")
-
-            t = type_expr(item.expr, expected=item.typ, env=env, syms=syms)
-            eff = effect_expr(item.expr, env=env, syms=syms)
-
-            if eff != EMPTY_FAILURES:
-                names = ', '.join(sorted(f.value for f in eff))
-                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
-            
-            env[item.name] = Binding(ty=item.typ, mutable=item.mutable)
+            check_statement(item)
             i += 1
             continue
 
         # --- AssignStmt ---
         if isinstance(item, AssignStmt):
-            
-            if item.name not in env:
-                raise TypecheckError(f"unknown identifier '{item.name}'")
-            
-            b = env[item.name]
-
-            if not b.mutable:
-                raise TypecheckError(f"cannot assign to immutable binding '{item.name}'")
-            
-            # 代入先の型に合わせて右辺をチェック
-            t = type_expr(item.expr, expected=b.ty, env=env, syms=syms)
-            eff = effect_expr(item.expr, env=env, syms=syms)
-
-            if eff != EMPTY_FAILURES:
-                names = ", ".join(sorted(f.value for f in eff))
-                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
-            
+            check_statement(item)
             i += 1
             continue
 
         # --- ExprStmt ---
         if isinstance(item, ExprStmt):
-            
-            t = type_expr(item.expr, expected=None, env=env, syms=syms)
-            eff = effect_expr(item.expr, env=env, syms=syms)
-
-            if eff != EMPTY_FAILURES:
-                names = ', '.join(sorted(f.value for f in eff))
-                diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
-
-            if not same_type(t, TypeRef("Unit")):
-            # if t != "Unit":
-                 raise TypecheckError(f"only Unit expression are allowed as statements, got '{t}'")
-            
+            check_statement(item)
             i += 1
             continue
 
         # --- それ以外（Catalog/Impl/func etc.）は型検査対象外 ---
         i += 1
 
+    for eff in warning_effects:
+        if eff:
+            names = ', '.join(sorted(f.value for f in eff))
+            diags.warn("UNHANDLED_FAILURES", f"unhandled failures: {names}")
     return env
+
+
+def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
+    """Check the existing statements shared by top level and resolve blocks."""
+    if isinstance(stmt, VarDecl):
+        if stmt.name in env:
+            raise TypecheckError(f"variable '{stmt.name}' already defined")
+        type_expr(stmt.expr, expected=stmt.typ, env=env, syms=syms)
+        eff = effect_expr(stmt.expr, env=env, syms=syms)
+        env[stmt.name] = Binding(stmt.typ, stmt.mutable, eff)
+        return eff
+    if isinstance(stmt, AssignStmt):
+        if stmt.name not in env:
+            raise TypecheckError(f"unknown identifier '{stmt.name}'")
+        binding = env[stmt.name]
+        if not binding.mutable:
+            raise TypecheckError(f"cannot assign to immutable binding '{stmt.name}'")
+        type_expr(stmt.expr, expected=binding.ty, env=env, syms=syms)
+        return effect_expr(stmt.expr, env=env, syms=syms)
+    if isinstance(stmt, ExprStmt):
+        typ = type_expr(stmt.expr, expected=None, env=env, syms=syms)
+        if not same_type(typ, TypeRef("Unit")):
+            raise TypecheckError(f"only Unit expression are allowed as statements, got '{typ}'")
+        return effect_expr(stmt.expr, env=env, syms=syms)
+    raise TypecheckError(f"unsupported statement in resolve handler: {stmt!r}")
 
 def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> None:
 

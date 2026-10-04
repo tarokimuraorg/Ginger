@@ -103,7 +103,7 @@ class UninitializedReadTests(unittest.TestCase):
         self.assertIsInstance(env['t'].value.env['a'], evaluator.UninitializedBinding)
         self.assertEqual(len(context.call_frames), 1)
 
-    def test_try_does_not_catch_uninitialized_read(self):
-        # div supplies the static catch effect; its argument read stops before invocation.
+    def test_resolve_handler_uninitialized_read_is_fatal(self):
+        # A handler cannot use the target's missing value to recover it.
         self.stopped('var a: Float = div(1.0,0.0)\n'
-                     'try print(div(a,1.0))\ncatch DivideByZero print(0)\nprint(999)')
+                     'resolve a { DivideByZero { a = div(a,1.0) } }\nprint(999)')
