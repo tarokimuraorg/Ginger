@@ -15,7 +15,7 @@ var x: Int = addTwo(9007199254740991, 1)
 
 resolve x {
     IntegerOverflow {
-        x = 0
+        x = 999
     }
 }
 
@@ -25,8 +25,9 @@ print(x)
 //sig bad(T, T) -> T {
 //    failure IntegerOverflow
 //}
+
 //func bad(a: T, b: T) {
-//    return (a + b)
+//    return a + b
 //}
 
 //print(bad(1.2))

@@ -1,7 +1,7 @@
 var x: Float = 1
 print(x)
 
-x = div(1,2)
+x = div(x,2)
 print(x)
 
 //let y: Int = 1.5

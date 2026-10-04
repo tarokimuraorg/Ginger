@@ -9,13 +9,13 @@ var first: Float = force(t1)
 resolve first {
     DivideByZero {
         first = 0
-        print(0)
     }
     IOErr {
         first = 1
-        print(1)
     }
 }
+
+print(first)
 
 var t2: Thunk[Float, DivideByZero] = thunk(div(10.0,2.0))
 
@@ -25,4 +25,5 @@ resolve second {
         second = 0
     }
 }
+
 print(second)

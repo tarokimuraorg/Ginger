@@ -30,15 +30,3 @@ def union_failures(*sets) -> FailureSet:
         out.update(s)
 
     return frozenset(out)
-
-    
-def remove_failure(s: FailureSet, fid: FailureId) -> FailureSet:
-    """Remove one failure id from a static effect set."""
-    if fid not in s:
-        return s
-    
-    # frozenset supports set difference
-    return frozenset(set(s) - {fid})
-
-def contains_failure(s: FailureSet, fid: FailureId) -> bool:
-    return fid in s
