@@ -17,6 +17,7 @@ class CallFrame:
     parent_call_id: int | None
     function_name: str
     declared_failure_contract: FailureSet = EMPTY_FAILURES
+    # Retained propagation references, including events resolved later.
     pending_event_ids: tuple[int, ...] = ()
 
     def __post_init__(self):
@@ -56,6 +57,7 @@ class RuntimeContext:
         return self._current_call.get()
 
     def unresolved_pending(self, call_id: int) -> tuple[int, ...]:
+        """Filter retained frame references by their current event status."""
         return tuple(event_id for event_id in self.get_call(call_id).pending_event_ids
                      if self.get_event(event_id).status is FailureStatus.UNRESOLVED)
 
@@ -160,14 +162,13 @@ class RuntimeContext:
         return event
 
     def run_handler(self, event_id: int, handler):
-        """Resolve only after nonfatal completion, including NoValue."""
+        """Run with cause attribution, without changing resolution status."""
         self.get_event(event_id)
         token = self._handling_event.set(event_id)
         try:
             result = handler()
         finally:
             self._handling_event.reset(token)
-        self.resolve(event_id)
         return result
 
 

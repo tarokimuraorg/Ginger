@@ -78,14 +78,16 @@ class BuiltinBridgeTests(unittest.TestCase):
             self.assertIsInstance(result.value_result, NoValue)
         self.assertEqual(len(self.context.failure_history), 2)
 
-    def test_catch_resolves_events_without_changing_output(self):
+    def test_resolve_preserves_builtin_event_history(self):
         stream = io.StringIO()
         with redirect_stdout(stream):
-            self.run_source('try print(div(1.0,0.0))\ncatch DivideByZero print(2)\n'
-                            'try print(div(1.0,0.0))\ncatch DivideByZero print(4)\nprint(3)')
+            self.run_source('var x: Float = div(1.0,0.0)\n'
+                            'resolve x { DivideByZero { x = 2\nprint(2) } }\n'
+                            'var y: Float = div(1.0,0.0)\n'
+                            'resolve y { DivideByZero { y = 4\nprint(4) } }\nprint(3)')
         self.assertEqual(stream.getvalue(), '2\n4\n3\n')
         self.assertEqual([e.event_id for e in self.context.failure_history], [1, 2])
-        # Catch resolves events without deleting bridge history.
+        # Binding recovery changes status without deleting bridge history.
         self.assertTrue(all(e.status is FailureStatus.RESOLVED
                             for e in self.context.failure_history))
 

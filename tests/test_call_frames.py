@@ -9,7 +9,7 @@ from ginger.core.failure_spec import FailureId, failures
 from ginger.errors import EvalError
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
-from ginger.runtime.results import Value, NoValue
+from ginger.runtime.results import Value
 from test_failure_contract import checked
 
 
@@ -124,14 +124,19 @@ class CallFrameTests(unittest.TestCase):
                     raise EvalError('fatal')
             self.assertEqual(self.context.current_call_id, parent.call_id)
 
-    def test_try_keeps_first_handler_and_resolves(self):
-        _, stdout = self.run_source('sig f() -> Unit { failure DivideByZero }\n'
-                                    'func f() { print(div(1.0,0.0)) }\n'
-                                    'try f()\ncatch DivideByZero print(2)\nprint(3)')
+    def test_resolve_keeps_original_child_event_and_frame_references(self):
+        env, stdout = self.run_source('sig f() -> Float { failure DivideByZero }\n'
+                                     'func f() { return div(1.0,0.0) }\n'
+                                     'var x: Float = f()\n'
+                                     'resolve x { DivideByZero { x = 2\nprint(2) } }\nprint(3)')
         self.assertEqual(stdout, '2\n3\n')
+        self.assertEqual(env['x'].value, 2.0)
         self.assertEqual(self.context.failure_history[0].call_id, 2)
         self.assertEqual(self.context.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(self.context.get_call(1).pending_event_ids, (1,))
+        self.assertEqual(self.context.get_call(2).pending_event_ids, (1,))
+        self.assertEqual(self.context.unresolved_pending(1), ())
+        self.assertEqual(self.context.unresolved_pending(2), ())
 
     def test_recursion_has_distinct_frames_and_unwinds_safely(self):
         # Ginger has recursion but no conditional base case. A bounded host

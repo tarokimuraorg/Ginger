@@ -2,7 +2,7 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Dict, Tuple
 from .builtin import BUILTINS
 from .errors import TypecheckError
-from ginger.core.failure_spec import FailureId, EMPTY_FAILURES, FailureSet
+from ginger.core.failure_spec import FailureId, FailureSet
 from .attrs import is_defined, get_attr
 from ginger.core.prelude import prelude_items
 
@@ -54,6 +54,7 @@ def _is_typevar(name: str) -> bool:
     return len(name) == 1 and name.isupper()
 
 def _same_type(a: TypeRef, b: TypeRef) -> bool:
+    """Compare normalized types, including recursive arguments and latent contracts."""
     if a.latent_failures != b.latent_failures:
         return False
     if a.name != b.name:
@@ -208,12 +209,6 @@ def build_symbols(prog: Program) -> Symbols:
                 
             sig_attrs[item.name] = attrs
 
-            # Catalog以外で @attr の付与を禁止
-            """
-            if attrs and getattr(item, "origin", "unknown") != "catalog":
-                raise TypecheckError(f"@attr is only allowed in Catalog (func '{item.name}')")
-            """
-            
             # sem attr の制約を適用
             for a in attrs:
                 ad = get_attr(a)

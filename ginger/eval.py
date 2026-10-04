@@ -11,7 +11,6 @@ from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
-from ginger.runtime.catches import handle_try_events
 from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value as ProducedValue
 from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
@@ -28,8 +27,7 @@ from .ast import (
     BlockStmt,
     ReturnStmt,
     ExprStmt,
-    TryStmt,
-    CatchStmt,
+    ResolveStmt,
 )
 
 
@@ -46,10 +44,18 @@ class Cell:
 
 @dataclass(frozen=True)
 class UninitializedBinding:
-    """A declared binding without a value; retains the original failure IDs."""
+    """A declared binding without a value; retains its initializer event IDs."""
     mutable: bool
     typ: TypeRef
     related_event_ids: tuple[int, ...]
+
+    @property
+    def cause_event_id(self) -> int:
+        # A successful subexpression can carry earlier pending events. Once an
+        # expression produces NoValue, argument evaluation stops; a failed
+        # return also ends its function. The newest related event is therefore
+        # the direct cause, even when the tuple includes earlier pending.
+        return max(self.related_event_ids)
 
 Binding = Cell | UninitializedBinding
 
@@ -113,62 +119,36 @@ def _eval_program(prog, env) -> Dict[str, Binding]:
     # Keep the exact checked expressions alive for runtime boundary/dispatch types.
     typecheck_program(prog, Diagnostics(), syms=syms)
 
-    i = 0
-
-    while i < len(prog.items):
-
-        item = prog.items[i]
-        
-        if isinstance(item, TryStmt):
-            # catchを連鎖で収集
-            j = i + 1
-            catches = []
-
-            while j < len(prog.items) and isinstance(prog.items[j], CatchStmt):
-                catches.append(prog.items[j])
-                j += 1
-
-            if not catches:
-                raise EvalError("try must be followed by at least one catch")
-            
-            context = _active_runtime.get()
-            first_new_event_id = context.next_event_id
-            result = eval_expr(item.expr, env=env, syms=syms, outer=None)
-            record_incomplete(item, i, result)
-            # IDs are monotonic per context. Snapshot before executing handlers;
-            # an old NoValue cause is not a new occurrence in this try.
-            targets = tuple(event.event_id for event in context.failure_history
-                            if event.event_id >= first_new_event_id)
-
-            def handler(catch, index):
-                handler_result = eval_expr(catch.expr, env=env, syms=syms)
-                record_incomplete(catch, index, handler_result)
-                return handler_result
-
-            handle_try_events(context, targets, [
-                (c.failure_name, lambda c=c, index=index: handler(c, index))
-                for index, c in enumerate(catches, start=i + 1)])
-
-            i = j
-            continue
-
-        # catch単体は実行時もエラーにしておく
-        if isinstance(item, CatchStmt):
-            raise EvalError("catch without preceding try")
-            
-        if isinstance(item, (VarDecl, AssignStmt)):
-            record_incomplete(item, i, eval_binding_statement(item, env, syms))
-            i += 1
-            continue
-
-        if isinstance(item, ExprStmt):
-            record_incomplete(item, i, eval_expr(item.expr, env=env, syms=syms))
-            i += 1
-            continue
-
-        i += 1
+    for index, item in enumerate(prog.items):
+        if isinstance(item, ResolveStmt):
+            eval_resolve_statement(item, env, syms)
+        elif isinstance(item, (VarDecl, AssignStmt)):
+            record_incomplete(item, index, eval_binding_statement(item, env, syms))
+        elif isinstance(item, ExprStmt):
+            record_incomplete(item, index, eval_expr(item.expr, env=env, syms=syms))
 
     return env
+
+
+def eval_resolve_statement(stmt: ResolveStmt, env, syms):
+    """Recover only the event that prevented this binding's initialization."""
+    if stmt.target not in env:
+        raise EvalError(f"unknown identifier '{stmt.target}'")
+    binding = env[stmt.target]
+    if isinstance(binding, Cell):
+        return
+
+    event_id = binding.cause_event_id
+    context = _active_runtime.get()
+    event = context.get_event(event_id)
+    handler = next((h for h in stmt.handlers
+                    if h.failure_name == event.failure_id.value), None)
+    if handler is None:
+        return
+
+    context.run_handler(event_id, lambda: eval_block(handler.body, env, syms))
+    if isinstance(env[stmt.target], Cell):
+        context.resolve(event_id)
 
 
 def record_incomplete(stmt, index, result):

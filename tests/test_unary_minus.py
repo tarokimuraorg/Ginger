@@ -1,5 +1,4 @@
 from test_failure_contract import recorded
-from ginger.eval import UninitializedBinding
 import unittest
 from pathlib import Path
 
@@ -10,7 +9,6 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
 from ginger.parser import parse
-from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols
 from ginger.tokenizer import tokenize
 from ginger.typecheck import effect_expr, typecheck_program
@@ -116,7 +114,7 @@ class UnaryMinusTests(unittest.TestCase):
             self.assertEqual(effect_expr(program.items[0].expr, {}, syms),
                              EMPTY_FAILURES)
 
-    def test_inner_failure_warning_catch_and_runtime(self):
+    def test_inner_failure_warning_resolve_and_runtime(self):
         for expr in ['(-(div(1.0, 0.0)))', 'neg(div(1.0, 0.0))',
                      '(-(1.0 / 0.0))']:
             with self.subTest(expr=expr):
@@ -126,7 +124,8 @@ class UnaryMinusTests(unittest.TestCase):
                 _, context, stdout = recorded(program)
                 self.assertEqual(stdout, '')
                 self.assertEqual(context.failure_history[0].failure_id, FailureId.DivideByZero)
-                program, diags = checked(FLOAT_IDENTITY + f'try print(identity({expr}))\ncatch DivideByZero print(7)')
+                program, diags = checked(FLOAT_IDENTITY + f'var x: Float = identity({expr})\n'
+                                         'resolve x { DivideByZero { x = 0\nprint(7) } }')
                 self.assertEqual(diags.items, [])
                 self.assertEqual(output(program), '7\n')
 
@@ -137,7 +136,7 @@ class UnaryMinusTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
             checked(source % '')
         program, diags = checked((source % 'failure DivideByZero') +
-                                 'try print(f())\ncatch DivideByZero print(8)')
+                                 'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint(8) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '8\n')
 
@@ -147,7 +146,8 @@ class UnaryMinusTests(unittest.TestCase):
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
         program, diags = checked(prefix +
-                                 'try print(identity((-force(t))))\ncatch DivideByZero print(9)')
+                                 'var x: Float = identity((-force(t)))\n'
+                                 'resolve x { DivideByZero { x = 0\nprint(9) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '9\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):

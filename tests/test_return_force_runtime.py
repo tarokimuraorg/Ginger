@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import ginger.eval as evaluator
 from ginger.builtin import BUILTINS
-from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
+from ginger.core.failure_spec import EMPTY_FAILURES
 from ginger.runtime.failures import FailureStatus
 from ginger.runtime.thunk import ThunkValue
 from test_failure_contract import checked
@@ -69,13 +69,16 @@ class ReturnForceRuntimeTests(unittest.TestCase):
         self.assertEqual(result.environment['x'].value, 3)
         self.assertEqual(result.failure_history, ())
 
-    def test_force_catch_and_handler_causality(self):
+    def test_force_resolve_and_handler_causality(self):
         result, stdout = self.run_source('var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n'
-            'try print(force(t))\ncatch DivideByZero print(force(t))\ncatch DivideByZero print(99)\nprint(3)')
+            'var x: Float = force(t)\n'
+            'resolve x { DivideByZero { x = force(t) } }\nprint(3)')
         self.assertEqual(stdout, '3\n')
-        self.assertEqual([e.status for e in result.failure_history], [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
+        self.assertEqual([e.status for e in result.failure_history], [FailureStatus.UNRESOLVED] * 2)
         self.assertEqual(result.failure_history[1].caused_by, 1)
-        result, stdout = self.run_source('try print(force(thunk(div(1.0,0.0))))\ncatch DivideByZero print(2)')
+        self.assertIsInstance(result.environment['x'], evaluator.UninitializedBinding)
+        result, stdout = self.run_source('var x: Float = force(thunk(div(1.0,0.0)))\n'
+            'resolve x { DivideByZero { x = 2\nprint(2) } }')
         self.assertEqual(stdout, '2\n')
         self.assertEqual(result.unresolved_events, ())
 

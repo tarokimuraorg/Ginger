@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from ginger.ast import Program
 from ginger.builtin import BUILTINS
@@ -15,7 +15,7 @@ from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.lower import lower_program
 from ginger.parser import parse
-from ginger.runtime.failures import FailureContractViolation, RaisedFailure
+from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program
 
@@ -109,66 +109,6 @@ func g() { f() }
         with self.assertRaisesRegex(TypecheckError, "DivideByZero"):
             checked("sig f() -> Unit {}\nfunc f() { f()\nprint(div(1.0,0.0)) }")
 
-    def test_catch_eligibility(self):
-        program, diags = checked("try print(div(1.0,0.0))\ncatch DivideByZero print(0)")
-        self.assertEqual(output(program), "0\n")
-        self.assertEqual(diags.items, [])
-        for name, message in [("IOErr", "cannot catch 'IOErr'"),
-                              ("Missing", "unknown failure 'Missing'"),
-                              ("Never", "unknown failure 'Never'")]:
-            with self.subTest(name=name), self.assertRaisesRegex(TypecheckError, message):
-                checked(f"try print(div(1.0,0.0))\ncatch {name} print(0)")
-        with self.assertRaisesRegex(TypecheckError, "cannot catch 'DivideByZero'"):
-            checked("try print(1)\ncatch DivideByZero print(0)")
-
-    def test_catch_original_set_and_duplicate_first_match(self):
-        source = """
-sig f() -> Unit { failure IOErr failure DivideByZero }
-func f() { print(div(1.0,0.0)) }
-try f()
-catch IOErr print(1)
-catch DivideByZero print(2)
-catch DivideByZero print(3)
-"""
-        program, diags = checked(source)
-        self.assertEqual(diags.items, [])
-        self.assertEqual(output(program), "2\n")
-
-    def test_handler_same_failure_skips_sibling_and_continues(self):
-        program, diags = checked("try print(div(1.0,0.0))\n"
-                                 "catch DivideByZero print(div(2.0,0.0))\n"
-                                 "catch DivideByZero print(2)\nprint(3)")
-        self.assertEqual([d.message for d in diags], ["unhandled failures: DivideByZero"])
-        _, context, stdout = recorded(program)
-        self.assertEqual(stdout, "3\n")
-        self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.DivideByZero] * 2)
-
-    def test_handler_different_failure_escapes_sibling(self):
-        source = """
-sig f() -> Unit { failure IOErr failure DivideByZero }
-func f() { print(div(1.0,0.0)) }
-sig ioFail(Int) -> Unit { failure IOErr builtin core.int.print }
-try f()
-catch DivideByZero ioFail(1)
-catch IOErr print(2)
-print(3)
-"""
-        program, diags = checked(source)
-        self.assertEqual([d.message for d in diags], ["unhandled failures: IOErr"])
-
-        original = BUILTINS['core.int.print']
-        def fail(value):
-            if value == 1:
-                raise RaisedFailure(FailureId.IOErr)
-            return original(value)
-        handler = Mock(side_effect=fail)
-        with patch.dict(BUILTINS, {"core.int.print": handler}):
-            _, context, stdout = recorded(program)
-        self.assertEqual(stdout, '3\n')
-        self.assertEqual([call.args for call in handler.call_args_list], [(1,), (3,)])
-        self.assertEqual([e.failure_id for e in context.failure_history],
-                         [FailureId.DivideByZero, FailureId.IOErr])
-
     def test_source_declarations(self):
         for clause in ("", "failure Never"):
             program, _ = checked(f"sig f() -> Unit {{ {clause} }}")
@@ -222,7 +162,7 @@ print(3)
         self.assertEqual(output(program), "")
         for declaration in ["guarantee G {}", "typegroup G {}", "register Int guarantees G",
                             "impl Int guarantees G {}", "failureset F { IOErr }",
-                            "var x: Int = 1", "try print(1)", "catch IOErr print(1)"]:
+                            "var x: Int = 1", "resolve x { IOErr { print(1) } }"]:
             for attr in ('handled', 'io'):
                 with self.subTest(declaration=declaration, attr=attr), self.assertRaisesRegex(
                         SyntaxError, "attributes must precede a sig or func"):
@@ -243,7 +183,7 @@ print(3)
         self.assertEqual(stdout, '3\n')
         self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.DivideByZero])
 
-    def test_builtin_contract_is_visible_and_catchable(self):
+    def test_builtin_contract_is_visible_and_resolvable(self):
         prefix = "sig h(Int) -> Unit { failure IOErr builtin core.int.print }\n"
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: IOErr"):
             checked(prefix + "sig f() -> Unit {}\nfunc f() { h(1) }")
@@ -254,7 +194,8 @@ print(3)
         with patch.dict(BUILTINS, {'core.int.print': fail}):
             _, context, _ = recorded(program)
         self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.IOErr])
-        program, diags = checked(prefix + "try h(1)\ncatch IOErr print(0)")
+        program, diags = checked(prefix + "var x: Unit = h(1)\n"
+                                 "resolve x { IOErr { x = print(0) } }")
         self.assertEqual(diags.items, [])
         original_print = BUILTINS['core.int.print']
         def fail_once(value):
@@ -269,7 +210,8 @@ print(3)
                            "func f(t: Thunk[Float, DivideByZero]) { return force(t) }")
         self.assertEqual(diags.items, [])
         program, diags = checked("var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n"
-                                 "try print(force(t))\ncatch DivideByZero print(0)")
+                                 "var x: Float = force(t)\n"
+                                 "resolve x { DivideByZero { x = 0\nprint(0) } }")
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), "0\n")
 

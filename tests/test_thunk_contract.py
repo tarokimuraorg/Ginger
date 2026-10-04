@@ -6,7 +6,6 @@ from ginger.core.catalog_loader import _type_ref
 from ginger.core.failure_spec import FailureId
 from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
-from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program, same_type
 
 SET = 'failureset CalculationFailure { DivideByZero IOErr }\n'
@@ -49,9 +48,12 @@ class ThunkContractTests(unittest.TestCase):
         program, diags = checked(prefix)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
-        for expr in ['force(t)', 'print(force(t))', 'force(thunk(div(1.0,0.0)))']:
+        for expr, typ in [('force(t)', 'Float'), ('print(force(t))', 'Unit'),
+                          ('force(thunk(div(1.0,0.0)))', 'Float')]:
             with self.subTest(expr=expr):
-                program, diags = checked(prefix + f'try {expr}\ncatch DivideByZero print(7)')
+                recovery = 'x = print(7)' if typ == 'Unit' else 'x = 0\nprint(7)'
+                program, diags = checked(prefix + f'var x: {typ} = {expr}\n'
+                    f'resolve x {{ DivideByZero {{ {recovery} }} }}')
                 self.assertEqual(diags.items, [])
                 self.assertEqual(output(program), '7\n')
         _, diags = checked(prefix + 'var x: Float = force(t)')
@@ -59,7 +61,8 @@ class ThunkContractTests(unittest.TestCase):
 
     def test_assignment_bounds_and_declared_binding(self):
         prefix = SET + 'var t: Thunk[Float, CalculationFailure] = thunk(div(1.0,0.0))\n'
-        checked(prefix + 't = thunk(1.0)\ntry force(t)\ncatch IOErr print(1)')
+        checked(prefix + 't = thunk(1.0)\nvar x: Float = force(t)\n'
+                'resolve x { IOErr { x = 1 } }')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix + 'var narrow: Thunk[Float, DivideByZero] = t')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
@@ -76,7 +79,8 @@ func make() { return thunk(div(1.0,0.0)) }
 sig use() -> Float { failure CalculationFailure }
 func use() { return execute(make()) }
 '''
-        program, diags = checked(prefix + 'try print(use())\ncatch DivideByZero print(2)\ncatch IOErr print(3)')
+        program, diags = checked(prefix + 'var x: Float = use()\n'
+            'resolve x { DivideByZero { x = 2\nprint(2) }\nIOErr { x = 3\nprint(3) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '2\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
@@ -100,7 +104,8 @@ func use() { return execute(make()) }
         program, diags = checked('var t: Thunk[Thunk[Float, DivideByZero], Never] = '
                                  'thunk(thunk(div(1.0,0.0)))\n'
                                  'var inner: Thunk[Float, DivideByZero] = force(t)\n'
-                                 'try force(inner)\ncatch DivideByZero print(5)')
+                                 'var x: Float = force(inner)\n'
+                                 'resolve x { DivideByZero { x = 5\nprint(5) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '5\n')
 
@@ -112,7 +117,8 @@ func use() { return execute(make()) }
     def test_callee_and_argument_effects_are_preserved(self):
         prefix = 'sig h(Float) -> Unit { failure IOErr }\nfunc h(x: Float) {}\n'
         program, diags = checked(prefix + 'var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n'
-                                 'try h(force(t))\ncatch DivideByZero print(8)')
+                                 'var x: Unit = h(force(t))\n'
+                                 'resolve x { DivideByZero { x = print(8) } }')
         self.assertEqual(output(program), '8\n')
         self.assertEqual([d.message for d in diags], ['unhandled failures: IOErr'])
         with self.assertRaises(TypecheckError):
@@ -122,10 +128,10 @@ func use() { return execute(make()) }
                            'func wrap() { return thunk(h(1.0)) }')
         self.assertEqual(diags.items, [])
 
-    def test_catch_set_still_rejected(self):
+    def test_resolve_set_still_rejected(self):
         with self.assertRaisesRegex(TypecheckError, 'unknown failure'):
             checked(SET + 'var t: Thunk[Float, CalculationFailure] = thunk(div(1.0,0.0))\n'
-                    'try force(t)\ncatch CalculationFailure print(0)')
+                    'var x: Float = force(t)\nresolve x { CalculationFailure { x = 0 } }')
 
     def test_result_types_remain_invariant(self):
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):

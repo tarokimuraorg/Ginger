@@ -1,2 +1,7 @@
-try print(div(1.0,0.0))
-catch DivideByZero print(0)
+var x: Float = div(1.0, 0.0)
+resolve x {
+    DivideByZero {
+        x = 0
+        print(0)
+    }
+}

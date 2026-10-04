@@ -12,7 +12,6 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_program, eval_block
 from ginger.numeric import INT_MAX
-from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import effect_expr, reconcile_type_evidence, typecheck_program
 
@@ -185,13 +184,15 @@ class CallInferenceTests(unittest.TestCase):
                   'print(force(wrap(1)))\nprint(force(wrap(2.0)))')
         self.assertEqual(output(checked(source)[0]), '1\n2.0\n')
 
-    def test_integer_overflow_effect_and_catch_eligibility(self):
-        program, diags = checked(f'var x: Int = {INT_MAX}\ntry add(x,1)\ncatch IntegerOverflow print(999)')
+    def test_integer_overflow_effect_and_resolve_eligibility(self):
+        program, diags = checked(f'var x: Int = {INT_MAX}\nvar y: Int = add(x,1)\n'
+                                 'resolve y { IntegerOverflow { y = 0\nprint(999) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '999\n')
         for args in ['1.0,2.0', '1,2.0', '1.0,2']:
-            with self.assertRaisesRegex(TypecheckError, 'no declared or inferred IntegerOverflow'):
-                checked(f'try add({args})\ncatch IntegerOverflow print(999)')
+            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred failures'):
+                checked(f'var x: Float = add({args})\n'
+                        'resolve x { IntegerOverflow { x = 0\nprint(999) } }')
         program, syms, bindings, _ = self.annotated('print(add(add(1,2),3.0))')
         outer = program.items[0].expr.args[0].expr
         self.assertEqual(syms.resolved_calls[id(outer)].implementation, 'core.float.add')

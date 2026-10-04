@@ -67,7 +67,7 @@ class ContractViolationTests(unittest.TestCase):
         with context.call('<program>') as root:
             with context.call('f') as child:
                 event = context.register_failure(FailureId.IOErr, origin='custom', call_id=child.call_id)
-                context.run_handler(event.event_id, lambda: None)
+                context.resolve(event.event_id)
                 context.validate_function_exit(child.call_id)
             self.assertEqual(context.unresolved_pending(root.call_id), ())
         self.assertEqual(context.failure_history[0].status, FailureStatus.RESOLVED)

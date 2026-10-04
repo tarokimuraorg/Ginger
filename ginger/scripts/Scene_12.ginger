@@ -1,7 +1,13 @@
-try print(div(1.0,0.0))
-catch DivideByZero print(2)
+var x: Float = div(1.0, 0.0)
+resolve x {
+    DivideByZero {
+        x = 2
+        print(2)
+    }
+}
 print(3)
 
-//try print(div(1.0, 0.0))
-//catch DivideByZero print(div(2.0, 0.0))
+// handler の代入も失敗すると、元の event と新しい event は unresolved のまま。
+//var y: Float = div(1.0, 0.0)
+//resolve y { DivideByZero { y = div(2.0, 0.0) } }
 //print(3)

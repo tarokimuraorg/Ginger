@@ -11,7 +11,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.numeric import INT_MIN, INT_MAX
-from ginger.runtime.failures import FailureContractViolation, RaisedFailure
+from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import effect_expr, typecheck_program
 
@@ -103,9 +103,10 @@ class IntegerOverflowTests(unittest.TestCase):
             checked(prefix + 'sig g(Int) -> Int {}\nfunc g(x: Int) { return f(x) }')
         checked('sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return x }')
 
-    def test_catch_and_unhandled_propagation(self):
+    def test_resolve_and_unhandled_propagation(self):
         prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
-        program, diags = checked(prefix + f'try print(f({INT_MAX}))\ncatch IntegerOverflow print(7)')
+        program, diags = checked(prefix + f'var x: Int = f({INT_MAX})\n'
+                                 'resolve x { IntegerOverflow { x = 0\nprint(7) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '7\n')
         program, _ = checked(prefix + f'print(f({INT_MAX}))')
@@ -113,14 +114,15 @@ class IntegerOverflowTests(unittest.TestCase):
         self.assertEqual(stdout, '')
         self.assertEqual(context.failure_history[0].failure_id, FailureId.IntegerOverflow)
 
-    def test_float_runtime_effect_and_catch_eligibility(self):
+    def test_float_runtime_effect_and_resolve_eligibility(self):
         for op, result in [('add', 3.0), ('sub', -1.0), ('mul', 2.0)]:
             source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure Never }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
             program, diags = checked(source + 'var x: Float = f(1.0)')
             self.assertEqual(diags.items, [])
             self.assertEqual(eval_program(program).environment['x'].value, result)
-            with self.assertRaisesRegex(TypecheckError, 'no declared or inferred IntegerOverflow'):
-                checked(source + 'try f(1.0)\ncatch IntegerOverflow print(0)')
+            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred failures'):
+                checked(source + 'var result: Float = f(1.0)\n'
+                        'resolve result { IntegerOverflow { result = 0 } }')
         self.assertEqual(call_builtin('core.float.mul', 1e308, 2.0), float('inf'))
 
     def test_thunk_creation_latent_force_and_failureset(self):
@@ -131,7 +133,8 @@ class IntegerOverflowTests(unittest.TestCase):
         self.assertEqual(bindings['t'].ty.latent_failures, OVERFLOW)
         self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), EMPTY_FAILURES)
         self.assertEqual(output(program), '')
-        program, diags = checked(prefix + 'try force(t)\ncatch IntegerOverflow print(9)')
+        program, diags = checked(prefix + 'var x: Int = force(t)\n'
+                                 'resolve x { IntegerOverflow { x = 0\nprint(9) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '9\n')
         _, diags = checked(prefix + 'var x: Int = force(t)')
@@ -169,15 +172,17 @@ class IntegerOverflowTests(unittest.TestCase):
         self.assertEqual(diags.items, [])
         self.assertEqual(eval_program(program).environment['x'].value, 1)
 
-    def test_direct_float_catch_rejected_but_argument_effect_preserved(self):
+    def test_direct_float_resolve_rejected_but_argument_effect_preserved(self):
         identity = 'sig identity(Float) -> Float {}\nfunc identity(x: Float) { return x }\n'
         for op in ['add', 'sub', 'mul']:
             with self.subTest(op=op), self.assertRaisesRegex(
-                    TypecheckError, 'no declared or inferred IntegerOverflow'):
-                checked(identity + f'try identity({op}(1.0,2.0))\ncatch IntegerOverflow print(0)')
+                    TypecheckError, 'initializer.*no declared or inferred failures'):
+                checked(identity + f'var x: Float = identity({op}(1.0,2.0))\n'
+                        'resolve x { IntegerOverflow { x = 0 } }')
         prefix = f'var t: Thunk[Int, IntegerOverflow] = thunk(add({INT_MAX},1))\n'
         program, diags = checked(identity + prefix +
-                                 'try identity(add(toFloat(force(t)),2.0))\ncatch IntegerOverflow print(8)')
+                                 'var x: Float = identity(add(toFloat(force(t)),2.0))\n'
+                                 'resolve x { IntegerOverflow { x = 0\nprint(8) } }')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '8\n')
 
