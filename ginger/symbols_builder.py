@@ -4,7 +4,7 @@ from .builtin import BUILTINS
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, FailureSet
 from ginger.core.failure_contract import ConditionalFailure, FailureContract, substitute_contract
-from .attrs import is_defined
+from .attrs import ATTRS
 from ginger.core.prelude import prelude_items
 
 from .ast import (
@@ -192,7 +192,7 @@ def build_symbols(prog: Program) -> Symbols:
 
             # 未知の attr を禁止
             for a in attrs:
-                if not is_defined(a):
+                if a not in ATTRS:
                     raise TypecheckError(f"unknown attr '@attr.{a}' on sig '{item.name}'")
                 
             # --- builtin (SigDecl.builtin) ---
@@ -216,7 +216,7 @@ def build_symbols(prog: Program) -> Symbols:
         elif isinstance(item, FuncDecl):
 
             for attr in item.attrs:
-                if not is_defined(attr):
+                if attr not in ATTRS:
                     raise TypecheckError(f"unknown attr '@attr.{attr}' on func '{item.name}'")
 
             if item.name in funcs:
