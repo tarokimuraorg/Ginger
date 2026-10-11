@@ -269,6 +269,12 @@ def build_symbols(prog: Program) -> Symbols:
                 raise TypecheckError(
                     f"func '{item.name}' parameter count or positional types do not match sig '{item.name}'"
                 )
+
+            parameter_names: set[str] = set()
+            for param in item.params:
+                if param.name in parameter_names:
+                    raise TypecheckError(f"duplicate parameter name: '{param.name}'")
+                parameter_names.add(param.name)
             
         elif isinstance(item, RegisterDecl):
 
