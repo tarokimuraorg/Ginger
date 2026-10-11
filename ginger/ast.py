@@ -85,7 +85,6 @@ class FuncSig:
     name: str
     params: List[Param]
     ret: TypeRef
-    attrs: List[str] = field(default_factory=list)
 
 @dataclass(frozen=True)
 class FailureSetDecl:
