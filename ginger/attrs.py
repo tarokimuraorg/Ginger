@@ -1,20 +1,13 @@
 from dataclasses import dataclass
-from typing import Dict, Literal, Optional
-
-AttrKind = Literal["meta", "sem"]
+from typing import Dict, Optional
 
 @dataclass(frozen=True)
 class AttrDef:
-    kind: AttrKind
-    doc: str = ""
-
     # semantic constraints
     require_return: Optional[str] = None
 
 ATTRS: Dict[str, AttrDef] = {
-
-    #meta (分類)
-    "io": AttrDef(kind="meta", doc="I/O related functions"),
+    "io": AttrDef(),
 }
 
 def is_defined(attr_name: str) -> bool:
