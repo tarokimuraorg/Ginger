@@ -26,6 +26,7 @@ from .ast import (
     FuncDecl,
     ReturnStmt,
     TypeRef,
+    is_typevar,
 )
 
 @dataclass(frozen=True)
@@ -120,10 +121,6 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
 # =====================
 # Type inference helpers
 # =====================
-
-def is_typevar(name: str) -> bool:
-    # minimal rule: single uppercase letter is a type var (T, U, V...)
-    return len(name) == 1 and name.isalpha() and name.isupper()
 
 def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], type_guarantees=None) -> TypeRef:
     if is_typevar(t.name):

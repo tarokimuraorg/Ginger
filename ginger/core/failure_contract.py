@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from ginger.ast import is_typevar
 from .failure_spec import FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from ginger.errors import TypecheckError
 
@@ -41,7 +42,7 @@ def substitute_contract(contract: FailureContract, bindings, type_guarantees) ->
         typ = bindings.get(clause.type_var)
         if typ is None:
             raise TypecheckError(f"cannot determine type variable '{clause.type_var}' in failure condition")
-        if len(typ.name) == 1 and typ.name.isalpha() and typ.name.isupper():
+        if is_typevar(typ.name):
             conditional.add(ConditionalFailure(clause.failure_id, typ.name, clause.guarantee_name))
         elif clause.guarantee_name in type_guarantees.get(typ.name, set()):
             unconditional.add(clause.failure_id)
