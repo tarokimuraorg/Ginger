@@ -100,8 +100,8 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
     callee_eff = substitute_contract(signature_contract(syms, call.callee),
                                      resolved.type_bindings, syms.type_guarantees)
     # Conditional declarations are the caller-visible contract. Runtime impl
-    # validation remains separate. Preserve conservative legacy dispatch for
-    # implementation failures absent from conditional declarations.
+    # validation remains separate. Include managed implementation failures not
+    # covered by conditional declarations, unioning matching impls for deferred calls.
     if call.callee not in syms.funcs:
         implementation_effect = builtin_failure_contract(
             EMPTY_FAILURES, resolved.implementation, direct_builtin=sig.builtin is not None)
@@ -373,7 +373,7 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
 def collect_type_evidence(formal: TypeRef, actual: TypeRef, evidence):
-    """Match constructors recursively; failure sets remain concrete contracts."""
+    """Match constructor arguments recursively; validate latent contracts separately."""
     if is_typevar(formal.name):
         evidence.setdefault(formal.name, []).append(actual)
         return

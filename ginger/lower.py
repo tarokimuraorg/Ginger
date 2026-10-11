@@ -105,5 +105,5 @@ def lower_expr(e: Expr) -> Expr:
         
         return CallExpr(callee=e.callee, args=new_args, arg_style=e.arg_style)
     
-    # IdentExpr / IntLit / FloatLit はそのまま
+    # IdentExpr / IntLit / Int64Lit / FloatLit はそのまま
     return e
