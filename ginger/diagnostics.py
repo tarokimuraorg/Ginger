@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Literal
 
-Level = Literal["warning", "note"]
+Level = Literal["warning"]
 
 @dataclass(frozen=True)
 class Diagnostic:
