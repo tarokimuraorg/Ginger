@@ -61,10 +61,6 @@ def symbolic_effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureCo
         return symbolic_effect_call(expr, env, syms)
 
 
-def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
-    return symbolic_effect_call(call, env, syms).potential_failures()
-
-
 def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureContract:
 
     if call.callee not in syms.sigs:
