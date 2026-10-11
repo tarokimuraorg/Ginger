@@ -12,7 +12,7 @@ Ginger は、Python で実装された独自のプログラミング言語処理
 python3 -B -m ginger.main
 ```
 
-現在の `ginger/main.py` は `ginger/scripts/Scene_1.ginger` を固定で読み込み、標準出力へ `9`、`4.5`、`-9` を出力します。IntegerOverflow の未処理警告が2件、DivideByZero が1件出ますが、実際の failure は発生しません。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
+現在の `ginger/main.py` は `ginger/scripts/Scene_3.ginger` を固定で読み込み、標準出力へ `-1`、`0.0` の順に出力します。DivideByZero が1件発生しますが、resolve により resolved となり履歴に残ります。静的警告・未解決イベントの表示はなく、標準エラー出力は空、終了コードは0です。入力ファイルを引数で指定する CLI はありません。`-B` は Python のバイトコードキャッシュ生成を抑止します。
 
 別のサンプルは Python API から実行できます。次の例もプロジェクトルートで実行します。
 
@@ -25,7 +25,7 @@ run(Path("ginger/scripts/Scene_7.ginger").read_text(encoding="utf-8"))
 PY
 ```
 
-Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2〜6 には未処理警告はありません。演算結果・標準出力は前段階と同じです。
+Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2〜6 には未処理警告はありません。上の Scene 7 の例は、標準出力へ `-2`、`-2`、`3` の順に出力します。警告は標準エラー出力へ `warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow` と表示され、実際の failure は発生しません。
 
 ## 処理フロー
 
@@ -36,7 +36,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 ```
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
-2. `lower`: 括弧内の演算子式を `add`・`sub`・`mul`・`div` の呼び出しへ変換します。
+2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、括弧付き単項マイナスを `neg` の呼び出しへ変換します。
 3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding initializer に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
@@ -202,7 +202,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 関数本体では型注釈付きの `let name: Type = expr` / `var name: Type = expr` と再代入を使用できます。`let` と parameter は再代入不可、`var` は再代入可能です。宣言型は固定し、トップレベルと同じ安全な `Int → Float` / `Int → Int64` widening を初期化・再代入の境界で適用します。逆方向や `Int64 → Float` は許可しません。型注釈省略の `let x = 1` / `var x = 1` は未対応です。
 
-関数本体全体がひとつのローカルスコープです。引数とローカル変数は同じ名前空間に属し、引数名や宣言済みローカル名の再宣言は禁止します。宣言は順番に処理し、initializer の型検査・評価が成功してから binding を追加します。宣言前参照や `var x: Int = x` は拒否します。呼び出しごとにローカル環境を作り、関数外や次の呼び出しへ binding は漏れません。
+関数本体全体がひとつのローカルスコープです。引数とローカル変数は同じ名前空間に属し、引数名や宣言済みローカル名の再宣言は禁止します。宣言は順番に処理し、型検査では initializer の検査後に binding を追加します。実行時は initializer が正常値を生成すれば Cell、宣言済み failure により NoValue になれば UninitializedBinding を追加します。宣言前参照や `var x: Int = x` は拒否します。呼び出しごとにローカル環境を作り、関数外や次の呼び出しへ binding は漏れません。
 
 同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 resolve・nested function・一般的な closure は追加していません。
 
@@ -403,7 +403,7 @@ Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅
 
 実行開始時の `<program>` に加え、ユーザー関数を呼ぶたびに一意の CallFrame を作成します。parent_call_id は呼び出し元、declared_failure_contract は sig の契約を call-site binding で具体化した FailureSet です。type_bindings は解決済みの Ginger 型を保持します。実際に発生したイベントの pending_event_ids とは別に保持し、関数終了時の runtime 契約検証に使います。
 
-RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValue・fatal 例外のいずれでも親へ復元します。終了したframeの履歴は削除しません。builtinイベントは発生時のcurrent call IDと実装originを保持し、callee終了時は未解決イベントIDだけをcallerへ渡します。イベントは作り直さず、発生元call IDも変更しません。resolvedイベントは履歴に残し、親pendingには追加しません。fatal終了時も、それ以前に発生した未解決イベントの参照は親へ伝播します。
+RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValue・fatal 例外のいずれでも親へ復元します。終了したframeの履歴は削除しません。builtinイベントは発生時のcurrent call IDと実装originを保持し、callee終了時は未解決イベントIDだけをcallerへ渡します。イベントは作り直さず、発生元call IDも変更しません。resolvedイベントは履歴に残し、親pendingには追加しません。EvalError や Python 内部例外による fatal 終了時も、それ以前に発生した未解決イベントの参照は親へ伝播します。ただし FailureContractViolation による終了時は pending の親への伝播を停止し、既存のイベント履歴は保持します。
 
 CallFrame.pendingが実行時の正本です。関数のEvalResultには生成された値（またはNoValue）と関連イベントIDを添えます。正常値はpendingがあっても利用でき、値を得たことだけでfailureをresolvedにしません。関数末尾への到達は正常Unit `Value(None)` であり、途中の未完遂文によるpendingがあってもNoValueにはしません。失敗したreturnはPhase 4同様、関数を終了してNoValueを返します。callerはその依存文を未完遂とし、独立した次の文へ進みます。
 
@@ -615,7 +615,7 @@ Phase 9でreturnの既存終了規則を確定し、Thunk/forceの潜在契約�
 
 ## returnと遅延評価（Phase 9）
 
-`return expr` に到達すると、Value/NoValueにかかわらず現在の関数を終了します。NoValueでも後続文や第二returnは実行せず、静的解析のreturn以降到達不能という規則を維持します。NoValueは原因event IDとともにcallerへ返り、callerの依存statementを未完遂にした後、次の独立statementで継続します。関数終了時のfailure契約検証は必ず適用します。
+`return expr` に到達すると、Value/NoValueにかかわらず現在の関数を終了します。NoValueでも後続文や第二returnは実行せず、静的解析のreturn以降到達不能という規則を維持します。NoValueは原因event IDとともにcallerへ返り、callerの依存statementを未完遂にした後、次の独立statementで継続します。正常値・Unit・NoValue を caller へ返す前には関数の failure 契約を検証します。評価途中の EvalError や Python 内部例外ではこの検証へ進まず、元の例外を送出します。
 
 正常値とpending failureは共存し、正常Unit `Value(None)` とNoValueは別です。未初期化bindingの値を別変数のinitializer・print・returnなどが要求すると EvalError で停止します。原因event IDはbindingに保持しますが、NoValueとして伝播せず、新eventも生成しません。
 
