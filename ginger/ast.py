@@ -63,6 +63,11 @@ class ExprStmt:
 
 # ---types ---
 
+def is_typevar(name: str) -> bool:
+    """Recognize a symbolic type-variable name, without checking scope or bindings."""
+    return len(name) == 1 and name.isalpha() and name.isupper()
+
+
 @dataclass(frozen=True)
 class TypeRef:
     name: str  # Int, Float, String, Self, T, Number, etc.

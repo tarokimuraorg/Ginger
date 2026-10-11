@@ -67,7 +67,10 @@ class RuntimeContext:
 
     def call(self, function_name: str, declared_failure_contract: FailureSet = EMPTY_FAILURES,
              *, type_bindings: Mapping[str, TypeRef] | None = None):
-        """Activate a retained frame and propagate unresolved references on exit."""
+        """Activate a retained frame and propagate unresolved references to its parent.
+
+        Propagation is skipped for FailureContractViolation, but not other exceptions.
+        """
         return _CallScope(self, function_name, declared_failure_contract, type_bindings)
 
     @property
@@ -147,7 +150,11 @@ class RuntimeContext:
         raise violation
 
     def validate_function_exit(self, call_id: int) -> None:
-        """Check only events leaving this function, not root or resolved history."""
+        """Validate this frame's unresolved references against its declared contract.
+
+        The evaluator calls this after normal body completion or ReturnSignal,
+        not when a fatal exception interrupts the body.
+        """
         frame = self.get_call(call_id)
         for event_id in self.unresolved_pending(call_id):
             event = self.get_event(event_id)
