@@ -144,7 +144,7 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
     if syms is None:
         syms = build_symbols(prog)
         prog = normalize_types(prog, syms.failuresets)
-    typecheck_func_bodies(prog, syms, diags)
+    typecheck_func_bodies(syms, diags)
     env: Dict[str, Binding] = {}
     # Defer warnings until later resolve statements have contributed coverage.
     # Each entry belongs to one source statement; handler effects stay separate.
@@ -219,7 +219,7 @@ def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
         return effect_expr(stmt.expr, env=env, syms=syms)
     raise TypecheckError(f"unsupported statement in resolve handler: {stmt!r}")
 
-def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> None:
+def typecheck_func_bodies(syms, diags: Optional[Diagnostics] = None) -> None:
 
     # func のローカル束縛・式・return 型を sig に照合する
     for item in syms.funcs.values():
@@ -293,10 +293,10 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
             )
 
     # Keep all existing type checks (including unreachable statements) ahead of effects.
-    typecheck_func_failures(syms, diags)
+    typecheck_func_failures(syms)
 
 
-def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
+def typecheck_func_failures(syms) -> None:
     for fname, func in syms.funcs.items():
         env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
         inferred_failures = FailureContract()
