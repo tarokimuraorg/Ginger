@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, List, Union
 
 from ginger.ast import (
     GuaranteeDecl,
@@ -14,8 +14,6 @@ from ginger.ast import (
     ConditionalFailureDecl,
     RegisterDecl,
 )
-
-Json = Dict[str, Any]
 
 def _type_ref(obj: Any) -> TypeRef:
 

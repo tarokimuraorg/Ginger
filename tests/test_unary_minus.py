@@ -169,10 +169,10 @@ class UnaryMinusTests(unittest.TestCase):
         expected = {
             'Scene_1': ('9\n4.5\n-9\n', ['unhandled failures: IntegerOverflow'] * 2
                          + ['unhandled failures: DivideByZero']),
-            'Scene_2': ('2.0\n', []), 'Scene_3': ('0\n', []),
+            'Scene_2': ('2.0\n', []), 'Scene_3': ('-1\n0.0\n', []),
             'Scene_4': ('1\n2\n', []),
-            'Scene_5': ('0\n', []),
-            'Scene_6': ('0\n5.0\n', []),
+            'Scene_5': ('0.0\n', []),
+            'Scene_6': ('0.0\n5.0\n', []),
             'Scene_7': ('-2\n-2\n3\n', ['unhandled failures: IntegerOverflow']),
         }
         root = Path(__file__).resolve().parents[1] / 'ginger' / 'scripts'

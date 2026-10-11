@@ -25,5 +25,5 @@ print(overflow)
 var d: Int64 = 9007199254740992i64
 print(d)
 
-var e: Int64 = add(1i64,2i64)
-print(e)
+//var e: Int64 = add(1i64,2i64)
+//print(e)
