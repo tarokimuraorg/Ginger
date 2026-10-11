@@ -18,11 +18,5 @@ class Diagnostics:
     def warn(self, code: str, message: str, pos: Optional[int] = None) -> None:
         self.items.append(Diagnostic("warning", code, message, pos))
 
-    def note(self, code: str, message: str, pos: Optional[int] = None) -> None:
-        self.items.append(Diagnostic("note", code, message, pos))
-
-    def extend(self, other: "Diagnostics") -> None:
-        self.items.extend(other.items)
-
     def __iter__(self):
         return iter(self.items)
