@@ -1,10 +1,9 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict
 
 @dataclass(frozen=True)
 class AttrDef:
-    # semantic constraints
-    require_return: Optional[str] = None
+    pass
 
 ATTRS: Dict[str, AttrDef] = {
     "io": AttrDef(),
