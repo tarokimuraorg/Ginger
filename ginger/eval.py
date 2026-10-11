@@ -106,8 +106,8 @@ def _eval_program_with_context(prog, context: RuntimeContext, environment=None) 
     """Internal evaluator entry; retains exception control flow for runtime tests.
 
     Root and user calls retain their own frames and share one history.
-    ContextVar scopes recursive evaluation without changing FunctionEnv or
-    capturing runtime state in Thunk environments. Always restore on failure.
+    ContextVar scopes the active runtime during recursive evaluation; captured
+    FunctionEnv snapshots retain frame IDs for type substitution. Always restore on failure.
     """
     token = _active_runtime.set(context)
     scope_token = _statement_scope.set("<program>")
@@ -226,7 +226,8 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
     Run a user-defined func body.
     - Parameters are bound positionally
     - Parameters are immutable; local declarations retain their let/var mutability.
-    - Global lookup is allowed via 'caller_env' as 'outer'.
+    - Runtime lookup checks locals, then caller_env via outer; checked function
+      bodies can reference only parameters and local declarations.
     - ReturnSignal ends the body, including a return whose expression produces NoValue.
     """
     if fname not in syms.funcs:

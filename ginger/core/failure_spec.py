@@ -8,7 +8,7 @@ class FailureId(str, Enum):
     RandomErr = "RandomErr"
     DivideByZero = "DivideByZero"
     IntegerOverflow = "IntegerOverflow"
-    UnexpecterErr = "UnexpectedErr"
+    UnexpectedErr = "UnexpectedErr"
 
 # --- FailureSet (effect) ---
 FailureSet = FrozenSet[FailureId]

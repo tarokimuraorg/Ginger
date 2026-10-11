@@ -59,6 +59,26 @@ class FunctionLocalTests(unittest.TestCase):
                 with self.subTest(body=body, prefix=prefix), self.assertRaisesRegex(TypecheckError, 'unknown identifier'):
                     checked(prefix + function(body, ret='Unit'))
 
+    def test_duplicate_parameter_rejected(self):
+        source = function('return x', params='x: Int, x: Int', sig_params='Int, Int')
+        with self.assertRaisesRegex(TypecheckError, "duplicate parameter name: 'x'"):
+            checked(source)
+
+    def test_generic_duplicate_parameter_rejected(self):
+        source = 'sig first(T, T) -> T {}\nfunc first(a: T, a: T) { return a }'
+        with self.assertRaisesRegex(TypecheckError, "duplicate parameter name: 'a'"):
+            checked(source)
+
+    def test_distinct_parameter_names_remain_valid(self):
+        source = function('return x', params='x: Int, y: Int', sig_params='Int, Int')
+        self.assertEqual(output(checked(source + 'print(f(1, 2))')[0]), '1\n')
+
+    def test_duplicate_parameter_with_different_types_rejected(self):
+        source = function('return x', ret='Float', params='x: Int, x: Float',
+                          sig_params='Int, Float')
+        with self.assertRaisesRegex(TypecheckError, "duplicate parameter name: 'x'"):
+            checked(source)
+
     def test_shadowing_is_local_and_globals_remain_inaccessible(self):
         source = 'var x: Int = 10\n' + function('var x: Int = 20\nx = 21\nreturn x')
         program, _ = checked(source + 'var answer: Int = f()')

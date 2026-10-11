@@ -121,10 +121,6 @@ class Parser:
 
         self.reject_removed_syntax()
         
-        if self.match("EOF"):
-            # parse_program の while not EOF に戻る設定
-            return ExprStmt(expr=IntLit(0))
-        
         # 先頭の @attr を回収
         attrs = self.parse_attrs()
         if attrs and not (self.match("KW", "sig") or self.match("KW", "func")):

@@ -5,7 +5,9 @@ from ginger.core.failure_spec import FailureSet
 
 @dataclass
 class ThunkValue:
-    """Non-memoized lexical computation; runtime call identity is not captured."""
+    """Non-memoized lexical computation; captured function environments retain
+    type bindings and a frame ID for substitution, not for failure attribution.
+    """
     expr: Expr
     env: Dict[str, Any]
     outer: Optional[Dict[str, Any]]

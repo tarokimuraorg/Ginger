@@ -26,6 +26,7 @@ from .ast import (
     FuncDecl,
     ReturnStmt,
     TypeRef,
+    is_typevar,
 )
 
 @dataclass(frozen=True)
@@ -59,10 +60,6 @@ def symbolic_effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureCo
         return FailureContract()
     if isinstance(expr, CallExpr):
         return symbolic_effect_call(expr, env, syms)
-
-
-def effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureSet:
-    return symbolic_effect_call(call, env, syms).potential_failures()
 
 
 def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> FailureContract:
@@ -103,8 +100,8 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
     callee_eff = substitute_contract(signature_contract(syms, call.callee),
                                      resolved.type_bindings, syms.type_guarantees)
     # Conditional declarations are the caller-visible contract. Runtime impl
-    # validation remains separate. Preserve conservative legacy dispatch for
-    # implementation failures absent from conditional declarations.
+    # validation remains separate. Include managed implementation failures not
+    # covered by conditional declarations, unioning matching impls for deferred calls.
     if call.callee not in syms.funcs:
         implementation_effect = builtin_failure_contract(
             EMPTY_FAILURES, resolved.implementation, direct_builtin=sig.builtin is not None)
@@ -125,10 +122,6 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
 # Type inference helpers
 # =====================
 
-def is_typevar(name: str) -> bool:
-    # minimal rule: single uppercase letter is a type var (T, U, V...)
-    return len(name) == 1 and name.isalpha() and name.isupper()
-
 def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], type_guarantees=None) -> TypeRef:
     if is_typevar(t.name):
         if t.name not in tmap:
@@ -148,7 +141,7 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
     if syms is None:
         syms = build_symbols(prog)
         prog = normalize_types(prog, syms.failuresets)
-    typecheck_func_bodies(prog, syms, diags)
+    typecheck_func_bodies(syms)
     env: Dict[str, Binding] = {}
     # Defer warnings until later resolve statements have contributed coverage.
     # Each entry belongs to one source statement; handler effects stay separate.
@@ -223,7 +216,7 @@ def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
         return effect_expr(stmt.expr, env=env, syms=syms)
     raise TypecheckError(f"unsupported statement in resolve handler: {stmt!r}")
 
-def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> None:
+def typecheck_func_bodies(syms) -> None:
 
     # func のローカル束縛・式・return 型を sig に照合する
     for item in syms.funcs.values():
@@ -297,10 +290,10 @@ def typecheck_func_bodies(prog, syms, diags: Optional[Diagnostics] = None) -> No
             )
 
     # Keep all existing type checks (including unreachable statements) ahead of effects.
-    typecheck_func_failures(syms, diags)
+    typecheck_func_failures(syms)
 
 
-def typecheck_func_failures(syms, diags: Optional[Diagnostics] = None) -> None:
+def typecheck_func_failures(syms) -> None:
     for fname, func in syms.funcs.items():
         env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
         inferred_failures = FailureContract()
@@ -380,7 +373,7 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         return type_call(expr, expected, env, syms, tv_guars=tv_guars)
     
 def collect_type_evidence(formal: TypeRef, actual: TypeRef, evidence):
-    """Match constructors recursively; failure sets remain concrete contracts."""
+    """Match constructor arguments recursively; validate latent contracts separately."""
     if is_typevar(formal.name):
         evidence.setdefault(formal.name, []).append(actual)
         return

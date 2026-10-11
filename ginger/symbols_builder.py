@@ -4,7 +4,7 @@ from .builtin import BUILTINS
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, FailureSet
 from ginger.core.failure_contract import ConditionalFailure, FailureContract, substitute_contract
-from .attrs import is_defined, get_attr
+from .attrs import ATTRS
 from ginger.core.prelude import prelude_items
 
 from .ast import (
@@ -46,12 +46,10 @@ class Symbols:
     sig_failures: Dict[str, FailureSet]
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]]
     failuresets: Dict[str, FailureSet]
-    sig_attrs: Dict[str, set[str]]
     funcs: Dict[str, FuncDecl]                       # name -> decl
     impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     expression_types: Dict[int, TypeRef]  # Static, per-check expression annotations
     resolved_calls: Dict[int, ResolvedCall]  # Shared by effects and runtime; keyed by expression id.
-    types: set[str]                                  # プリミティブ型
 
 
 def _is_typevar(name: str) -> bool:
@@ -157,10 +155,8 @@ def build_symbols(prog: Program) -> Symbols:
     sigs: Dict[str, SigDecl] = {}
     sig_failures: Dict[str, FailureSet] = {}
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]] = {}
-    sig_attrs: Dict[str, set[str]] = {}
     funcs: Dict[str, FuncDecl] = {}
     impls: Dict[Tuple[str, str, str], str] = {}
-    types: set[str] = set()
 
     items = prelude_items()
     items += list(prog.items)
@@ -185,12 +181,6 @@ def build_symbols(prog: Program) -> Symbols:
             members = {t.name for t in item.members}
             typegroups[item.name] = members
 
-            # typegroup名は型として存在
-            types.add(item.name)
-
-            # メンバー型も存在扱い
-            types.update(members)
-
         elif isinstance(item, SigDecl):
 
             if item.name in sigs:
@@ -198,33 +188,12 @@ def build_symbols(prog: Program) -> Symbols:
             
             sigs[item.name] = item
 
-            # sigに現れた具象型を types に登録
-            # 戻り値
-            if not _is_typevar(item.ret.name):
-                types.add(item.ret.name)
-
-            # 引数
-            for t in item.params:
-                if not _is_typevar(t.name):
-                    types.add(t.name)
-
-            # attrs を保存（@attr.*）
             attrs = set(getattr(item, "attrs", []) or [])
 
             # 未知の attr を禁止
             for a in attrs:
-                if not is_defined(a):
+                if a not in ATTRS:
                     raise TypecheckError(f"unknown attr '@attr.{a}' on sig '{item.name}'")
-                
-            sig_attrs[item.name] = attrs
-
-            # sem attr の制約を適用
-            for a in attrs:
-                ad = get_attr(a)
-                if ad.require_return is not None and item.ret.name != ad.require_return:
-                    raise TypecheckError(
-                        f"@attr.{a} sig '{item.name}' must return {ad.require_return}"
-                    )
                 
             # --- builtin (SigDecl.builtin) ---
             b = getattr(item, "builtin", None)
@@ -247,7 +216,7 @@ def build_symbols(prog: Program) -> Symbols:
         elif isinstance(item, FuncDecl):
 
             for attr in item.attrs:
-                if not is_defined(attr):
+                if attr not in ATTRS:
                     raise TypecheckError(f"unknown attr '@attr.{attr}' on func '{item.name}'")
 
             if item.name in funcs:
@@ -269,6 +238,12 @@ def build_symbols(prog: Program) -> Symbols:
                 raise TypecheckError(
                     f"func '{item.name}' parameter count or positional types do not match sig '{item.name}'"
                 )
+
+            parameter_names: set[str] = set()
+            for param in item.params:
+                if param.name in parameter_names:
+                    raise TypecheckError(f"duplicate parameter name: '{param.name}'")
+                parameter_names.add(param.name)
             
         elif isinstance(item, RegisterDecl):
 
@@ -291,7 +266,6 @@ def build_symbols(prog: Program) -> Symbols:
                 raise TypecheckError(f"duplicate register: '{t}' guarantees '{g}'")
             
             type_guarantees.setdefault(t, set()).add(g)
-            types.add(t)
 
         elif isinstance(item, ImplDecl):
             t = item.typ.name
@@ -308,9 +282,6 @@ def build_symbols(prog: Program) -> Symbols:
                     )
                 impls[key] = m.builtin
             
-            # implされた型も存在
-            types.add(t)
-
         elif isinstance(item, VarDecl):
             pass  # checked later
 
@@ -322,10 +293,8 @@ def build_symbols(prog: Program) -> Symbols:
         sig_failures=sig_failures,
         sig_conditional_failures=sig_conditional_failures,
         failuresets=failuresets,
-        sig_attrs=sig_attrs,
         funcs=funcs,
         impls=impls,
-        types=types,
         expression_types={},
         resolved_calls={},
     )

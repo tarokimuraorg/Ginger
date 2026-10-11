@@ -66,9 +66,9 @@ def tokenize(src: str) -> List[Token]:
             i += 1
             continue
 
-        # number: int or float
+        # number: Int, Int64, or Float
         # rule:
-        #   - default Int
+        #   - default Int; integer suffix 'i64' selects Int64
         #   - if '.' appears, it must be followed by at least one digit => Float
         #   - disallow "1." (enforce "1.0" style)
         if c.isdigit():
