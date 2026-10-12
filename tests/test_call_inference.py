@@ -146,21 +146,27 @@ class CallInferenceTests(unittest.TestCase):
         unwrap = program.items[-1].expr.args[0].expr
         self.assertEqual(syms.resolved_calls[id(unwrap)].parameter_types,
                          (TypeRef('Thunk', (TypeRef('Int64'),), latent_failures=EMPTY_FAILURES),))
-        generic = 'sig extract(SomeType[T]) -> T {}\nsig box() -> SomeType[Int] {}\n'
-        program, syms, _, _ = self.annotated(generic + 'var x: Int = extract(box())')
-        self.assertEqual(syms.resolved_calls[id(program.items[-1].expr)].type_bindings['T'], TypeRef('Int'))
-        with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(generic + 'var x: Int = extract(thunk(1))')
+        generic = ('sig extract(SomeType[T]) -> T { builtin test.extract }\n'
+                   'sig box() -> SomeType[Int] { builtin test.box }\n')
+        with patch.dict(BUILTINS, {'test.extract': lambda box: box[0], 'test.box': lambda: (1,)}):
+            program, syms, _, _ = self.annotated(generic + 'var x: Int = extract(box())')
+            self.assertEqual(syms.resolved_calls[id(program.items[-1].expr)].type_bindings['T'], TypeRef('Int'))
+            with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
+                checked(generic + 'var x: Int = extract(thunk(1))')
 
     def test_recursive_matching_does_not_add_constructor_variance(self):
-        prefix = 'sig pair(Thunk[T, Never],T) -> T {}\n'
+        prefix = ('sig pair(Thunk[T, Never],T) -> T {}\n'
+                  'func pair(a: Thunk[T, Never],b: T) { return b }\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix + 'var x: Float = pair(thunk(1),2.0)')
         checked(prefix + 'var x: Float = pair(thunk(1.0),2)')
-        prefix = 'sig take(Thunk[T, Never]) -> T {}\n'
+        prefix = ('sig take(Thunk[T, Never]) -> T {}\n'
+                  'func take(t: Thunk[T, Never]) { return force(t) }\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix + 'var x: Int = take(thunk(add(1,2)))')
-        checked('sig take(Thunk[T, IntegerOverflow]) -> T {}\nvar x: Int = take(thunk(1))')
+        checked('sig take(Thunk[T, IntegerOverflow]) -> T { failure IntegerOverflow }\n'
+                'func take(t: Thunk[T, IntegerOverflow]) { return force(t) }\n'
+                'var x: Int = take(thunk(1))')
 
     def test_user_function_parameters_are_coerced_to_resolved_type(self):
         frames = []
