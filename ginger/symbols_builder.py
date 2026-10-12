@@ -16,6 +16,7 @@ from .ast import (
     RegisterDecl,
     ImplDecl,
     SigDecl,
+    RequireGuarantees,
     ConditionalFailureDecl,
     FuncDecl,
     VarDecl,
@@ -366,6 +367,29 @@ def _validate_catalog(syms: Symbols) -> None:
         if builtin_name not in BUILTINS:
             raise TypecheckError(
                 f"unknown builtin '{builtin_name}' for impl {t} guarantees {g}.{m}"
+            )
+
+    # Mirror type_call's dispatch eligibility after all funcs are collected.
+    # Only the concrete type is deferred; the guarantee and method name are fixed.
+    for name, sig in syms.sigs.items():
+        if name in syms.funcs or sig.builtin is not None:
+            continue
+        requirements = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
+        if len(requirements) != 1:
+            continue
+        guarantee = syms.guarantees.get(requirements[0].guarantee_name)
+        if guarantee is None:
+            continue
+        methods = [method for method in guarantee.methods if method.name == name]
+        if len(methods) != 1:
+            continue
+        method = methods[0]
+        # self is an explicit parameter, passed along with every other argument.
+        if len(sig.params) != len(method.params):
+            raise TypecheckError(
+                f"arity mismatch for guarantee method '{name}': "
+                f"sig expects {len(sig.params)} argument(s), "
+                f"guarantee {guarantee.name} method expects {len(method.params)}"
             )
 
 
