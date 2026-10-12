@@ -172,13 +172,17 @@ def normalize_types(value, failuresets):
     if isinstance(value, TypeRef):
         args = tuple(normalize_types(a, failuresets) for a in value.args)
         if value.name == "Thunk":
-            if len(args) != 1 or (value.latent_failures is None and not value.failure_specs):
+            if len(args) != 1:
+                raise TypecheckError("Thunk expects one type argument; write failure contract as Thunk[T]<...>")
+            if value.latent_failures is None and not value.failure_specs:
                 raise TypecheckError("Thunk requires a result type and explicit failure contract")
             latent = value.latent_failures
             if latent is None:
                 latent = normalize_failures(value.failure_specs, failuresets, "Thunk")
             return TypeRef("Thunk", args, latent_failures=latent,
                            latent_conditions=value.latent_conditions)
+        if value.failure_specs is not None:
+            raise TypecheckError("failure contract postfix is allowed only on Thunk")
         return replace(value, args=args)
     if isinstance(value, list):
         return [normalize_types(v, failuresets) for v in value]

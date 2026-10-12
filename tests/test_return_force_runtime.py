@@ -44,11 +44,11 @@ class ReturnForceRuntimeTests(unittest.TestCase):
         self.assertEqual(len(result.unresolved_events), 2)
 
     def test_creation_force_call_and_repeated_evaluation(self):
-        source = ('sig make() -> Thunk[Float, DivideByZero] {}\n'
+        source = ('sig make() -> Thunk[Float]<DivideByZero> {}\n'
             'func make() { return thunk(div(1.0,0.0)) }\n'
-            'sig use(Thunk[Float, DivideByZero]) -> Float { failure DivideByZero }\n'
-            'func use(t: Thunk[Float, DivideByZero]) { return force(t) }\n'
-            'var t: Thunk[Float, DivideByZero] = make()\n')
+            'sig use(Thunk[Float]<DivideByZero>) -> Float { failure DivideByZero }\n'
+            'func use(t: Thunk[Float]<DivideByZero>) { return force(t) }\n'
+            'var t: Thunk[Float]<DivideByZero> = make()\n')
         result, _ = self.run_source(source)
         self.assertEqual(result.failure_history, ())
         result, stdout = self.run_source(source + 'print(use(t))\nprint(use(t))\nprint(3)')
@@ -60,17 +60,17 @@ class ReturnForceRuntimeTests(unittest.TestCase):
     def test_force_value_and_pending_user_function(self):
         result, stdout = self.run_source('sig f() -> Int { failure DivideByZero }\n'
             'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
-            'var t: Thunk[Int, DivideByZero] = thunk(f())\nvar x: Int = force(t)\nprint(x)')
+            'var t: Thunk[Int]<DivideByZero> = thunk(f())\nvar x: Int = force(t)\nprint(x)')
         self.assertEqual(stdout, '3\n')
         self.assertEqual(result.environment['x'].value, 3)
         self.assertEqual(result.call_frames[result.failure_history[0].call_id].function_name, 'f')
         self.assertEqual(len(result.unresolved_events), 1)
-        result, _ = self.run_source('var t: Thunk[Int, Never] = thunk(3)\nvar x: Int = force(t)')
+        result, _ = self.run_source('var t: Thunk[Int]<Never> = thunk(3)\nvar x: Int = force(t)')
         self.assertEqual(result.environment['x'].value, 3)
         self.assertEqual(result.failure_history, ())
 
     def test_force_resolve_and_handler_causality(self):
-        result, stdout = self.run_source('var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n'
+        result, stdout = self.run_source('var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\n'
             'resolve x { DivideByZero { x = force(t) } }\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -84,13 +84,13 @@ class ReturnForceRuntimeTests(unittest.TestCase):
 
     def test_force_builtin_violation_and_python_error(self):
         result, stdout = self.run_source('sig raw(Float,Float) -> Float { builtin core.float.div }\n'
-            'var t: Thunk[Float, Never] = thunk(raw(1.0,0.0))\nprint(force(t))\nprint(99)')
+            'var t: Thunk[Float]<Never> = thunk(raw(1.0,0.0))\nprint(force(t))\nprint(99)')
         self.assertEqual(stdout, '')
         self.assertEqual(result.contract_violation.boundary_kind, 'builtin')
         self.assertEqual(result.failure_history, ())
         with patch.dict(BUILTINS, {'core.int.print': lambda x: (_ for _ in ()).throw(TypeError('bug'))}):
             with self.assertRaisesRegex(TypeError, 'bug'):
-                self.run_source('var t: Thunk[Unit, Never] = thunk(print(1))\nforce(t)')
+                self.run_source('var t: Thunk[Unit]<Never> = thunk(print(1))\nforce(t)')
 
     def test_force_and_return_user_function_contract_not_bypassed(self):
         original = evaluator.eval_user_func
@@ -100,7 +100,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
         with patch('ginger.eval.eval_user_func', side_effect=stale):
             result, stdout = self.run_source('sig f() -> Float { failure DivideByZero }\n'
                 'func f() { return div(1.0,0.0)\nprint(99) }\n'
-                'var t: Thunk[Float, DivideByZero] = thunk(f())\nprint(force(t))\nprint(99)')
+                'var t: Thunk[Float]<DivideByZero> = thunk(f())\nprint(force(t))\nprint(99)')
         self.assertEqual(stdout, '')
         self.assertEqual(result.contract_violation.boundary_kind, 'function')
         self.assertEqual(result.contract_violation.event_id, 1)
@@ -118,7 +118,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
                     value.potential_failure_contract = EMPTY_FAILURES
                 return result
             with patch('ginger.eval.eval_expr', side_effect=narrow):
-                result, stdout = self.run_source(prefix + f'var t: Thunk[Float, DivideByZero] = thunk({expression})\nprint(force(t))\nprint(99)')
+                result, stdout = self.run_source(prefix + f'var t: Thunk[Float]<DivideByZero> = thunk({expression})\nprint(force(t))\nprint(99)')
             self.assertEqual(stdout, '')
             self.assertEqual(result.contract_violation.boundary_kind, 'thunk')
             self.assertEqual(result.contract_violation.event_id, 1)

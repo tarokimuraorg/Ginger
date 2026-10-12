@@ -40,7 +40,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
     def test_symbolic_targets_rejected_at_declaration_time(self):
         for kind in ['impl', 'register', 'typegroup']:
             for typ, name in [('T', 'T'), ('Box[T]', 'T'), ('Box[Box[T]]', 'T'),
-                              ('Pair[Int,U]', 'U'), ('T[U]', 'T'), ('Thunk[T, Never]', 'T')]:
+                              ('Pair[Int,U]', 'U'), ('T[U]', 'T'), ('Thunk[T]<Never>', 'T')]:
                 with self.subTest(kind=kind, typ=typ):
                     self.assert_rejected(kind, typ, name)
 
@@ -58,7 +58,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
     def test_concrete_and_open_world_targets_remain_valid(self):
         for kind in ['impl', 'register', 'typegroup']:
             for typ in ['Int', 'Box[Int]', 'Box[Float]', 'MissingType', 'Box[MissingType]',
-                        'Box[Box[Int]]', 'Pair[Int,Float]', 'Thunk[Int, Never]', 'Never']:
+                        'Box[Box[Int]]', 'Pair[Int,Float]', 'Thunk[Int]<Never>', 'Never']:
                 with self.subTest(kind=kind, typ=typ):
                     source = declaration(kind, typ)
                     syms = build_symbols(lower_program(parse(source)))
@@ -87,7 +87,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
             ('Box[T]', 'Box[Int]', {'T': TypeRef('Int')}),
             ('Box[Box[T]]', 'Box[Box[Int]]', {'T': TypeRef('Int')}),
             ('Pair[T,U]', 'Pair[Int,Float]', {'T': TypeRef('Int'), 'U': TypeRef('Float')}),
-            ('Thunk[T, Never]', 'Thunk[Int, Never]', {'T': TypeRef('Int')}),
+            ('Thunk[T]<Never>', 'Thunk[Int]<Never>', {'T': TypeRef('Int')}),
         ]:
             with self.subTest(parameter=parameter):
                 source = (f'sig extract({parameter}) -> T {{ builtin test.op }}\n'

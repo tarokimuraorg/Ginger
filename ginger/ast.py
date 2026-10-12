@@ -72,7 +72,7 @@ def is_typevar(name: str) -> bool:
 class TypeRef:
     name: str  # Int, Float, String, Self, T, Number, etc.
     args: Tuple["TypeRef",...] = ()
-    # Source names are resolved before type checking; args contain only result types.
+    # Source names are resolved before type checking; args contain only type arguments.
     failure_specs: Tuple[str, ...] | None = None
     latent_failures: FailureSet | None = None
     latent_conditions: frozenset["ConditionalFailure"] = frozenset()

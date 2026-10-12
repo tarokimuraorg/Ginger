@@ -186,13 +186,13 @@ class FunctionLocalTests(unittest.TestCase):
 
     def test_local_thunk_storage_snapshot_and_force(self):
         for keyword in ['let', 'var']:
-            source = function(f'var x: Int = 1\n{keyword} t: Thunk[Int, Never] = thunk(x)\nx = 2\nreturn force(t)')
+            source = function(f'var x: Int = 1\n{keyword} t: Thunk[Int]<Never> = thunk(x)\nx = 2\nreturn force(t)')
             self.assertEqual(output(checked(source + 'print(f())')[0]), '1\n')
-        source = function('var t: Thunk[Int, Never] = thunk(1)\nt = thunk(2)\nreturn force(t)')
+        source = function('var t: Thunk[Int]<Never> = thunk(1)\nt = thunk(2)\nreturn force(t)')
         self.assertEqual(output(checked(source + 'print(f())')[0]), '2\n')
 
     def test_local_thunk_latent_failure_and_function_contract(self):
-        body = f'let t: Thunk[Int, IntegerOverflow] = thunk(add({INT_MAX},1))\n'
+        body = f'let t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'
         program, diags = checked(function(body, ret='Unit') + 'f()')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
@@ -202,9 +202,9 @@ class FunctionLocalTests(unittest.TestCase):
         self.assertEqual(output(checked(source + 'var x: Int = f()\n'
             'resolve x { IntegerOverflow { x = 7 } }\nprint(x)')[0]), '7\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(function(body.replace('Thunk[Int, IntegerOverflow]', 'Thunk[Int, Never]'), ret='Unit'))
+            checked(function(body.replace('Thunk[Int]<IntegerOverflow>', 'Thunk[Int]<Never>'), ret='Unit'))
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(function('let t: Thunk[Int64, Never] = thunk(1)', ret='Unit'))
+            checked(function('let t: Thunk[Int64]<Never> = thunk(1)', ret='Unit'))
 
     def test_unreachable_statements_still_checked_but_not_effectful(self):
         checked(function('return 1\nlet later: Int = add(1,2)'))

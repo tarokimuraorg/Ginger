@@ -79,9 +79,9 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
 
     def test_recursive_projection_and_normalization(self):
         for method_type, sig_type in [
-            ('Thunk[Self, Never]', 'Thunk[T, Never]'),
-            ('Thunk[Thunk[Self, IntegerOverflow], Never]',
-             'Thunk[Thunk[T, Overflow], Never]'),
+            ('Thunk[Self]<Never>', 'Thunk[T]<Never>'),
+            ('Thunk[Thunk[Self]<IntegerOverflow>]<Never>',
+             'Thunk[Thunk[T]<Overflow>]<Never>'),
             ('SomeType[Self]', 'SomeType[T]'),
         ]:
             source = 'failureset Overflow { IntegerOverflow }\n' + declaration(
@@ -91,9 +91,9 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
 
     def test_nested_structure_and_latent_failures_must_match(self):
         for method_type, sig_type in [
-            ('Thunk[Self, Never]', 'Thunk[T, IntegerOverflow]'),
-            ('Thunk[Self, IntegerOverflow]', 'Thunk[T, Never]'),
-            ('Thunk[Thunk[Self, Never], Never]', 'Thunk[Thunk[Float, Never], Never]'),
+            ('Thunk[Self]<Never>', 'Thunk[T]<IntegerOverflow>'),
+            ('Thunk[Self]<IntegerOverflow>', 'Thunk[T]<Never>'),
+            ('Thunk[Thunk[Self]<Never>]<Never>', 'Thunk[Thunk[Float]<Never>]<Never>'),
             ('SomeType[Self]', 'OtherType[T]'),
             ('SomeType[Self]', 'SomeType[T,Int]'),
         ]:
@@ -106,11 +106,11 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
                     'return type mismatch')
 
     def test_nested_projection_concrete_and_deferred_runtime(self):
-        source = declaration('self: Self, other: Thunk[Self, Never]',
-                             'Thunk[Self, Never]', 'T,Thunk[T, Never]', 'Thunk[T, Never]')
+        source = declaration('self: Self, other: Thunk[Self]<Never>',
+                             'Thunk[Self]<Never>', 'T,Thunk[T]<Never>', 'Thunk[T]<Never>')
         source += (
-            'sig relay(U,Thunk[U, Never]) -> Thunk[U, Never] { require U guarantees G }\n'
-            'func relay(a: U,b: Thunk[U, Never]) { return op(a,b) }\n'
+            'sig relay(U,Thunk[U]<Never>) -> Thunk[U]<Never> { require U guarantees G }\n'
+            'func relay(a: U,b: Thunk[U]<Never>) { return op(a,b) }\n'
             'var concrete: Int = force(op(1,thunk(2)))\n'
             'var deferred: Int = force(relay(3,thunk(4)))')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: b}):
