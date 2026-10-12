@@ -3,7 +3,7 @@ failureset CalculationFailure {
     IOErr
 }
 
-var t1: Thunk[Float, CalculationFailure] = thunk(div(1.0,0.0))
+var t1: Thunk[Float]<CalculationFailure> = thunk(div(1.0,0.0))
 
 var first: Float = force(t1)
 resolve first {
@@ -17,7 +17,7 @@ resolve first {
 
 print(first)
 
-var t2: Thunk[Float, DivideByZero] = thunk(div(10.0,2.0))
+var t2: Thunk[Float]<DivideByZero> = thunk(div(10.0,2.0))
 
 var second: Float = force(t2)
 resolve second {

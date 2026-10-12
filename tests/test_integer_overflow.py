@@ -127,7 +127,7 @@ class IntegerOverflowTests(unittest.TestCase):
 
     def test_thunk_creation_latent_force_and_failureset(self):
         prefix = ('failureset ArithmeticFailure { IntegerOverflow }\n'
-                  f'var t: Thunk[Int, ArithmeticFailure] = thunk(add({INT_MAX},1))\n')
+                  f'var t: Thunk[Int]<ArithmeticFailure> = thunk(add({INT_MAX},1))\n')
         program, syms, bindings, diags = self.annotated(prefix)
         self.assertEqual(diags.items, [])
         self.assertEqual(bindings['t'].ty.latent_failures, OVERFLOW)
@@ -140,7 +140,7 @@ class IntegerOverflowTests(unittest.TestCase):
         _, diags = checked(prefix + 'var x: Int = force(t)')
         self.assertEqual([d.message for d in diags], ['unhandled failures: IntegerOverflow'])
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(f'var t: Thunk[Int, Never] = thunk(add({INT_MAX},1))')
+            checked(f'var t: Thunk[Int]<Never> = thunk(add({INT_MAX},1))')
         checked(INT_IDENTITY + 'failureset ArithmeticFailure { IntegerOverflow }\n'
                 'sig f(Int) -> Int { failure ArithmeticFailure }\nfunc f(x: Int) { return keepInt(add(x,1)) }')
 
@@ -179,7 +179,7 @@ class IntegerOverflowTests(unittest.TestCase):
                     TypecheckError, 'initializer.*no declared or inferred failures'):
                 checked(identity + f'var x: Float = identity({op}(1.0,2.0))\n'
                         'resolve x { IntegerOverflow { x = 0 } }')
-        prefix = f'var t: Thunk[Int, IntegerOverflow] = thunk(add({INT_MAX},1))\n'
+        prefix = f'var t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'
         program, diags = checked(identity + prefix +
                                  'var x: Float = identity(add(toFloat(force(t)),2.0))\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(8) } }')

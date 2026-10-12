@@ -216,27 +216,29 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
 
     def test_thunk_result_identity_and_existing_effect_independence(self):
         for declaration, requirement, call in [
-            (CAPABILITY + implementation('Thunk[Int, Never]'), '', 'op'),
-            (CAPABILITY + implementation('Thunk[Int, Never]'), '', 'relay'),
-            ('guarantee Marker {}\nregister Thunk[Int, Never] guarantees Marker\n',
+            (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'op'),
+            (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'relay'),
+            ('guarantee Marker {}\nregister Thunk[Int]<Never> guarantees Marker\n',
              'T guarantees Marker', 'take'),
-            ('typegroup Boxes = Thunk[Int, Never]\n', 'T in Boxes', 'take'),
+            ('typegroup Boxes = Thunk[Int]<Never>\n', 'T in Boxes', 'take'),
         ]:
             prefix = declaration
             if requirement:
                 prefix += (f'sig take(T) -> T {{ require {requirement} }}\n'
                            'func take(x: T) { return x }\n')
-            for spelling, expression in [('Thunk[Int, Never]', 'thunk(1)'),
-                                         ('Thunk[Int, IntegerOverflow]', 'thunk(add(1,2))')]:
+            for spelling, expression in [('Thunk[Int]<Never>', 'thunk(1)'),
+                                         ('Thunk[Int]<IntegerOverflow>', 'thunk(add(1,2))')]:
                 with self.subTest(call=call, spelling=spelling):
                     program, _, _ = annotated(prefix + f'var result: {spelling} = {call}({expression})')
                     self.assertIsNone(eval_program(program).contract_violation)
             with self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
-                annotated(prefix + f'var result: Thunk[Float, Never] = {call}(thunk(1.0))')
+                annotated(prefix + f'var result: Thunk[Float]<Never> = {call}(thunk(1.0))')
 
     def test_metadata_remains_outside_capability_identity(self):
-        pure = normalized_type('Thunk[Int, Never]')
-        effectful = normalized_type('Thunk[Int, IntegerOverflow]')
+        pure = normalized_type('Thunk[Int]<Never>')
+        effectful = normalized_type('Thunk[Int]<IntegerOverflow>')
+        self.assertNotEqual(type_identity_key(pure),
+                            type_identity_key(normalized_type('Thunk[Float]<Never>')))
         conditional = TypeRef('Thunk', (TypeRef('Int'),), latent_failures=EMPTY_FAILURES,
                               latent_conditions=frozenset({ConditionalFailure(
                                   FailureId.IntegerOverflow, 'T', 'Marker')}))

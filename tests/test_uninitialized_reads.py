@@ -97,7 +97,7 @@ class UninitializedReadTests(unittest.TestCase):
 
     def test_thunk_capture_stops_only_when_forced_even_after_recovery(self):
         env, context = self.stopped(
-            'var a: Float = div(1.0,0.0)\nvar t: Thunk[Float, Never] = thunk(a)\n'
+            'var a: Float = div(1.0,0.0)\nvar t: Thunk[Float]<Never> = thunk(a)\n'
             'a = 10.0\nprint(force(t))\nprint(999)')
         self.assertEqual(env['a'].value, 10.0)
         self.assertIsInstance(env['t'].value.env['a'], evaluator.UninitializedBinding)

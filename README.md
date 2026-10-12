@@ -79,7 +79,7 @@ Int は、すべての有効な値を binary64 Float へ整数精度を失わず
 
 トップレベル変数には明示的な型注釈が必要です。widening は変数初期化・再代入・具体型の関数引数・return の使用境界で行います。`var x: Int = 1` から `var y: Int64 = x`、`var z: Float = x` に変換しても、元の x の宣言型は Int のままです。runtime でも宣言型を保持し、Python int から Int / Int64 を推測しません。
 
-3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[Int, Never] → Thunk[Int64, Never]` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
+3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[Int]<Never> → Thunk[Int64]<Never>` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
 
 Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / eq / lt）のみです。add / sub / mul / div は未対応です。
 
@@ -94,7 +94,7 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。resolve 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
 
 ```ginger
-var t: Thunk[Int, IntegerOverflow] = thunk(mul(9007199254740991, 2))
+var t: Thunk[Int]<IntegerOverflow> = thunk(mul(9007199254740991, 2))
 var x: Int = force(t)
 resolve x {
     IntegerOverflow {
@@ -162,7 +162,7 @@ print(result)
 
 - 同名の `sig` が `func` より先に存在する必要があります。
 - 引数数が等しく、各位置の型が型名と再帰的な型引数まで一致する必要があります。
-- `Thunk[Int, Never]` と `Thunk[Float, Never]` は異なる型として照合します。
+- `Thunk[Int]<Never>` と `Thunk[Float]<Never>` は異なる型として照合します。
 - 引数名は照合に使用しません。sig は引数型のみを持ちます。
 - 型変数名の読み替えは行いません。`T` と `U` は同一視しません。
 - 呼び出しは位置引数で、値も位置順に束縛します。同名 sig のオーバーロードはありません。
@@ -181,7 +181,7 @@ print(result)
 
 根拠がない型変数は `cannot determine type variable`、統合不能は `cannot reconcile`、候補が複数残る場合は ambiguity として拒否します。`sig make() -> T` / `sig strange(Int) -> T` は、`var x: Int = make()` / `strange(1)` でも T を決定できません。
 
-TypeRef は再帰的に照合・置換するため、`Thunk[T, Never]` と `Thunk[Int, Never]` から T = Int を得られます。`SomeType[T]` のような既存 TypeRef 構造も同様ですが、型コンストラクタの不一致は拒否します。置換後の引数全体を既存 compatibility で検査するため、Thunk の結果型を含む型引数の variance は追加しません。generic 本体で推論した Thunk の条件付き潜在 effect は TypeRef に保持し、具体的な binding で既存の FailureSet に置換します。failure 型変数や集合の推論・統合は導入しません。同じ裸の T に異なる latent failure を持つ Thunk 型が渡された場合も、集合の共通上限を新たに推論しません。
+TypeRef は再帰的に照合・置換するため、`Thunk[T]<Never>` と `Thunk[Int]<Never>` から T = Int を得られます。`SomeType[T]` のような既存 TypeRef 構造も同様ですが、型コンストラクタの不一致は拒否します。置換後の引数全体を既存 compatibility で検査するため、Thunk の結果型を含む型引数の variance は追加しません。generic 本体で推論した Thunk の条件付き潜在 effect は TypeRef に保持し、具体的な binding で既存の FailureSet に置換します。failure 型変数や集合の推論・統合は導入しません。同じ裸の T に異なる latent failure を持つ Thunk 型が渡された場合も、集合の共通上限を新たに推論しません。
 
 型変数決定後に guarantee / typegroup の要件を検査します。`add(1,2i64)` は T = Int64 まで解決した後、Int64 が Addable を持たないため拒否します。Int64 算術は未解禁です。
 
@@ -225,7 +225,7 @@ resolve result {
 print(result)
 ```
 
-`failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int, Never]` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
+`failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
 ## guarantee と標準 catalog
 
@@ -436,7 +436,7 @@ resolved event も履歴に残ります。CallFrame.pending_event_ids の参照�
 
 ```ginger
 var x: Int = 1
-var t: Thunk[Int, Never] = thunk(x)
+var t: Thunk[Int]<Never> = thunk(x)
 x = 2
 print(force(t))
 print(x)
@@ -448,12 +448,12 @@ print(x)
 
 現在は環境辞書を浅くコピーし、外側の環境は参照で保持します。トップレベルの再代入は Cell を置き換えるため、上の例では Thunk が作成時の値を読みます。これはすべての値を深くコピーするという保証ではありません。
 
-正式な型形式は `Thunk[結果型, failure指定...]` です。
+正式な型形式は `Thunk[結果型]<failure指定...>` です。`[]` は type arguments、`<>` は failure contract を表します。Thunk の型引数は結果型1個で、failure contract は必須です。空の `<>` は使えません。旧形式の角括弧内への failure 指定は受理しません。
 
 ```ginger
 failureset CalculationFailure { DivideByZero IOErr }
-// 型の例: Thunk[Int, Never], Thunk[Int, DivideByZero], Thunk[Int, CalculationFailure]
-var t: Thunk[Float, CalculationFailure] = thunk(div(1.0, 0.0))
+// 型の例: Thunk[Int]<Never>, Thunk[Int]<DivideByZero>, Thunk[Int]<CalculationFailure>
+var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0, 0.0))
 var x: Float = force(t)
 resolve x {
     DivideByZero {
@@ -472,13 +472,13 @@ Thunkのfailure指定はforce時に発生しうるfailureの上限契約であ�
 `print(force(t))` にも通常の引数effect伝播で届きます。`force(thunk(expr))` も同じ経路です。
 `force(t)` が initializer で失敗すると、対象 var に原因 event ID が保存され、通常の resolve と同じ規則で回復できます。handler 名は公開された潜在契約の個別 FailureId に限ります。潜在契約が failureset で書かれていても、handler にはその集合名を使用できません。正常な force で値を得た binding に対する resolve は no-op です。
 
-failure指定には個別FailureId、failureset、単独のNeverを使えます。Neverは空集合です。
+failure指定には個別FailureId、failureset、単独のNeverを使えます。`Never` は failure contract が空であることを表し、通常の FailureId ではありません。例: `Thunk[Int]<Never>`、`Thunk[Int]<IntegerOverflow, DivideByZero>`。
 指定省略、未知名、Neverとの混在、同じ指定名の重複は拒否します。failureset展開後の重なりは統合します。
 代入・関数引数・戻り値では、結果型の完全一致とactualの潜在failure集合がdeclaredの部分集合であることを検査します。
 sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
 
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
-`sig make() -> Thunk[Float, DivideByZero] { failure Never }` は有効です。
+`sig make() -> Thunk[Float]<DivideByZero> { failure Never }` は有効です。
 静的に解決されたThunkは本体上限検証の対象です。
 ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。

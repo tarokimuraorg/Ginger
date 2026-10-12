@@ -1,0 +1,8 @@
+sig good(Thunk[Int]<Never>) -> Int {
+}
+
+func good(t: Thunk[Int]<Never>) {
+    return force(t)
+}
+
+print(good(thunk(0)))

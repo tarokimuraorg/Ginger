@@ -352,7 +352,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_force_failure_can_be_resolved_from_initializer_binding(self):
         result, stdout = self.public_result(
-            'var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n'
+            'var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nresolve x { DivideByZero { x = 0 } }\nprint(x)')
         self.assertEqual(stdout, '0.0\n')
         self.assertEqual(result.environment['x'].value, 0.0)
@@ -364,7 +364,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_repeated_force_produces_distinct_binding_causes(self):
         result, _ = self.public_result(
-            'var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n'
+            'var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nvar y: Float = force(t)\n'
             'resolve x { DivideByZero { x = 0 } }')
         self.assertEqual([e.event_id for e in result.failure_history], [1, 2])

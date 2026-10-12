@@ -93,13 +93,13 @@ class NumericWideningTests(unittest.TestCase):
     def test_declarations_thunks_and_generics_remain_strict(self):
         for source in ['sig f(Float) -> Unit {}\nfunc f(x: Int) {}',
                        'sig f(Int) -> Unit {}\nfunc f(x: Float) {}',
-                       'var t: Thunk[Float, Never] = thunk(1)',
-                       'var t: Thunk[Int, Never] = thunk(1)\nvar u: Thunk[Float, Never] = t',
+                       'var t: Thunk[Float]<Never> = thunk(1)',
+                       'var t: Thunk[Int]<Never> = thunk(1)\nvar u: Thunk[Float]<Never> = t',
                        'var x: Int = add(1,2.0)']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 checked(source)
         self.assertEqual(self.values('var x: Float = add(1,2.0)')['x'].value, 3.0)
-        env = self.values('var t: Thunk[Int, Never] = thunk(1)\nvar x: Float = force(t)')
+        env = self.values('var t: Thunk[Int]<Never> = thunk(1)\nvar x: Float = force(t)')
         self.assertIs(type(env['x'].value), float)
 
     def test_bounded_int_converts_exactly(self):

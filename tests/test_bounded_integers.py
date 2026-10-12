@@ -60,7 +60,7 @@ class BoundedIntegerTests(unittest.TestCase):
         sources = ['var x: Int = 1i64', 'var x: Float = 1i64', 'var x: Int = 1\nx = 2i64',
                    'var x: Int64 = 1.0', 'var x: Int64 = 1i64\nvar y: Float = x',
                    'var x: Int64 = 9007199254740992i64\nvar y: Float = x',
-                   'var x: Float = toFloat(1i64)', 'var x: Thunk[Int64, Never] = thunk(1)',
+                   'var x: Float = toFloat(1i64)', 'var x: Thunk[Int64]<Never> = thunk(1)',
                    'var x: Int64 = add(1, 2i64)', 'sig f(Int64) -> Unit {}\nfunc f(x: Int) {}',
                    'sig f(Int) -> Int {}\nfunc f(x: Int) { return x }\nvar x: Int = f(1i64)',
                    'sig f() -> Int {}\nfunc f() { return 1i64 }']
@@ -78,7 +78,7 @@ class BoundedIntegerTests(unittest.TestCase):
             return eval_block(block, env, syms, outer)
         with patch('ginger.eval.eval_block', side_effect=inspect):
             self.assertEqual(output(checked(source)[0]), '1\n')
-        self.assertEqual(self.values('var t: Thunk[Int64, Never] = thunk(1i64)\nvar x: Int64 = force(t)')['x'].typ, TypeRef('Int64'))
+        self.assertEqual(self.values('var t: Thunk[Int64]<Never> = thunk(1i64)\nvar x: Int64 = force(t)')['x'].typ, TypeRef('Int64'))
 
     def test_capabilities(self):
         program, _ = checked('var lo: Int64 = (-9223372036854775807i64)\nvar hi: Int64 = neg(lo)\n'

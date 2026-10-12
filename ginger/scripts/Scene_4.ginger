@@ -1,5 +1,18 @@
 var x: Int = 1
-var t: Thunk[Int, Never] = thunk(x)
+var t1: Thunk[Int]<IntegerOverflow> = thunk(x)
 x = 2
-print(force(t))
+print(force(t1))
 print(x)
+
+t1 = thunk(add(9007199254740991, 1))
+print(123)
+print(force(t1))
+
+//var t2: Thunk[Int] = thunk(10)
+//print(t2)
+
+//var t3: Thunk[Int] = thunk(1)
+//print(force(t3))
+
+//var t4: Thunk[Int, Never] = thunk(1)
+//print(force(t4))

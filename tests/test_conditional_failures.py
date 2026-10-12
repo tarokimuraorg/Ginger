@@ -141,8 +141,8 @@ class ConditionalFailureTests(unittest.TestCase):
 
     def test_thunk_uses_instantiated_latent_failures_and_remains_nonmemoized(self):
         source = (addition('(a + b)') +
-                  f'var intThunk: Thunk[Int, IntegerOverflow] = thunk(addTwo({INT_MAX},1))\n'
-                  'var floatThunk: Thunk[Float, Never] = thunk(addTwo(1.0,2.0))\n')
+                  f'var intThunk: Thunk[Int]<IntegerOverflow> = thunk(addTwo({INT_MAX},1))\n'
+                  'var floatThunk: Thunk[Float]<Never> = thunk(addTwo(1.0,2.0))\n')
         program, syms, env, diagnostics = self.annotated(source)
         self.assertEqual(env['intThunk'].ty.latent_failures, OVERFLOW)
         self.assertEqual(env['floatThunk'].ty.latent_failures, EMPTY_FAILURES)
@@ -155,7 +155,7 @@ class ConditionalFailureTests(unittest.TestCase):
         self.assertEqual([e.failure_id for e in context.failure_history],
                          [FailureId.IntegerOverflow, FailureId.IntegerOverflow])
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(addition() + 'var t: Thunk[Int, Never] = thunk(addTwo(1,2))')
+            checked(addition() + 'var t: Thunk[Int]<Never> = thunk(addTwo(1,2))')
 
     def test_generic_force_thunk_preserves_symbolic_and_runtime_contracts(self):
         for arithmetic in ['add(a,b)', '(a + b)']:
@@ -397,7 +397,7 @@ class ConditionalFailureTests(unittest.TestCase):
         call = program.items[-1].expr
         self.assertEqual(syms.resolved_calls[id(call)].type_bindings, {'T': TypeRef('Int')})
         self.assertEqual(effect_expr(call, env, syms), OVERFLOW)
-        source = (addition() + f'var t: Thunk[Int, IntegerOverflow] = thunk(add({INT_MAX},1))\n'
+        source = (addition() + f'var t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'
                   'var x: Float = addTwo(toFloat(force(t)),2.0)\n'
                   'resolve x { IntegerOverflow { x = 0 } }')
         program, syms, env, diagnostics = self.annotated(source)

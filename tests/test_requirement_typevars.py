@@ -62,14 +62,14 @@ class RequirementTypeVariableTests(unittest.TestCase):
 
     def test_thunk_parameter_binding(self):
         source = ('guarantee G {}\nregister Int guarantees G\n'
-                  'sig use(Thunk[T, Never]) -> T { require T guarantees G }\n'
-                  'func use(x: Thunk[T, Never]) { return force(x) }\n'
+                  'sig use(Thunk[T]<Never>) -> T { require T guarantees G }\n'
+                  'func use(x: Thunk[T]<Never>) { return force(x) }\n'
                   'var x: Int = use(thunk(1))')
         self.assertEqual(run(source).environment['x'].value, 1)
 
     def test_latent_failure_name_is_not_a_type_variable(self):
         self.assert_rejected('failureset U { IntegerOverflow }\nguarantee G {}\n'
-                             'sig op(Thunk[Int, U]) -> Int { require U guarantees G }',
+                             'sig op(Thunk[Int]<U>) -> Int { require U guarantees G }',
                              variable='U')
 
     def test_variable_constructor_stops_inference_traversal(self):

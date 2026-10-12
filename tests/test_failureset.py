@@ -124,8 +124,8 @@ var x: Float = f()
             'sig f() -> Unit { %s }\n'
             'func f() { print(div(1.0,0.0)) }\n'
             'sig g() -> Unit { failure DivideByZero failure IOErr }\nfunc g() { f() }\nf()',
-            'sig f(Thunk[Float, Never]) -> Float { %s }\n'
-            'func f(t: Thunk[Float, Never]) { return force(t) }',
+            'sig f(Thunk[Float]<Never>) -> Float { %s }\n'
+            'func f(t: Thunk[Float]<Never>) { return force(t) }',
             'sig h(Int) -> Unit { %s builtin core.int.print }\n'
             'sig f() -> Unit { failure DivideByZero failure IOErr }\nfunc f() { h(1) }',
         ]
