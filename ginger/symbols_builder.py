@@ -70,6 +70,15 @@ def _same_type(a: TypeRef, b: TypeRef) -> bool:
     return all(_same_type(x, y) for x, y in zip(a.args, b.args))
 
 
+def _project_method_type(typ: TypeRef, required_type_var: str) -> TypeRef:
+    """Project the canonical method contract into its public sig's namespace."""
+    return replace(
+        typ,
+        name=required_type_var if typ.name == "Self" else typ.name,
+        args=tuple(_project_method_type(arg, required_type_var) for arg in typ.args),
+    )
+
+
 def _build_failuresets(items) -> Dict[str, FailureSet]:
     declarations: Dict[str, FailureSetDecl] = {}
     reserved = {fid.value for fid in FailureId} | {"Never"}
@@ -390,6 +399,22 @@ def _validate_catalog(syms: Symbols) -> None:
                 f"arity mismatch for guarantee method '{name}': "
                 f"sig expects {len(sig.params)} argument(s), "
                 f"guarantee {guarantee.name} method expects {len(method.params)}"
+            )
+        # Both declarations are normalized by build_symbols. The method is the
+        # canonical type contract; projection requires identity, not widening.
+        required_type_var = requirements[0].type_var
+        for index, (actual, param) in enumerate(zip(sig.params, method.params), 1):
+            expected = _project_method_type(param.typ, required_type_var)
+            if not _same_type(expected, actual):
+                raise TypecheckError(
+                    f"parameter type mismatch for guarantee method '{name}' at argument {index}: "
+                    f"sig has {actual}, guarantee {guarantee.name} requires {expected}"
+                )
+        expected = _project_method_type(method.ret, required_type_var)
+        if not _same_type(expected, sig.ret):
+            raise TypecheckError(
+                f"return type mismatch for guarantee method '{name}': "
+                f"sig has {sig.ret}, guarantee {guarantee.name} requires {expected}"
             )
 
 
