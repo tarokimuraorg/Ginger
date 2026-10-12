@@ -170,7 +170,7 @@ class UnaryMinusTests(unittest.TestCase):
             'Scene_1': ('9\n4.5\n-9\n', ['unhandled failures: IntegerOverflow'] * 2
                          + ['unhandled failures: DivideByZero']),
             'Scene_2': ('2.0\n', []), 'Scene_3': ('-1\n0.0\n', []),
-            'Scene_4': ('1\n2\n', []),
+            'Scene_4': ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
             'Scene_5': ('0.0\n', []),
             'Scene_6': ('0.0\n5.0\n', []),
             'Scene_7': ('-2\n-2\n3\n', ['unhandled failures: IntegerOverflow']),
