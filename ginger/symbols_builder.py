@@ -17,6 +17,7 @@ from .ast import (
     ImplDecl,
     SigDecl,
     RequireGuarantees,
+    RequireIn,
     ConditionalFailureDecl,
     FuncDecl,
     VarDecl,
@@ -316,6 +317,23 @@ def build_symbols(prog: Program) -> Symbols:
 # Catalog validation
 # =====================
 def _validate_catalog(syms: Symbols) -> None:
+    # Reference validity is independent of use, dispatch, and satisfaction.
+    # All source and prelude declarations have been collected and normalized.
+    for name, sig in syms.sigs.items():
+        for requirement in sig.requires:
+            if isinstance(requirement, RequireGuarantees):
+                if requirement.guarantee_name not in syms.guarantees:
+                    raise TypecheckError(
+                        f"unknown guarantee '{requirement.guarantee_name}' "
+                        f"in requirement for function '{name}'"
+                    )
+            elif isinstance(requirement, RequireIn):
+                if requirement.group_name not in syms.typegroups:
+                    raise TypecheckError(
+                        f"unknown typegroup '{requirement.group_name}' "
+                        f"in requirement for function '{name}'"
+                    )
+
     # Validate conditions after all declarations and named sets are available.
     for name, sig in syms.sigs.items():
         variables = set()

@@ -134,10 +134,9 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
                 with self.subTest(program=program):
                     self.assertEqual(run(program + 'var x: Int = op(1)').environment['x'].value, 1)
 
-    def test_absent_method_unknown_guarantee_and_multiple_requirements_unchanged(self):
+    def test_absent_method_and_multiple_requirements_unchanged(self):
         for source in [
             'guarantee G {}\nsig op(T) -> T { require T guarantees G }',
-            'sig op(T) -> T { require T guarantees UnknownGuarantee }',
             'guarantee G { op(self: Self) -> Float }\nguarantee H {}\n'
             'sig op(T) -> T { require T guarantees G require T guarantees H }',
         ]:
