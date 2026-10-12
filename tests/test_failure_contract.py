@@ -206,10 +206,10 @@ func g() { f() }
             self.assertEqual(output(program), '0\n')
 
     def test_thunk_contract_validation_and_saved_force(self):
-        _, diags = checked("sig f(Thunk[Float, DivideByZero]) -> Float { failure DivideByZero }\n"
-                           "func f(t: Thunk[Float, DivideByZero]) { return force(t) }")
+        _, diags = checked("sig f(Thunk[Float]<DivideByZero>) -> Float { failure DivideByZero }\n"
+                           "func f(t: Thunk[Float]<DivideByZero>) { return force(t) }")
         self.assertEqual(diags.items, [])
-        program, diags = checked("var t: Thunk[Float, DivideByZero] = thunk(div(1.0,0.0))\n"
+        program, diags = checked("var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n"
                                  "var x: Float = force(t)\n"
                                  "resolve x { DivideByZero { x = 0\nprint(0) } }")
         self.assertEqual(diags.items, [])
@@ -217,7 +217,7 @@ func g() { f() }
 
     def test_thunk_return_type_still_checked(self):
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig f(Thunk[Float, Never]) -> Int {}\nfunc f(t: Thunk[Float, Never]) { return force(t) }")
+            checked("sig f(Thunk[Float]<Never>) -> Int {}\nfunc f(t: Thunk[Float]<Never>) { return force(t) }")
 
     def test_custom_builtin_declarations_are_still_trusted(self):
         program, _ = checked("sig raw(Float,Float) -> Float { builtin core.float.div }\n"
@@ -230,16 +230,16 @@ func g() { f() }
 class ExistingRegressionTests(unittest.TestCase):
     def test_parameter_and_return_typerefs(self):
         checked("sig identity(Int) -> Int {}\nfunc identity(x: Int) { return x }")
-        checked("sig identity(Thunk[Int, Never]) -> Thunk[Int, Never] {}\n"
-                "func identity(x: Thunk[Int, Never]) { return x }")
+        checked("sig identity(Thunk[Int]<Never>) -> Thunk[Int]<Never> {}\n"
+                "func identity(x: Thunk[Int]<Never>) { return x }")
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig identity(Thunk[Int, Never]) -> Thunk[Float, Never] {}\n"
-                    "func identity(x: Thunk[Int, Never]) { return x }")
+            checked("sig identity(Thunk[Int]<Never>) -> Thunk[Float]<Never> {}\n"
+                    "func identity(x: Thunk[Int]<Never>) { return x }")
 
     def test_parameter_order_structure_and_declaration_order(self):
         checked("sig f(Int,Float) -> Unit {}\nfunc f(a: Int,b: Float) {}")
         for src in ("sig f(Int,Float) -> Unit {}\nfunc f(a: Float,b: Int) {}",
-                    "sig f(Thunk[Int, Never]) -> Unit {}\nfunc f(a: Thunk[Float, Never]) {}",
+                    "sig f(Thunk[Int]<Never>) -> Unit {}\nfunc f(a: Thunk[Float]<Never>) {}",
                     "sig f(Int) -> Unit {}\nfunc f(a: Int,b: Int) {}"):
             with self.subTest(src=src), self.assertRaisesRegex(TypecheckError, "positional types"):
                 checked(src)
@@ -249,9 +249,9 @@ class ExistingRegressionTests(unittest.TestCase):
     def test_thunk_force_arity_and_expected_type(self):
         for call in ("thunk()", "thunk(1,2)", "force()", "force(1,2)"):
             with self.subTest(call=call), self.assertRaisesRegex(TypecheckError, "argument count mismatch"):
-                checked(f"var t: Thunk[Int, Never] = {call}")
+                checked(f"var t: Thunk[Int]<Never> = {call}")
         with self.assertRaisesRegex(TypecheckError, "type mismatch"):
-            checked("var t: Thunk[Float, Never] = thunk(1.0)\nvar x: Int = force(t)")
+            checked("var t: Thunk[Float]<Never> = thunk(1.0)\nvar x: Int = force(t)")
         with self.assertRaisesRegex(TypecheckError, "force expects Thunk"):
             checked("var x: Int = force(1)")
 
@@ -267,7 +267,7 @@ class ExistingRegressionTests(unittest.TestCase):
                         + ["unhandled failures: DivideByZero"]),
             "Scene_2": ("2.0\n", []),
             "Scene_3": ("-1\n0.0\n", []),
-            "Scene_4": ("1\n2\n", []),
+            "Scene_4": ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
         }
         root = Path(__file__).resolve().parents[1] / "ginger" / "scripts"
         for name, (stdout, warnings) in expected.items():

@@ -50,7 +50,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_thunk_capture_of_uninitialized_binding_does_not_read_value(self):
         env, context, stdout = self.run_source(
-            'var x: Float = div(1.0,0.0)\nvar t: Thunk[Float, Never] = thunk(x)\n'
+            'var x: Float = div(1.0,0.0)\nvar t: Thunk[Float]<Never> = thunk(x)\n'
             'x = 4.0\nprint(x)')
         self.assertEqual(stdout, '4.0\n')
         self.assertIsInstance(env['t'].value.env['x'], evaluator.UninitializedBinding)

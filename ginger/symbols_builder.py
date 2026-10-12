@@ -1,6 +1,7 @@
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Dict, Tuple
 from .builtin import BUILTINS
+from .type_identity import TypeIdentityKey, type_identity_key
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, FailureSet
 from ginger.core.failure_contract import ConditionalFailure, FailureContract, substitute_contract
@@ -16,6 +17,8 @@ from .ast import (
     RegisterDecl,
     ImplDecl,
     SigDecl,
+    RequireGuarantees,
+    RequireIn,
     ConditionalFailureDecl,
     FuncDecl,
     VarDecl,
@@ -40,14 +43,14 @@ class ResolvedCall:
 class Symbols:
 
     guarantees: Dict[str, GuaranteeDecl]
-    typegroups: Dict[str, set[str]]                  # group -> {"Int","Float",...}
-    type_guarantees: Dict[str, set[str]]             # type -> {"Addable",...}
+    typegroups: Dict[str, set[TypeIdentityKey]]      # group -> concrete type identities
+    type_guarantees: Dict[TypeIdentityKey, set[str]]     # concrete type identity -> guarantees
     sigs: Dict[str, SigDecl]
     sig_failures: Dict[str, FailureSet]
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]]
     failuresets: Dict[str, FailureSet]
     funcs: Dict[str, FuncDecl]                       # name -> decl
-    impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
+    impls: Dict[Tuple[TypeIdentityKey, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     expression_types: Dict[int, TypeRef]  # Static, per-check expression annotations
     resolved_calls: Dict[int, ResolvedCall]  # Shared by effects and runtime; keyed by expression id.
 
@@ -55,6 +58,35 @@ class Symbols:
 def _is_typevar(name: str) -> bool:
     # T, Uのような1文字大文字を型変数扱い
     return len(name) == 1 and name.isupper()
+
+def _validate_concrete_identity(typ: TypeRef, position: str) -> None:
+    """Validate normalized registration targets, without closing the type world."""
+    if _is_typevar(typ.name):
+        raise TypecheckError(
+            f"symbolic type variable '{typ.name}' is not allowed in {position}"
+        )
+    if typ.name == "Self":
+        raise TypecheckError(
+            f"contextual placeholder 'Self' is not allowed in {position}"
+        )
+    for arg in typ.args:
+        _validate_concrete_identity(arg, position)
+
+def _collect_inferable_param_typevars(sig: SigDecl) -> set[str]:
+    """Collect current argument-inference sources, excluding returns and contracts."""
+    variables: set[str] = set()
+
+    def collect(typ: TypeRef) -> None:
+        if _is_typevar(typ.name):
+            variables.add(typ.name)
+            # Like collect_type_evidence, bind the whole type at a variable.
+            return
+        for arg in typ.args:
+            collect(arg)
+
+    for typ in sig.params:
+        collect(typ)
+    return variables
 
 def _same_type(a: TypeRef, b: TypeRef) -> bool:
     """Compare normalized types, including recursive arguments and latent contracts."""
@@ -67,6 +99,15 @@ def _same_type(a: TypeRef, b: TypeRef) -> bool:
     if len(a.args) != len(b.args):
         return False
     return all(_same_type(x, y) for x, y in zip(a.args, b.args))
+
+
+def _project_method_type(typ: TypeRef, required_type_var: str) -> TypeRef:
+    """Project the canonical method contract into its public sig's namespace."""
+    return replace(
+        typ,
+        name=required_type_var if typ.name == "Self" else typ.name,
+        args=tuple(_project_method_type(arg, required_type_var) for arg in typ.args),
+    )
 
 
 def _build_failuresets(items) -> Dict[str, FailureSet]:
@@ -131,13 +172,17 @@ def normalize_types(value, failuresets):
     if isinstance(value, TypeRef):
         args = tuple(normalize_types(a, failuresets) for a in value.args)
         if value.name == "Thunk":
-            if len(args) != 1 or (value.latent_failures is None and not value.failure_specs):
+            if len(args) != 1:
+                raise TypecheckError("Thunk expects one type argument; write failure contract as Thunk[T]<...>")
+            if value.latent_failures is None and not value.failure_specs:
                 raise TypecheckError("Thunk requires a result type and explicit failure contract")
             latent = value.latent_failures
             if latent is None:
                 latent = normalize_failures(value.failure_specs, failuresets, "Thunk")
             return TypeRef("Thunk", args, latent_failures=latent,
                            latent_conditions=value.latent_conditions)
+        if value.failure_specs is not None:
+            raise TypecheckError("failure contract postfix is allowed only on Thunk")
         return replace(value, args=args)
     if isinstance(value, list):
         return [normalize_types(v, failuresets) for v in value]
@@ -150,13 +195,13 @@ def normalize_types(value, failuresets):
 def build_symbols(prog: Program) -> Symbols:
 
     guarantees: Dict[str, GuaranteeDecl] = {}
-    typegroups: Dict[str, set[str]] = {}
-    type_guarantees: Dict[str, set[str]] = {}
+    typegroups: Dict[str, set[TypeIdentityKey]] = {}
+    type_guarantees: Dict[TypeIdentityKey, set[str]] = {}
     sigs: Dict[str, SigDecl] = {}
     sig_failures: Dict[str, FailureSet] = {}
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]] = {}
     funcs: Dict[str, FuncDecl] = {}
-    impls: Dict[Tuple[str, str, str], str] = {}
+    impls: Dict[Tuple[TypeIdentityKey, str, str], str] = {}
 
     items = prelude_items()
     items += list(prog.items)
@@ -175,10 +220,12 @@ def build_symbols(prog: Program) -> Symbols:
         
         if isinstance(item, TypeGroupDecl):
 
+            for member in item.members:
+                _validate_concrete_identity(member, "typegroup member")
             if item.name in typegroups:
                 raise TypecheckError(f"duplicate typegroup '{item.name}'")
             
-            members = {t.name for t in item.members}
+            members = {type_identity_key(t) for t in item.members}
             typegroups[item.name] = members
 
         elif isinstance(item, SigDecl):
@@ -247,7 +294,8 @@ def build_symbols(prog: Program) -> Symbols:
             
         elif isinstance(item, RegisterDecl):
 
-            t = item.typ.name
+            _validate_concrete_identity(item.typ, "register target")
+            t = type_identity_key(item.typ)
             g = item.guarantee
 
             # guarantee の宣言がある前提（core注入 or catalog）
@@ -268,7 +316,8 @@ def build_symbols(prog: Program) -> Symbols:
             type_guarantees.setdefault(t, set()).add(g)
 
         elif isinstance(item, ImplDecl):
-            t = item.typ.name
+            _validate_concrete_identity(item.typ, "impl target")
+            t = type_identity_key(item.typ)
             g = item.guarantee
 
             # impl is also a registration
@@ -306,6 +355,29 @@ def build_symbols(prog: Program) -> Symbols:
 # Catalog validation
 # =====================
 def _validate_catalog(syms: Symbols) -> None:
+    # Reference validity is independent of use, dispatch, and satisfaction.
+    # All source and prelude declarations have been collected and normalized.
+    for name, sig in syms.sigs.items():
+        inferable_typevars = _collect_inferable_param_typevars(sig)
+        for requirement in sig.requires:
+            if requirement.type_var not in inferable_typevars:
+                raise TypecheckError(
+                    f"requirement type variable '{requirement.type_var}' is not inferable "
+                    f"from parameters of function '{name}'"
+                )
+            if isinstance(requirement, RequireGuarantees):
+                if requirement.guarantee_name not in syms.guarantees:
+                    raise TypecheckError(
+                        f"unknown guarantee '{requirement.guarantee_name}' "
+                        f"in requirement for function '{name}'"
+                    )
+            elif isinstance(requirement, RequireIn):
+                if requirement.group_name not in syms.typegroups:
+                    raise TypecheckError(
+                        f"unknown typegroup '{requirement.group_name}' "
+                        f"in requirement for function '{name}'"
+                    )
+
     # Validate conditions after all declarations and named sets are available.
     for name, sig in syms.sigs.items():
         variables = set()
@@ -366,6 +438,45 @@ def _validate_catalog(syms: Symbols) -> None:
         if builtin_name not in BUILTINS:
             raise TypecheckError(
                 f"unknown builtin '{builtin_name}' for impl {t} guarantees {g}.{m}"
+            )
+
+    # Mirror type_call's dispatch eligibility after all funcs are collected.
+    # Only the concrete type is deferred; the guarantee and method name are fixed.
+    for name, sig in syms.sigs.items():
+        if name in syms.funcs or sig.builtin is not None:
+            continue
+        requirements = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
+        if len(requirements) != 1:
+            continue
+        guarantee = syms.guarantees.get(requirements[0].guarantee_name)
+        if guarantee is None:
+            continue
+        methods = [method for method in guarantee.methods if method.name == name]
+        if len(methods) != 1:
+            continue
+        method = methods[0]
+        # self is an explicit parameter, passed along with every other argument.
+        if len(sig.params) != len(method.params):
+            raise TypecheckError(
+                f"arity mismatch for guarantee method '{name}': "
+                f"sig expects {len(sig.params)} argument(s), "
+                f"guarantee {guarantee.name} method expects {len(method.params)}"
+            )
+        # Both declarations are normalized by build_symbols. The method is the
+        # canonical type contract; projection requires identity, not widening.
+        required_type_var = requirements[0].type_var
+        for index, (actual, param) in enumerate(zip(sig.params, method.params), 1):
+            expected = _project_method_type(param.typ, required_type_var)
+            if not _same_type(expected, actual):
+                raise TypecheckError(
+                    f"parameter type mismatch for guarantee method '{name}' at argument {index}: "
+                    f"sig has {actual}, guarantee {guarantee.name} requires {expected}"
+                )
+        expected = _project_method_type(method.ret, required_type_var)
+        if not _same_type(expected, sig.ret):
+            raise TypecheckError(
+                f"return type mismatch for guarantee method '{name}': "
+                f"sig has {sig.ret}, guarantee {guarantee.name} requires {expected}"
             )
 
 

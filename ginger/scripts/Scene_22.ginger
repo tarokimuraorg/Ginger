@@ -1,0 +1,6 @@
+sig bad(Thunk[Int]<IntegerOverflow,Never>) -> Int {
+}
+
+func bad(t:Thunk[Int]<IntegerOverflow,Never>) {
+    return force(t)
+}

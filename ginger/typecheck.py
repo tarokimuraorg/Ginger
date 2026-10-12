@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 from .errors import TypecheckError
+from .type_identity import type_identity_key
 from .numeric import can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
 from .builtin import builtin_failure_contract
 from .symbols_builder import build_symbols, normalize_types, ResolvedCall, _same_type, signature_contract
@@ -495,7 +496,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             concrete = tmap[req.type_var]
             allowed = syms.typegroups.get(req.group_name, set())
 
-            if concrete.name not in allowed:
+            if type_identity_key(concrete) not in allowed:
                 raise TypecheckError(
                     f"requirement not satisfied in call to {sig.name}: "
                     f"{req.type_var} in {req.group_name} required, "
@@ -511,7 +512,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
 
             concrete = tmap[req.type_var]
             has = (tv_guars.get(concrete.name, set()) if is_typevar(concrete.name)
-                   else syms.type_guarantees.get(concrete.name, set()))
+                   else syms.type_guarantees.get(type_identity_key(concrete), set()))
 
             if req.guarantee_name not in has:
                 raise TypecheckError(
@@ -541,7 +542,11 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
                     deferred_guarantee = requirement.guarantee_name
                     deferred_method = sig.name
                 else:
-                    implementation = syms.impls.get((selected_type.name, requirement.guarantee_name, sig.name))
+                    implementation = syms.impls.get((type_identity_key(selected_type), requirement.guarantee_name, sig.name))
+        # Symbolic guarantee dispatch selects its implementation in the runtime
+        # frame; every other non-user call needs a selected implementation now.
+        if implementation is None and deferred_guarantee is None:
+            raise TypecheckError(f"no implementation for function '{sig.name}'")
     syms.resolved_calls[id(call)] = ResolvedCall(
         tmap, parameter_types, return_type, implementation, deferred_guarantee, deferred_method)
     return return_type

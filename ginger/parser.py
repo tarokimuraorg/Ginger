@@ -175,33 +175,29 @@ class Parser:
         return name
     
     def parse_type(self) -> TypeRef:
-    
         name = self.eat("IDENT").text
-
+        args = []
         if self.match("SYM", "["):
             self.eat("SYM", "[")
-            args = []
-            if name == "Thunk":
-                result = self.parse_type()
-                specs = []
-                while self.match("SYM", ","):
-                    self.eat("SYM", ",")
-                    specs.append(self.eat("IDENT").text)
-                self.eat("SYM", "]")
-                return TypeRef(name, (result,), tuple(specs))
-
             while True:
                 args.append(self.parse_type())
-
                 if self.match("SYM", ","):
                     self.eat("SYM", ",")
                     continue
                 break
-
             self.eat("SYM", "]")
-            return TypeRef(name, tuple(args))
-    
-        return TypeRef(name)
+
+        specs = self.parse_failure_contract() if self.match("SYM", "<") else None
+        return TypeRef(name, tuple(args), specs)
+
+    def parse_failure_contract(self) -> tuple[str, ...]:
+        self.eat("SYM", "<")
+        specs = [self.eat("IDENT").text]
+        while self.match("SYM", ","):
+            self.eat("SYM", ",")
+            specs.append(self.eat("IDENT").text)
+        self.eat("SYM", ">")
+        return tuple(specs)
 
     def parse_params(self) -> List[Param]:
 
@@ -361,8 +357,8 @@ class Parser:
 
                 self.eat("KW", "failure")
                 failure_type = self.parse_type()
-                if failure_type.args:
-                    raise SyntaxError("failure names cannot have type arguments")
+                if failure_type.args or failure_type.failure_specs is not None:
+                    raise SyntaxError("failure names cannot have type arguments or failure contracts")
                 f = failure_type.name
                 clause: str | ConditionalFailureDecl = f
                 if self.match("KW", "when"):
