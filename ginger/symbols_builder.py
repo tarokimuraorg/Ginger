@@ -59,6 +59,19 @@ def _is_typevar(name: str) -> bool:
     # T, Uのような1文字大文字を型変数扱い
     return len(name) == 1 and name.isupper()
 
+def _validate_concrete_identity(typ: TypeRef, position: str) -> None:
+    """Validate normalized registration targets, without closing the type world."""
+    if _is_typevar(typ.name):
+        raise TypecheckError(
+            f"symbolic type variable '{typ.name}' is not allowed in {position}"
+        )
+    if typ.name == "Self":
+        raise TypecheckError(
+            f"contextual placeholder 'Self' is not allowed in {position}"
+        )
+    for arg in typ.args:
+        _validate_concrete_identity(arg, position)
+
 def _collect_inferable_param_typevars(sig: SigDecl) -> set[str]:
     """Collect current argument-inference sources, excluding returns and contracts."""
     variables: set[str] = set()
@@ -203,6 +216,8 @@ def build_symbols(prog: Program) -> Symbols:
         
         if isinstance(item, TypeGroupDecl):
 
+            for member in item.members:
+                _validate_concrete_identity(member, "typegroup member")
             if item.name in typegroups:
                 raise TypecheckError(f"duplicate typegroup '{item.name}'")
             
@@ -275,6 +290,7 @@ def build_symbols(prog: Program) -> Symbols:
             
         elif isinstance(item, RegisterDecl):
 
+            _validate_concrete_identity(item.typ, "register target")
             t = type_identity_key(item.typ)
             g = item.guarantee
 
@@ -296,6 +312,7 @@ def build_symbols(prog: Program) -> Symbols:
             type_guarantees.setdefault(t, set()).add(g)
 
         elif isinstance(item, ImplDecl):
+            _validate_concrete_identity(item.typ, "impl target")
             t = type_identity_key(item.typ)
             g = item.guarantee
 
