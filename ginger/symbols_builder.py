@@ -1,6 +1,7 @@
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Dict, Tuple
 from .builtin import BUILTINS
+from .type_identity import TypeIdentityKey, type_identity_key
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, FailureSet
 from ginger.core.failure_contract import ConditionalFailure, FailureContract, substitute_contract
@@ -42,14 +43,14 @@ class ResolvedCall:
 class Symbols:
 
     guarantees: Dict[str, GuaranteeDecl]
-    typegroups: Dict[str, set[str]]                  # group -> {"Int","Float",...}
-    type_guarantees: Dict[str, set[str]]             # type -> {"Addable",...}
+    typegroups: Dict[str, set[TypeIdentityKey]]      # group -> concrete type identities
+    type_guarantees: Dict[TypeIdentityKey, set[str]]     # concrete type identity -> guarantees
     sigs: Dict[str, SigDecl]
     sig_failures: Dict[str, FailureSet]
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]]
     failuresets: Dict[str, FailureSet]
     funcs: Dict[str, FuncDecl]                       # name -> decl
-    impls: Dict[Tuple[str, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
+    impls: Dict[Tuple[TypeIdentityKey, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
     expression_types: Dict[int, TypeRef]  # Static, per-check expression annotations
     resolved_calls: Dict[int, ResolvedCall]  # Shared by effects and runtime; keyed by expression id.
 
@@ -177,13 +178,13 @@ def normalize_types(value, failuresets):
 def build_symbols(prog: Program) -> Symbols:
 
     guarantees: Dict[str, GuaranteeDecl] = {}
-    typegroups: Dict[str, set[str]] = {}
-    type_guarantees: Dict[str, set[str]] = {}
+    typegroups: Dict[str, set[TypeIdentityKey]] = {}
+    type_guarantees: Dict[TypeIdentityKey, set[str]] = {}
     sigs: Dict[str, SigDecl] = {}
     sig_failures: Dict[str, FailureSet] = {}
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]] = {}
     funcs: Dict[str, FuncDecl] = {}
-    impls: Dict[Tuple[str, str, str], str] = {}
+    impls: Dict[Tuple[TypeIdentityKey, str, str], str] = {}
 
     items = prelude_items()
     items += list(prog.items)
@@ -205,7 +206,7 @@ def build_symbols(prog: Program) -> Symbols:
             if item.name in typegroups:
                 raise TypecheckError(f"duplicate typegroup '{item.name}'")
             
-            members = {t.name for t in item.members}
+            members = {type_identity_key(t) for t in item.members}
             typegroups[item.name] = members
 
         elif isinstance(item, SigDecl):
@@ -274,7 +275,7 @@ def build_symbols(prog: Program) -> Symbols:
             
         elif isinstance(item, RegisterDecl):
 
-            t = item.typ.name
+            t = type_identity_key(item.typ)
             g = item.guarantee
 
             # guarantee の宣言がある前提（core注入 or catalog）
@@ -295,7 +296,7 @@ def build_symbols(prog: Program) -> Symbols:
             type_guarantees.setdefault(t, set()).add(g)
 
         elif isinstance(item, ImplDecl):
-            t = item.typ.name
+            t = type_identity_key(item.typ)
             g = item.guarantee
 
             # impl is also a registration

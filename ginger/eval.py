@@ -2,6 +2,7 @@ from typing import Dict, Optional, Any
 from dataclasses import dataclass, replace
 from contextvars import ContextVar
 from .ast import TypeRef
+from .type_identity import type_identity_key
 from .numeric import widen_value
 from .symbols_builder import build_symbols, normalize_types, ResolvedCall, instantiated_signature_failures
 from .typecheck import typecheck_program, resolve_typeref
@@ -341,7 +342,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                            and r.guarantee_name == resolved.deferred_guarantee)
         selected_type = resolved.type_bindings[requirement.type_var]
         resolved = replace(resolved, implementation=syms.impls.get(
-            (selected_type.name, resolved.deferred_guarantee, resolved.deferred_method)))
+            (type_identity_key(selected_type), resolved.deferred_guarantee, resolved.deferred_method)))
     args = [widen_value(value, actual, parameter)
             for value, actual, parameter in zip(args, actual_types, resolved.parameter_types)]
 
