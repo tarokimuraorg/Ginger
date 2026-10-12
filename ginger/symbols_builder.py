@@ -58,6 +58,22 @@ def _is_typevar(name: str) -> bool:
     # T, Uのような1文字大文字を型変数扱い
     return len(name) == 1 and name.isupper()
 
+def _collect_inferable_param_typevars(sig: SigDecl) -> set[str]:
+    """Collect current argument-inference sources, excluding returns and contracts."""
+    variables: set[str] = set()
+
+    def collect(typ: TypeRef) -> None:
+        if _is_typevar(typ.name):
+            variables.add(typ.name)
+            # Like collect_type_evidence, bind the whole type at a variable.
+            return
+        for arg in typ.args:
+            collect(arg)
+
+    for typ in sig.params:
+        collect(typ)
+    return variables
+
 def _same_type(a: TypeRef, b: TypeRef) -> bool:
     """Compare normalized types, including recursive arguments and latent contracts."""
     if a.latent_failures != b.latent_failures:
@@ -320,7 +336,13 @@ def _validate_catalog(syms: Symbols) -> None:
     # Reference validity is independent of use, dispatch, and satisfaction.
     # All source and prelude declarations have been collected and normalized.
     for name, sig in syms.sigs.items():
+        inferable_typevars = _collect_inferable_param_typevars(sig)
         for requirement in sig.requires:
+            if requirement.type_var not in inferable_typevars:
+                raise TypecheckError(
+                    f"requirement type variable '{requirement.type_var}' is not inferable "
+                    f"from parameters of function '{name}'"
+                )
             if isinstance(requirement, RequireGuarantees):
                 if requirement.guarantee_name not in syms.guarantees:
                     raise TypecheckError(
