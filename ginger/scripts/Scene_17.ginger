@@ -1,5 +1,6 @@
 sig broken(Float) -> Float {
     failure DivideByZero
+    failure FloatOverflow
 }
 
 func broken(x: Float) {

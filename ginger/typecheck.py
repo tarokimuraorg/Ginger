@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from typing import Dict, Optional
 from .errors import TypecheckError
@@ -348,6 +349,8 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         return t
 
     if isinstance(expr, FloatLit):
+        if not math.isfinite(expr.value):
+            raise TypecheckError("Float literal must be finite")
         
         t = TypeRef("Float")
 

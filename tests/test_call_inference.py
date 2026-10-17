@@ -19,6 +19,7 @@ from ginger.typecheck import effect_expr, reconcile_type_evidence, typecheck_pro
 IDENTITY = 'sig identity(T) -> T {}\nfunc identity(x: T) { return x }\n'
 FIRST = 'sig first(T,T) -> T {}\nfunc first(a: T,b: T) { return a }\n'
 OVERFLOW = failures(FailureId.IntegerOverflow)
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
 
 
 class CallInferenceTests(unittest.TestCase):
@@ -47,9 +48,9 @@ class CallInferenceTests(unittest.TestCase):
 
     def test_print_without_expected_type(self):
         for expr, expected, effects in [('add(1,2)', '3\n', OVERFLOW),
-                                        ('add(1.0,2.0)', '3.0\n', EMPTY_FAILURES),
-                                        ('add(1,2.0)', '3.0\n', EMPTY_FAILURES),
-                                        ('add(1.0,2)', '3.0\n', EMPTY_FAILURES),
+                                        ('add(1.0,2.0)', '3.0\n', FLOAT_OVERFLOW),
+                                        ('add(1,2.0)', '3.0\n', FLOAT_OVERFLOW),
+                                        ('add(1.0,2)', '3.0\n', FLOAT_OVERFLOW),
                                         ('neg(1)', '-1\n', EMPTY_FAILURES),
                                         ('neg(1.0)', '-1.0\n', EMPTY_FAILURES),
                                         ('(-1)', '-1\n', EMPTY_FAILURES)]:
@@ -70,8 +71,8 @@ class CallInferenceTests(unittest.TestCase):
                     self.assertEqual(resolution.type_bindings, {'T': TypeRef('Float')})
                     self.assertEqual(resolution.parameter_types, (TypeRef('Float'),) * 2)
                     self.assertEqual(resolution.implementation, f'core.float.{op}')
-                    self.assertEqual(effect_expr(call, bindings, syms), EMPTY_FAILURES)
-                    self.assertEqual(diags.items, [])
+                    self.assertEqual(effect_expr(call, bindings, syms), FLOAT_OVERFLOW)
+                    self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
                     seen = []
                     original = BUILTINS[f'core.float.{op}']
                     def inspect(a, b):
@@ -196,13 +197,13 @@ class CallInferenceTests(unittest.TestCase):
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '999\n')
         for args in ['1.0,2.0', '1,2.0', '1.0,2']:
-            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred failures'):
+            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred'):
                 checked(f'var x: Float = add({args})\n'
                         'resolve x { IntegerOverflow { x = 0\nprint(999) } }')
         program, syms, bindings, _ = self.annotated('print(add(add(1,2),3.0))')
         outer = program.items[0].expr.args[0].expr
         self.assertEqual(syms.resolved_calls[id(outer)].implementation, 'core.float.add')
-        self.assertEqual(effect_expr(outer, bindings, syms), OVERFLOW)
+        self.assertEqual(effect_expr(outer, bindings, syms), OVERFLOW | FLOAT_OVERFLOW)
 
     def test_returns_and_function_upper_bounds(self):
         body = 'func f() { return add(1,2) }\n'
@@ -210,11 +211,11 @@ class CallInferenceTests(unittest.TestCase):
         self.assertEqual(output(checked(source + 'print(f())')[0]), '3.0\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
             checked('sig f() -> Float {}\n' + body)
-        source = 'sig f() -> Float {}\nfunc f() { return add(1,2.0) }\nprint(f())'
+        source = 'sig f() -> Float { failure FloatOverflow }\nfunc f() { return add(1,2.0) }\nprint(f())'
         self.assertEqual(output(checked(source)[0]), '3.0\n')
 
     def test_local_initializer_preserves_call_type_before_widening(self):
-        source = ('sig f() -> Float { failure IntegerOverflow }\n'
+        source = ('sig f() -> Float { failure IntegerOverflow failure FloatOverflow }\n'
                   'func f() { var y: Float = add(1,2)\ny = add(1,2.0)\nreturn y }\nprint(f())')
         program, syms, _, _ = self.annotated(source)
         body = syms.funcs['f'].body.stmts
@@ -224,10 +225,10 @@ class CallInferenceTests(unittest.TestCase):
 
     def test_thunk_latent_effect_uses_selected_implementation(self):
         source = ('let a: Thunk[Int]<IntegerOverflow> = thunk(add(1,2))\n'
-                  'let b: Thunk[Float]<Never> = thunk(add(1,2.0))\n')
+                  'let b: Thunk[Float]<FloatOverflow> = thunk(add(1,2.0))\n')
         program, _, bindings, diags = self.annotated(source)
         self.assertEqual(bindings['a'].ty.latent_failures, OVERFLOW)
-        self.assertEqual(bindings['b'].ty.latent_failures, EMPTY_FAILURES)
+        self.assertEqual(bindings['b'].ty.latent_failures, FLOAT_OVERFLOW)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
@@ -248,6 +249,6 @@ class CallInferenceTests(unittest.TestCase):
             checked(source.replace('choose(1i64,2.0)', 'choose(1.0,2i64)'))
 
     def test_generic_body_uses_declared_guarantee(self):
-        program, _ = checked('sig twice(T) -> T { require T guarantees Addable failure IntegerOverflow }\n'
+        program, _ = checked('sig twice(T) -> T { require T guarantees Addable failure IntegerOverflow failure FloatOverflow }\n'
                              'func twice(x: T) { return add(x,x) }\nprint(twice(2))')
         self.assertEqual(output(program), '4\n')

@@ -28,7 +28,7 @@ class ContractViolationTests(unittest.TestCase):
                     syms.sig_failures[name] = EMPTY_FAILURES
                     return original(name, args, syms, env, resolved)
                 with patch('ginger.eval.eval_user_func', side_effect=stale), self.assertRaises(FailureContractViolation) as caught:
-                    self.execute(f'sig f() -> {typ} {{ failure DivideByZero }}\n'
+                    self.execute(f'sig f() -> {typ} {{ failure DivideByZero failure FloatOverflow }}\n'
                                  f'func f() {{ {body} }}\nlet result: {typ} = f()\nprint(99)', context)
                 v = caught.exception
                 self.assertEqual((v.event_id, v.violating_call_id, v.violating_function_or_builtin), (1, 2, 'f'))
@@ -39,8 +39,8 @@ class ContractViolationTests(unittest.TestCase):
                 self.assertIsNone(context.current_call_id)
 
     def test_nested_contracts_checked_at_each_responsible_function(self):
-        source = ('sig a() -> Float { failure DivideByZero }\n'
-                  'sig b() -> Float { failure DivideByZero }\n'
+        source = ('sig a() -> Float { failure DivideByZero failure FloatOverflow }\n'
+                  'sig b() -> Float { failure DivideByZero failure FloatOverflow }\n'
                   'func a() { return b() }\nfunc b() { return div(1.0,0.0) }\nlet result: Float = a()')
         for missing in ('a', 'b', None):
             with self.subTest(missing=missing):

@@ -1,5 +1,6 @@
 failureset CalculationFailure {
     DivideByZero
+    FloatOverflow
     IOErr
 }
 
@@ -16,6 +17,9 @@ var result: Float = calculate()
 resolve result {
     
     DivideByZero {
+        result = 0
+    }
+    FloatOverflow {
         result = 0
     }
     IOErr {

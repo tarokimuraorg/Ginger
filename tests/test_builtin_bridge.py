@@ -169,7 +169,7 @@ class BuiltinBridgeTests(unittest.TestCase):
         self.assertEqual([e.failure_id for e in self.context.failure_history], [FailureId.IOErr])
 
     def test_user_functions_have_child_frame_without_duplicate_registration(self):
-        self.run_source('sig f() -> Float { failure DivideByZero }\n'
+        self.run_source('sig f() -> Float { failure DivideByZero failure FloatOverflow }\n'
                         'func f() { return div(1.0,0.0) }\nprint(f())')
         self.assertEqual(len(self.context.call_frames), 2)
         self.assertEqual(len(self.context.failure_history), 1)

@@ -49,7 +49,7 @@ class FailureContractTests(unittest.TestCase):
         for failures in ("", "failure Never", "failure IOErr"):
             with self.subTest(failures=failures):
                 checked(f"sig f() -> Unit {{ {failures} }}\nfunc f() {{}}")
-        for failures in ("failure DivideByZero", "failure IOErr failure DivideByZero"):
+        for failures in ("failure DivideByZero failure FloatOverflow", "failure IOErr failure DivideByZero failure FloatOverflow"):
             with self.subTest(failures=failures):
                 checked(f"sig f() -> Float {{ {failures} }}\n"
                         "func f() { return div(1.0, 0.0) }")
@@ -63,30 +63,30 @@ class FailureContractTests(unittest.TestCase):
         for ret, body in bodies:
             with self.subTest(body=body):
                 with self.assertRaisesRegex(TypecheckError,
-                        "undeclared failures: DivideByZero; declared failures: Never"):
+                        "undeclared failures: DivideByZero, FloatOverflow; declared failures: Never"):
                     checked(f"sig f() -> {ret} {{}}\nfunc f() {{ {body} }}")
 
     def test_multiple_missing_and_declared_order(self):
         source = """
-sig risky() -> Unit { failure PrintErr failure DivideByZero failure IOErr }
+sig risky() -> Unit { failure PrintErr failure DivideByZero failure FloatOverflow failure IOErr }
 func risky() {}
 sig f() -> Unit { failure TimeErr failure IOErr }
 func f() { risky() }
 """
         with self.assertRaisesRegex(TypecheckError,
-                "undeclared failures: DivideByZero, PrintErr; declared failures: IOErr, TimeErr"):
+                "undeclared failures: DivideByZero, FloatOverflow, PrintErr; declared failures: IOErr, TimeErr"):
             checked(source)
 
     def test_user_call_propagation(self):
         source = """
-sig g() -> Float { failure DivideByZero }
+sig g() -> Float { failure DivideByZero failure FloatOverflow }
 func g() { return div(1.0, 0.0) }
 sig f() -> Unit { %s }
 func f() { print(g()) }
 """
         with self.assertRaisesRegex(TypecheckError, "func 'f'.*DivideByZero"):
             checked(source % "")
-        checked(source % "failure DivideByZero")
+        checked(source % "failure DivideByZero failure FloatOverflow")
 
     def test_unreachable_effects_but_not_types_are_ignored(self):
         checked("sig f() -> Unit {}\nfunc f() { return print(1)\nprint(div(1.0,0.0)) }")
@@ -140,7 +140,7 @@ func g() { f() }
 
     def test_standard_div_contract(self):
         self.assertEqual(build_symbols(parse("")).sig_failures["div"],
-                         frozenset({FailureId.DivideByZero}))
+                         frozenset({FailureId.DivideByZero, FailureId.FloatOverflow}))
 
     def test_handled_is_rejected_on_sig_func_and_builtin(self):
         sources = [
@@ -172,9 +172,9 @@ func g() { f() }
         prefix = "sig h() -> Unit {}\nfunc h() {}\n"
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):
             checked(prefix + "sig f() -> Unit {}\nfunc f() { h()\nprint(div(1.0,0.0)) }")
-        prefix = ("sig h() -> Unit { failure DivideByZero }\n"
+        prefix = ("sig h() -> Unit { failure DivideByZero failure FloatOverflow }\n"
                   "func h() { print(div(1.0,0.0)) }\n"
-                  "sig middle() -> Unit { failure DivideByZero }\nfunc middle() { h() }\n")
+                  "sig middle() -> Unit { failure DivideByZero failure FloatOverflow }\nfunc middle() { h() }\n")
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):
             checked(prefix + "sig caller() -> Unit {}\nfunc caller() { middle() }")
         program, diags = checked(prefix + "middle()\nprint(3)")
@@ -206,13 +206,13 @@ func g() { f() }
             self.assertEqual(output(program), '0\n')
 
     def test_thunk_contract_validation_and_saved_force(self):
-        _, diags = checked("sig f(Thunk[Float]<DivideByZero>) -> Float { failure DivideByZero }\n"
-                           "func f(t: Thunk[Float]<DivideByZero>) { return force(t) }")
+        _, diags = checked("sig f(Thunk[Float]<DivideByZero, FloatOverflow>) -> Float { failure DivideByZero failure FloatOverflow }\n"
+                           "func f(t: Thunk[Float]<DivideByZero, FloatOverflow>) { return force(t) }")
         self.assertEqual(diags.items, [])
-        program, diags = checked("var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n"
+        program, diags = checked("var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n"
                                  "var x: Float = force(t)\n"
                                  "resolve x { DivideByZero { x = 0\nprint(0) } }")
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), "0\n")
 
     def test_thunk_return_type_still_checked(self):
@@ -264,9 +264,9 @@ class ExistingRegressionTests(unittest.TestCase):
     def test_samples_outputs_and_warnings(self):
         expected = {
             "Scene_1": ("9\n4.5\n-9\n", ["unhandled failures: IntegerOverflow"] * 2
-                        + ["unhandled failures: DivideByZero"]),
+                        + ["unhandled failures: DivideByZero, FloatOverflow"]),
             "Scene_2": ("2.0\n", []),
-            "Scene_3": ("-1\n0.0\n", []),
+            "Scene_3": ("-1\n0.0\n", ["unhandled failures: FloatOverflow"]),
             "Scene_4": ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
         }
         root = Path(__file__).resolve().parents[1] / "ginger" / "scripts"

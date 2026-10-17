@@ -14,10 +14,12 @@ from ginger.pipeline import run
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import Binding, effect_expr, typecheck_program
 
-OVERFLOW = failures(FailureId.IntegerOverflow)
+INT_OVERFLOW = failures(FailureId.IntegerOverflow)
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
+OVERFLOW = INT_OVERFLOW | FLOAT_OVERFLOW
 
 
-def addition(body, *, requires='require T guarantees Addable', contract='failure IntegerOverflow'):
+def addition(body, *, requires='require T guarantees Addable', contract='failure IntegerOverflow failure FloatOverflow'):
     return (f'sig addTwo(T,T) -> T {{ {requires} {contract} }}\n'
             f'func addTwo(a: T,b: T) {{ return {body} }}\n')
 
@@ -37,7 +39,9 @@ class GenericGuaranteeTests(unittest.TestCase):
                 for conditional in [False, True]:
                     contract = 'failure IntegerOverflow'
                     if conditional:
-                        contract += ' when T guarantees BoundedArithmetic'
+                        contract += ' when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic'
+                    else:
+                        contract += ' failure FloatOverflow'
                     for typ, args, expected in [('Int', '1,2', '3\n'),
                                                 ('Float', '1.0,2.0', '3.0\n'),
                                                 ('Int64', '1i64,2i64', None)]:
@@ -52,12 +56,11 @@ class GenericGuaranteeTests(unittest.TestCase):
                                 result = run(source)
                             self.assertEqual(stdout.getvalue(), expected)
                             self.assertIsNone(result.contract_violation)
-                            effect = EMPTY_FAILURES if conditional and typ == 'Float' else OVERFLOW
+                            effect = (FLOAT_OVERFLOW if typ == 'Float' else INT_OVERFLOW) if conditional else OVERFLOW
                             frame, = [f for f in result.call_frames.values()
                                       if f.function_name == 'addTwo']
                             self.assertEqual(frame.declared_failure_contract, effect)
-                            warning = ('warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow\n'
-                                       if effect else '')
+                            warning = 'warning[UNHANDLED_FAILURES]: unhandled failures: ' + ', '.join(sorted(f.value for f in effect)) + '\n'
                             self.assertEqual(stderr.getvalue(), warning)
                     with self.subTest(body=body, conditional=conditional, requires=False):
                         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
@@ -99,7 +102,7 @@ class GenericGuaranteeTests(unittest.TestCase):
     def test_symbolic_add_failure_upper_bound(self):
         for body in ['add(a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
-                    TypecheckError, 'undeclared failures: IntegerOverflow'):
+                    TypecheckError, 'undeclared failures: .*IntegerOverflow'):
                 checked(addition(body, contract='failure Never'))
 
     def test_explicit_and_lowered_infix_share_symbolic_resolution(self):
@@ -136,7 +139,7 @@ class GenericGuaranteeTests(unittest.TestCase):
                 addition(body) + 'var x: Float = addTwo(1.0,2.0)')
             self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), OVERFLOW)
             self.assertEqual(bindings['x'].initializer_failures, OVERFLOW)
-            self.assertEqual([d.message for d in diags], ['unhandled failures: IntegerOverflow'])
+            self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, IntegerOverflow'])
 
     def test_negatable_capability_and_unary_sugar(self):
         for body in ['neg(x)', '(-x)']:
@@ -178,7 +181,7 @@ class GenericGuaranteeTests(unittest.TestCase):
 
     def test_nested_generic_substitution_and_frame_bindings(self):
         source = (addition('(a + b)') +
-                    'sig relay(U,U) -> U { require U guarantees Addable failure IntegerOverflow }\n'
+                    'sig relay(U,U) -> U { require U guarantees Addable failure IntegerOverflow failure FloatOverflow }\n'
                     'func relay(a: U,b: U) { return addTwo(a,b) }\n'
                     'print(relay(1,2))\nprint(relay(1.0,2.0))')
         program, syms, _, _ = self.annotated(source)
@@ -205,11 +208,11 @@ class GenericGuaranteeTests(unittest.TestCase):
     def test_nested_caller_needs_its_own_capability(self):
         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
             checked(addition('add(a,b)') +
-                    'sig relay(U,U) -> U { failure IntegerOverflow }\n'
+                    'sig relay(U,U) -> U { failure IntegerOverflow failure FloatOverflow }\n'
                     'func relay(a: U,b: U) { return addTwo(a,b) }')
 
     def test_thunk_captures_generic_dispatch_binding(self):
-        source = ('sig delayed(T,T) -> Thunk[T]<IntegerOverflow> { require T guarantees Addable }\n'
+        source = ('sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow> { require T guarantees Addable }\n'
                     'func delayed(a: T,b: T) { return thunk((a + b)) }\n'
                     'print(force(delayed(1,2)))\nprint(force(delayed(1.0,2.0)))')
         self.assertEqual(output(checked(source)[0]), '3\n3.0\n')

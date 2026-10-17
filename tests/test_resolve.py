@@ -17,7 +17,7 @@ from test_failure_contract import checked, recorded
 
 OVERFLOW = 'var x: Int = add(9007199254740991,1)\n'
 DIVISION = 'var x: Float = div(1.0,0.0)\n'
-TWO_FAILURES = ('sig risky() -> Float { failure IntegerOverflow failure DivideByZero }\n'
+THREE_FAILURES = ('sig risky() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow }\n'
                 'func risky() { return div(1.0,0.0) }\n'
                 'var x: Float = risky()\n')
 
@@ -81,7 +81,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_initialized_unit_value_with_pending_failure_is_no_op(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Unit { failure DivideByZero }\n'
+            'sig f() -> Unit { failure DivideByZero failure FloatOverflow }\n'
             'func f() { print(div(1.0,0.0)) }\nvar x: Unit = f()\n'
             'resolve x { DivideByZero { x = print(999) } }\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -143,7 +143,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(context.unresolved_pending(1), (1,))
 
     def test_failed_return_cause_excludes_earlier_failed_statement(self):
-        prefix = ('sig f() -> Float { failure IntegerOverflow failure DivideByZero }\n'
+        prefix = ('sig f() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow }\n'
                   'func f() { print(add(9007199254740991,1))\nreturn div(1.0,0.0) }\n'
                   'var x: Float = f()\n')
         env, _, _ = self.run_source(prefix)
@@ -157,7 +157,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, (result.failure_history[0],))
 
     def test_failed_argument_cause_excludes_successful_argument_pending_events(self):
-        prefix = ('sig f() -> Int { failure DivideByZero }\n'
+        prefix = ('sig f() -> Int { failure DivideByZero failure FloatOverflow }\n'
                   'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
                   'var x: Int = add(f(),add(9007199254740991,1))\n')
         env, _, _ = self.run_source(prefix)
@@ -171,7 +171,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, (result.failure_history[0],))
 
     def test_unmatched_actual_failure_does_nothing(self):
-        env, context, stdout = self.run_source(TWO_FAILURES +
+        env, context, stdout = self.run_source(THREE_FAILURES +
             'resolve x { IntegerOverflow { x = 0\nprint(999) } }\nprint(3)')
         self.assertEqual(stdout, '3\n')
         self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
@@ -180,7 +180,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(event.status, FailureStatus.UNRESOLVED)
 
     def test_only_matching_handler_runs(self):
-        result, stdout = self.public_result(TWO_FAILURES +
+        result, stdout = self.public_result(THREE_FAILURES +
             'resolve x {\nIntegerOverflow { print(999)\nx = 0 }\n'
             'DivideByZero { print(2)\nx = 1 }\n}\nprint(x)')
         self.assertEqual(stdout, '2\n1.0\n')
@@ -263,14 +263,15 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, result.failure_history)
 
     def test_partial_resolve_leaves_only_other_initializer_warning(self):
-        self.assertEqual(self.warning_messages(TWO_FAILURES +
+        self.assertEqual(self.warning_messages(THREE_FAILURES +
             'resolve x { IntegerOverflow { x = 0 } }'),
-            ['unhandled failures: DivideByZero'])
+            ['unhandled failures: DivideByZero, FloatOverflow'])
 
     def test_multiple_resolve_statements_combine_initializer_coverage(self):
-        self.assertEqual(self.warning_messages(TWO_FAILURES +
+        self.assertEqual(self.warning_messages(THREE_FAILURES +
             'resolve x { IntegerOverflow { x = 0 } }\n'
-            'resolve x { DivideByZero { x = 1 } }'), [])
+            'resolve x { DivideByZero { x = 1 } }\n'
+            'resolve x { FloatOverflow { x = 2 } }'), [])
 
     def test_resolve_warning_removal_is_limited_to_target_binding(self):
         self.assertEqual(self.warning_messages(OVERFLOW +
@@ -291,10 +292,11 @@ class ResolveTests(unittest.TestCase):
             ['unhandled failures: IntegerOverflow'])
 
     def test_all_handler_effects_remain_in_static_failures(self):
-        self.assertEqual(self.warning_messages(TWO_FAILURES +
+        self.assertEqual(self.warning_messages(THREE_FAILURES +
             'resolve x { IntegerOverflow { print(div(2.0,0.0))\nx = 0 }\n'
             'DivideByZero { print(add(9007199254740991,1))\nx = 1 } }'),
-            ['unhandled failures: DivideByZero', 'unhandled failures: IntegerOverflow'])
+            ['unhandled failures: FloatOverflow', 'unhandled failures: DivideByZero, FloatOverflow',
+             'unhandled failures: IntegerOverflow'])
 
     def test_handler_new_failure_keeps_original_unresolved_and_records_cause(self):
         source = ('sig ioFail() -> Int { failure IOErr builtin test.ioFail }\n' +
@@ -352,19 +354,19 @@ class ResolveTests(unittest.TestCase):
 
     def test_force_failure_can_be_resolved_from_initializer_binding(self):
         result, stdout = self.public_result(
-            'var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
+            'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nresolve x { DivideByZero { x = 0 } }\nprint(x)')
         self.assertEqual(stdout, '0.0\n')
         self.assertEqual(result.environment['x'].value, 0.0)
         self.assertIsInstance(result.environment['t'].value, ThunkValue)
         self.assertEqual(result.environment['t'].value.potential_failure_contract,
-                         frozenset({FailureId.DivideByZero}))
+                         frozenset({FailureId.DivideByZero, FailureId.FloatOverflow}))
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(result.unresolved_events, ())
 
     def test_repeated_force_produces_distinct_binding_causes(self):
         result, _ = self.public_result(
-            'var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
+            'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nvar y: Float = force(t)\n'
             'resolve x { DivideByZero { x = 0 } }')
         self.assertEqual([e.event_id for e in result.failure_history], [1, 2])

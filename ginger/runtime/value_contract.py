@@ -1,5 +1,6 @@
-"""Phase 1 builtin value contracts; all other TypeRefs remain opaque."""
+"""Builtin value contracts; all other TypeRefs remain opaque."""
 
+import math
 from dataclasses import dataclass
 
 from ginger.ast import TypeRef
@@ -74,6 +75,8 @@ def validate_builtin_return(value, return_type: TypeRef, *, implementation, call
         expected = {'Float': float, 'Bool': bool, 'Unit': type(None)}[return_type.name]
         if type(value) is not expected:
             reason = 'wrong_python_type'
+        elif return_type == TypeRef('Float') and not math.isfinite(value):
+            reason = 'non_finite'
     elif return_type == TypeRef('Ordering'):
         if type(value) is not tuple:
             reason = 'wrong_python_type'

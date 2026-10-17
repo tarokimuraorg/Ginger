@@ -22,8 +22,11 @@ from ginger.typecheck import Binding, effect_expr, symbolic_effect_expr, typeche
 
 OVERFLOW = failures(FailureId.IntegerOverflow)
 BOUNDED_OVERFLOW = ConditionalFailure(FailureId.IntegerOverflow, 'T', 'BoundedArithmetic')
-CONDITIONAL_OVERFLOW = FailureContract(EMPTY_FAILURES, frozenset({BOUNDED_OVERFLOW}))
-CONDITION = 'failure IntegerOverflow when T guarantees BoundedArithmetic'
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
+FINITE_OVERFLOW = ConditionalFailure(FailureId.FloatOverflow, 'T', 'FiniteArithmetic')
+CONDITIONAL_OVERFLOW = FailureContract(EMPTY_FAILURES, frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
+CONDITION = ('failure IntegerOverflow when T guarantees BoundedArithmetic '
+             'failure FloatOverflow when T guarantees FiniteArithmetic')
 
 
 def addition(body='add(a,b)', *, requires='require T guarantees Addable', contract=CONDITION):
@@ -50,7 +53,7 @@ class ConditionalFailureTests(unittest.TestCase):
     def test_explicit_and_infix_generic_add_specialize_int_and_float(self):
         for body in ['add(a,b)', '(a + b)']:
             for typ, args, expected, effect in [('Int', '1,2', '3\n', OVERFLOW),
-                                                ('Float', '1.0,2.0', '3.0\n', EMPTY_FAILURES)]:
+                                                ('Float', '1.0,2.0', '3.0\n', FLOAT_OVERFLOW)]:
                 with self.subTest(body=body, typ=typ):
                     program, syms, env, _ = self.annotated(
                         addition(body) + f'var x: {typ} = addTwo({args})\nprint(x)')
@@ -75,7 +78,7 @@ class ConditionalFailureTests(unittest.TestCase):
     def test_unhandled_warnings_use_concrete_contract(self):
         for body in ['add(a,b)', '(a + b)']:
             for args, expected in [('1,2', ['unhandled failures: IntegerOverflow']),
-                                   ('1.0,2.0', [])]:
+                                   ('1.0,2.0', ['unhandled failures: FloatOverflow'])]:
                 with self.subTest(body=body, args=args):
                     _, diagnostics = checked(addition(body) + f'print(addTwo({args}))')
                     self.assertEqual([d.message for d in diagnostics], expected)
@@ -85,7 +88,7 @@ class ConditionalFailureTests(unittest.TestCase):
         for body in ['add(a,b)', '(a + b)']:
             _, syms, _, _ = self.annotated(addition(body))
             self.assertEqual(syms.sig_failures['addTwo'], EMPTY_FAILURES)
-            self.assertEqual(syms.sig_conditional_failures['addTwo'], frozenset({BOUNDED_OVERFLOW}))
+            self.assertEqual(syms.sig_conditional_failures['addTwo'], frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
             call = syms.funcs['addTwo'].body.stmts[0].expr
             env = {'a': Binding(TypeRef('T'), False), 'b': Binding(TypeRef('T'), False)}
             contract = symbolic_effect_expr(call, env, syms)
@@ -124,7 +127,7 @@ class ConditionalFailureTests(unittest.TestCase):
     def test_float_resolve_rejected_for_absent_conditional_effect(self):
         for body in ['add(a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
-                    TypecheckError, 'initializer.*no declared or inferred failures'):
+                    TypecheckError, 'initializer.*no declared or inferred'):
                 checked(addition(body) + 'var x: Float = addTwo(1.0,2.0)\n'
                         'resolve x { IntegerOverflow { x = 0 } }')
 
@@ -134,7 +137,7 @@ class ConditionalFailureTests(unittest.TestCase):
         result = eval_program(program)
         frames = list(result.call_frames.values())[1:]
         self.assertEqual([f.function_name for f in frames], ['addTwo', 'addTwo'])
-        self.assertEqual([f.declared_failure_contract for f in frames], [OVERFLOW, EMPTY_FAILURES])
+        self.assertEqual([f.declared_failure_contract for f in frames], [OVERFLOW, FLOAT_OVERFLOW])
         self.assertEqual([dict(f.type_bindings) for f in frames],
                          [{'T': TypeRef('Int')}, {'T': TypeRef('Float')}])
         self.assertTrue(all(isinstance(f.declared_failure_contract, frozenset) for f in frames))
@@ -142,10 +145,10 @@ class ConditionalFailureTests(unittest.TestCase):
     def test_thunk_uses_instantiated_latent_failures_and_remains_nonmemoized(self):
         source = (addition('(a + b)') +
                   f'var intThunk: Thunk[Int]<IntegerOverflow> = thunk(addTwo({INT_MAX},1))\n'
-                  'var floatThunk: Thunk[Float]<Never> = thunk(addTwo(1.0,2.0))\n')
+                  'var floatThunk: Thunk[Float]<FloatOverflow> = thunk(addTwo(1.0,2.0))\n')
         program, syms, env, diagnostics = self.annotated(source)
         self.assertEqual(env['intThunk'].ty.latent_failures, OVERFLOW)
-        self.assertEqual(env['floatThunk'].ty.latent_failures, EMPTY_FAILURES)
+        self.assertEqual(env['floatThunk'].ty.latent_failures, FLOAT_OVERFLOW)
         self.assertEqual(effect_expr(program.items[-2].expr, env, syms), EMPTY_FAILURES)
         self.assertEqual(diagnostics.items, [])
         program, _ = checked(source + 'print(force(floatThunk))\n'
@@ -167,7 +170,7 @@ class ConditionalFailureTests(unittest.TestCase):
             latent = syms.expression_types[id(thunk)]
             self.assertEqual(latent.args, (TypeRef('T'),))
             self.assertEqual(latent.latent_failures, EMPTY_FAILURES)
-            self.assertEqual(latent.latent_conditions, frozenset({BOUNDED_OVERFLOW}))
+            self.assertEqual(latent.latent_conditions, frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
             env = {'a': Binding(TypeRef('T'), False), 'b': Binding(TypeRef('T'), False)}
             self.assertEqual(symbolic_effect_expr(force, env, syms), CONDITIONAL_OVERFLOW)
             self.assertEqual(symbolic_effect_expr(thunk, env, syms), FailureContract())
@@ -183,17 +186,17 @@ class ConditionalFailureTests(unittest.TestCase):
             self.assertIsInstance(result.environment['x'], UninitializedBinding)
             self.assertEqual(result.environment['y'].value, 3.0)
             self.assertEqual([event.failure_id for event in result.failure_history], [FailureId.IntegerOverflow])
-            self.assertEqual([thunk.potential_failure_contract for thunk in created], [OVERFLOW, EMPTY_FAILURES])
+            self.assertEqual([thunk.potential_failure_contract for thunk in created], [OVERFLOW, FLOAT_OVERFLOW])
             self.assertTrue(all(isinstance(thunk, ThunkValue) for thunk in created))
             self.assertTrue(all(isinstance(thunk.potential_failure_contract, frozenset) for thunk in created))
             self.assertEqual([f.declared_failure_contract for f in list(result.call_frames.values())[1:]],
-                             [OVERFLOW, EMPTY_FAILURES])
+                             [OVERFLOW, FLOAT_OVERFLOW])
             with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
                 checked(addition(body, contract='failure Never'))
 
     def test_nested_generic_condition_substitutes_u_to_t(self):
         source = ('sig inner(U,U) -> U { require U guarantees Addable '
-                  'failure IntegerOverflow when U guarantees BoundedArithmetic }\n'
+                  'failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic }\n'
                   'func inner(a: U,b: U) { return (a + b) }\n'
                   'sig outer(T,T) -> T { require T guarantees Addable ' + CONDITION + ' }\n'
                   'func outer(a: T,b: T) { return inner(a,b) }\n'
@@ -204,32 +207,32 @@ class ConditionalFailureTests(unittest.TestCase):
         generic_env = {'a': Binding(TypeRef('T'), False), 'b': Binding(TypeRef('T'), False)}
         self.assertEqual(symbolic_effect_expr(call, generic_env, syms), CONDITIONAL_OVERFLOW)
         self.assertEqual(effect_expr(program.items[-2].expr, env, syms), OVERFLOW)
-        self.assertEqual(effect_expr(program.items[-1].expr, env, syms), EMPTY_FAILURES)
+        self.assertEqual(effect_expr(program.items[-1].expr, env, syms), FLOAT_OVERFLOW)
         result = eval_program(program)
         self.assertEqual((result.environment['x'].value, result.environment['y'].value), (3, 3.0))
         self.assertEqual([f.declared_failure_contract for f in list(result.call_frames.values())[1:]],
-                         [OVERFLOW, OVERFLOW, EMPTY_FAILURES, EMPTY_FAILURES])
+                         [OVERFLOW, OVERFLOW, FLOAT_OVERFLOW, FLOAT_OVERFLOW])
 
     def test_different_guarantee_or_typevar_does_not_cover_condition(self):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
             checked(addition(contract='failure IntegerOverflow when T guarantees Printable'))
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
             checked('sig f(T,U) -> T { require T guarantees Addable '
-                    'failure IntegerOverflow when U guarantees BoundedArithmetic }\n'
+                    'failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic }\n'
                     'func f(a: T,b: U) { return add(a,a) }')
 
     def test_unconditional_declared_failure_covers_conditional_effect(self):
         for body in ['add(a,b)', '(a + b)']:
             program, syms, env, _ = self.annotated(
-                addition(body, contract='failure IntegerOverflow') +
+                addition(body, contract='failure IntegerOverflow failure FloatOverflow') +
                 'var x: Int = addTwo(1,2)\nvar y: Float = addTwo(1.0,2.0)')
-            self.assertEqual(effect_expr(program.items[-2].expr, env, syms), OVERFLOW)
-            self.assertEqual(effect_expr(program.items[-1].expr, env, syms), OVERFLOW)
+            self.assertEqual(effect_expr(program.items[-2].expr, env, syms), OVERFLOW | FLOAT_OVERFLOW)
+            self.assertEqual(effect_expr(program.items[-1].expr, env, syms), OVERFLOW | FLOAT_OVERFLOW)
             self.assertEqual(syms.sig_conditional_failures['addTwo'], frozenset())
 
     def test_conditional_declaration_cannot_cover_unconditional_inferred_failure(self):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures.*DivideByZero'):
-            checked('sig risky(T) -> Float { failure DivideByZero when T guarantees BoundedArithmetic }\n'
+            checked('sig risky(T) -> Float { failure DivideByZero when T guarantees BoundedArithmetic failure FloatOverflow }\n'
                     'func risky(x: T) { return div(1.0,0.0) }')
 
     def test_optional_property_does_not_become_a_call_requirement(self):
@@ -334,7 +337,7 @@ class ConditionalFailureTests(unittest.TestCase):
         for operation in ['add', 'sub', 'mul']:
             with self.subTest(operation=operation):
                 self.assertEqual(syms.sig_failures[operation], EMPTY_FAILURES)
-                self.assertEqual(syms.sig_conditional_failures[operation], frozenset({BOUNDED_OVERFLOW}))
+                self.assertEqual(syms.sig_conditional_failures[operation], frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
 
     def test_standard_explicit_and_infix_arithmetic_share_all_contracts(self):
         operations = [('add', '+', 'Addable', 3), ('sub', '-', 'Subtractable', -1),
@@ -344,7 +347,7 @@ class ConditionalFailureTests(unittest.TestCase):
                 source = (f'sig generic(T,T) -> T {{ require T guarantees {guarantee} {CONDITION} }}\n'
                           f'func generic(a: T,b: T) {{ return {body} }}\n')
                 for typ, args, effect in [('Int', '1,2', OVERFLOW),
-                                         ('Float', '1.0,2.0', EMPTY_FAILURES)]:
+                                         ('Float', '1.0,2.0', FLOAT_OVERFLOW)]:
                     with self.subTest(operation=operation, body=body, typ=typ):
                         program, syms, env, _ = self.annotated(source + f'var x: {typ} = generic({args})')
                         call = syms.funcs['generic'].body.stmts[0].expr
@@ -360,7 +363,7 @@ class ConditionalFailureTests(unittest.TestCase):
                 with self.assertRaisesRegex(TypecheckError, 'does not guarantee ' + guarantee):
                     checked(source.replace(f'require T guarantees {guarantee}', ''))
             for typ, left, right, effect in [('Int', '1', '2', OVERFLOW),
-                                           ('Float', '1.0', '2.0', EMPTY_FAILURES)]:
+                                           ('Float', '1.0', '2.0', FLOAT_OVERFLOW)]:
                 resolutions = []
                 for expression in [f'{operation}({left},{right})', f'({left} {operator} {right})']:
                     program, syms, env, _ = self.annotated(f'var x: {typ} = {expression}')
@@ -403,8 +406,8 @@ class ConditionalFailureTests(unittest.TestCase):
         program, syms, env, diagnostics = self.annotated(source)
         call = program.items[-2].expr
         self.assertEqual(syms.resolved_calls[id(call)].type_bindings, {'T': TypeRef('Float')})
-        self.assertEqual(effect_expr(call, env, syms), OVERFLOW)
-        self.assertEqual(diagnostics.items, [])
+        self.assertEqual(effect_expr(call, env, syms), OVERFLOW | FLOAT_OVERFLOW)
+        self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatOverflow'])
         self.assertEqual(eval_program(program).environment['x'].value, 0.0)
 
 
