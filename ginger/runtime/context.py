@@ -8,6 +8,7 @@ from typing import Mapping
 from ginger.ast import TypeRef
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, FailureSet
 from .failures import FailureEvent, FailureStatus, FailureContractViolation
+from .value_contract import ValueContractViolation
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class RuntimeContext:
     """
 
     def __init__(self):
+        self.last_value_contract_violation: ValueContractViolation | None = None
         self.last_contract_violation: FailureContractViolation | None = None
         self._next_event_id = 1
         self._next_call_id = 1
@@ -69,7 +71,7 @@ class RuntimeContext:
              *, type_bindings: Mapping[str, TypeRef] | None = None):
         """Activate a retained frame and propagate unresolved references to its parent.
 
-        Propagation is skipped for FailureContractViolation, but not other exceptions.
+        Propagation is skipped for fatal contract violations, but not other exceptions.
         """
         return _CallScope(self, function_name, declared_failure_contract, type_bindings)
 
@@ -203,7 +205,7 @@ class _CallScope:
 
     def __exit__(self, exc_type, exc, traceback):
         try:
-            if self.parent is not None and not isinstance(exc, FailureContractViolation):
+            if self.parent is not None and not isinstance(exc, (FailureContractViolation, ValueContractViolation)):
                 for event_id in self.context.unresolved_pending(self.frame.call_id):
                     self.context.add_pending(self.parent, event_id)
         finally:

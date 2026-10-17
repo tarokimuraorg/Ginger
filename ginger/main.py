@@ -10,6 +10,9 @@ def report_result(result) -> int:
     if result.contract_violation is not None:
         print(result.contract_violation, file=sys.stderr)
         return 1
+    if result.value_contract_violation is not None:
+        print(result.value_contract_violation, file=sys.stderr)
+        return 1
     return 0
 
 

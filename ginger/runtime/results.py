@@ -5,6 +5,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from .failures import FailureEvent, FailureStatus
+from .value_contract import ValueContractViolationSnapshot
 from .context import CallFrame, IncompleteStatement
 from ginger.core.failure_spec import FailureId, FailureSet
 
@@ -69,6 +70,7 @@ class ExecutionResult:
     incomplete_statements: tuple[IncompleteStatement, ...] = ()
     call_frames: Mapping[int, CallFrame] = field(default_factory=dict)
     contract_violation: ContractViolationSnapshot | None = None
+    value_contract_violation: ValueContractViolationSnapshot | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "environment", MappingProxyType(dict(self.environment)))
@@ -79,9 +81,11 @@ class ExecutionResult:
     @classmethod
     def from_context(cls, environment, context):
         violation = context.last_contract_violation
+        value_violation = context.last_value_contract_violation
         return cls(environment, context.failure_history, context.incomplete_statements,
                    context.call_frames,
-                   ContractViolationSnapshot.from_violation(violation) if violation else None)
+                   ContractViolationSnapshot.from_violation(violation) if violation else None,
+                   ValueContractViolationSnapshot.from_violation(value_violation) if value_violation else None)
 
     @property
     def unresolved_events(self) -> tuple[FailureEvent, ...]:

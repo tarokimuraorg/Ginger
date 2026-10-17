@@ -12,6 +12,7 @@ from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
+from ginger.runtime.value_contract import ValueContractViolation
 from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value as ProducedValue
 from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
@@ -97,7 +98,7 @@ def eval_program(prog) -> ExecutionResult:
     environment: Dict[str, Binding] = {}
     try:
         _eval_program_with_context(prog, context, environment)
-    except FailureContractViolation:
+    except (FailureContractViolation, ValueContractViolation):
         # Fatal to Ginger; preserve the stopped execution for the host API.
         pass
     return ExecutionResult.from_context(environment, context)
@@ -358,7 +359,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                                        resolved.implementation,
                                        direct_builtin=sig.builtin is not None)
     context = _active_runtime.get()
-    result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id)
+    result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id,
+                            return_type=resolved.return_type)
     return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
 
 

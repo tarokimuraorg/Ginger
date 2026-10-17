@@ -160,12 +160,15 @@ class IntegerOverflowTests(unittest.TestCase):
             with self.subTest(op=op), self.assertRaises(TypecheckError):
                 checked(f'var x: Int64 = {op}(1i64,2i64)')
 
-    def test_custom_direct_builtin_contract_remains_trusted(self):
+    def test_custom_direct_builtin_return_value_contract_violation(self):
         source = 'sig custom() -> Int { builtin test.custom }\nvar x: Int = custom()'
         with patch.dict(BUILTINS, {'test.custom': lambda: INT_MAX + 1}):
             program, diags = checked(source)
             self.assertEqual(diags.items, [])
-            self.assertEqual(eval_program(program).environment['x'].value, INT_MAX + 1)
+            result = eval_program(program)
+            self.assertEqual(result.value_contract_violation.reason, 'out_of_range')
+            self.assertEqual(result.failure_history, ())
+            self.assertNotIn('x', result.environment)
 
     def test_user_function_override_keeps_catalog_signature_contract(self):
         program, diags = checked('func add(a: T,b: T) { return a }\nvar x: Int = add(1,2)')
