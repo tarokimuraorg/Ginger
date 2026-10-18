@@ -144,9 +144,9 @@ class BuiltinValueContractTests(unittest.TestCase):
                     self.assertIsNone(result.value_contract_violation)
                     self.assertIs(result.environment['result'].value, payload)
 
-    def test_extension_thunk_return_remains_opaque(self):
+    def test_extension_thunk_return_requires_thunk_value(self):
         expr = parse('var x: Int = 1').items[0].expr
-        for payload in [Hostile(), ThunkValue(expr, {}, None, EMPTY_FAILURES)]:
+        for payload in [ThunkValue(expr, {}, None, EMPTY_FAILURES)]:
             with patch.dict(BUILTINS, {'test.value': lambda: payload}):
                 result = self.evaluate('sig make() -> Thunk[Int]<Never> { builtin test.value }\n'
                                        'var x: Thunk[Int]<Never> = make()')

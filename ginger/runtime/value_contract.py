@@ -1,9 +1,10 @@
-"""Builtin value contracts; all other TypeRefs remain opaque."""
+"""Public runtime value contracts; open-world payloads remain opaque."""
 
 import math
 from dataclasses import dataclass
 
 from ginger.ast import TypeRef
+from .thunk import ThunkValue
 from ginger.numeric import INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
 
 
@@ -50,21 +51,27 @@ class ValueContractViolationSnapshot:
 class ValueContractViolation(Exception):
     """Fatal representation error, with no FailureId or FailureEvent."""
 
-    def __init__(self, *, expected_type, value, implementation, reason, call_id):
+    def __init__(self, *, expected_type, value, implementation, reason, call_id, boundary_kind="builtin"):
         self.expected_type = expected_type
         self.actual_python_type = type(value)
         self.actual_value_repr = safe_value_repr(value)
         self.implementation = implementation
         self.reason = reason
         self.violating_call_id = call_id
-        self.boundary_kind = 'builtin'
+        self.boundary_kind = boundary_kind
         super().__init__(str(ValueContractViolationSnapshot.from_violation(self)))
 
 
-def validate_builtin_return(value, return_type: TypeRef, *, implementation, call_id):
+def validate_runtime_value(value, return_type: TypeRef, *, implementation, call_id,
+                           boundary_kind="builtin"):
     """Validate exact standard TypeRefs without converting or retaining the value."""
     reason = None
-    if return_type in (TypeRef('Int'), TypeRef('Int64')):
+    if return_type.name == 'Thunk':
+        if not isinstance(value, ThunkValue):
+            reason = 'wrong_python_type'
+        elif not value.potential_failure_contract <= return_type.latent_failures:
+            reason = 'contract_mismatch'
+    elif return_type in (TypeRef('Int'), TypeRef('Int64')):
         lower, upper = ((INT_MIN, INT_MAX) if return_type == TypeRef('Int')
                         else (INT64_MIN, INT64_MAX))
         if type(value) is not int:
@@ -88,4 +95,9 @@ def validate_builtin_return(value, return_type: TypeRef, *, implementation, call
     if reason is not None:
         raise ValueContractViolation(expected_type=return_type, value=value,
                                      implementation=implementation, reason=reason,
-                                     call_id=call_id)
+                                     call_id=call_id, boundary_kind=boundary_kind)
+
+
+def validate_builtin_return(value, return_type: TypeRef, *, implementation, call_id):
+    """Compatibility entry point for the builtin bridge."""
+    validate_runtime_value(value, return_type, implementation=implementation, call_id=call_id)

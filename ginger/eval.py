@@ -12,7 +12,7 @@ from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
-from ginger.runtime.value_contract import ValueContractViolation
+from ginger.runtime.value_contract import ValueContractViolation, validate_runtime_value
 from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value as ProducedValue
 from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
@@ -315,6 +315,15 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                         violating_function_or_builtin="force",
                         declared_contract=contract, boundary_kind="thunk",
                         event_id=event_id)
+        if isinstance(forced.value_result, ProducedValue):
+            try:
+                validate_runtime_value(
+                    forced.value_result.value, expression_type(expr, env, syms, outer),
+                    implementation="force", call_id=context.current_call_id,
+                    boundary_kind="thunk")
+            except ValueContractViolation as violation:
+                context.last_value_contract_violation = violation
+                raise
         return EvalResult(forced.value_result, tuple(dict.fromkeys(
             (*result.related_event_ids, *forced.related_event_ids))))
 

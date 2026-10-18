@@ -127,7 +127,11 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 
 builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
-Phase 2 は builtin argument 全体の validation を導入しません。Python API から Cell / 外部 environment へ non-finite を注入する経路、型検査を経由しない直接 AST 評価、custom builtin が opaque ThunkValue 内に NaN / inf を埋める経路は保証範囲外です（Phase 2.5 以降の候補）。直接構築した FloatLit も通常の typecheck を通せば有限性を検査します。不正な non-finite 入力由来の non-finite 算術結果は FloatOverflow とせず、builtin return 境界で ValueContractViolation にします。
+Phase 2.5 では custom builtin の `Thunk[T]<F>` return にも共通の `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
+
+`force` は既存の実 failure 契約検証後、Value の場合だけ具体化済み result TypeRef で同じ validator を適用します。標準6型の成功値を検査し、NaN / ±inf などを caller・assignment・後続処理へ公開する前に fatal に停止します。NoValue は検査対象外です。診断 snapshot は expected TypeRef、Python type、安全な値表現、reason、call ID と境界を保持し、force は `boundary_kind="thunk"`、`implementation="force"` で識別します。nested Thunk は force ごとに一層だけ外形と保存契約を検査し、内側の式を先行評価しません。ThunkValue は result TypeRef を保持せず、force 式の静的型と call frame の type binding による既存の型置換を正本にします。generic T も Python 値から推測しません。Box / Pair / MissingType などを result に持つ Thunk も外形と保存契約は検査しますが、opaque payload の representation は検査しません。
+
+保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と extension builtin の公開 return / force 境界です。builtin argument 全体の validation は導入しません。直接 `call_builtin()` の raw value / RaisedFailure、`eval_expr()` による直接 AST 評価、`_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue の直接 constructor は trusted low-level boundary として残します。ExecutionResult 返却後の Python mutation も保証対象外です。ThunkValue は mutable のままで、返却後 mutation の完全防止、result TypeRef metadata、custom type validator registry、ExecutionResult deep copy は今回導入しません。直接構築した FloatLit も通常の typecheck を通せば有限性を検査します。不正な non-finite 入力由来の non-finite 算術結果は FloatOverflow とせず、builtin return 境界で ValueContractViolation にします。
 
 ```ginger
 let initial: Int = 1
@@ -689,6 +693,8 @@ Phase 9でreturnの既存終了規則を確定し、Thunk/forceの潜在契約�
 Thunkは非memoizedです。作成時には式を実行せず、FailureEventも生成しません。作成時のlexical environmentと、型検査で推論した潜在failure契約を保持します。forceごとに再評価するため、実際に同じfailureが再発すれば別eventになります。既存の環境capture方式は変更していません。
 
 force時は通常のEvalResult経路を使います。NoValueなら親演算を実行せず、正常値とpendingが共存するなら両方を保持します。builtinとユーザー関数の契約検証を通した後、今回のforce中に新しく生じたunresolved eventを、Thunkが保持する推論契約およびforce引数の公開Thunk型の潜在契約に照合します。契約外なら境界種別 `thunk`、境界名 `force` のFailureContractViolationとして停止し、既存eventを履歴へ残します。
+
+Phase 2.5 の builtin return 時の保存契約 subset 検査後も、この force 時の二重の failure 契約検証を維持します。保存 metadata の mutation による契約外 failure もここで検出します。その検証後に成功値だけを value contract で検査し、違反は `ExecutionResult.value_contract_violation` に記録します。FailureContractViolation と ValueContractViolation は別の診断です。
 
 Thunkが未初期化bindingをcaptureすること自体は許可します。forceがその値を実際に要求すると同じ読み出し境界で EvalError により停止し、過去の原因eventを再発生させず、新しいFailureEventや潜在failureとして扱いません。lexical environment snapshotは維持するため、capture後に元のvarを回復しても、snapshot内の未初期化bindingをforceで読むと停止します。
 
