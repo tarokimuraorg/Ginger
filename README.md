@@ -135,13 +135,13 @@ Phase 3A では runtime value contract を producer / consumer 双方で検証�
 
 checked identifier は expression の静的 TypeRef で読み出しを検証します。builtin / custom builtin / user function は全 argument の準備後にだけ実行し、parameter Cell に不正値を保存しません。引数式の評価順は従来どおり左から右です。user function の正常 return、typed Cell の初期化・再代入・resolve recovery も同じ preparation を通します。resolve は保存成功後に回復を確定し、違反時は既存 failure history を保持します。UninitializedBinding は従来どおり read 時の EvalError、真の NoValue は ordinary value validation の対象外です。
 
-期待型は型検査が記録した expression / assignment target、resolved parameter / return、宣言の TypeRef を正本にします。generic は retained call frame の bindings で具体化し、Python 値・implementation ID・mutable `Cell.typ` から型を推測しません。NaN / ±inf などは print の出力、comparison / arithmetic の実行、custom consumer implementation の呼び出しより前に停止します。consumer 違反も FailureEvent を作らず resolve 不可の fatal `ValueContractViolation` です。既存の immutable snapshot と reason を使い、boundary は `value_read` / `call_argument` / `binding_write` / `function_return` / `force_argument` で区別します。
+期待型は型検査が記録した expression / assignment target、resolved parameter / return、宣言の TypeRef を正本にします。generic は retained call frame の bindings で具体化し、Python 値・implementation ID・`Cell.typ` metadata から型を推測しません。NaN / ±inf などは print の出力、comparison / arithmetic の実行、custom consumer implementation の呼び出しより前に停止します。consumer 違反も FailureEvent を作らず resolve 不可の fatal `ValueContractViolation` です。既存の immutable snapshot と reason を使い、boundary は `value_read` / `call_argument` / `binding_write` / `function_return` / `force_argument` で区別します。
 
-force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。extension が共有 Cell の payload や `Cell.typ` を変更しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
+force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。extension が captured environment の entry を不正な payload / 異なる `Cell.typ` を持つ新しい Cell に置換しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
 
 保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と正式 custom builtin extension を使用する checked evaluation です。Box / Pair / MissingType / `Float[Int]` などの open-world payload は再帰的に検証しません。canonical standard return / parameter として使用する境界では共通 validator が働きます。
 
-直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後の mutation も保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。ThunkValue / Cell の immutable 化、extension wrapper、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3B 以降の object model の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
+直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後も payload 内部の mutation は保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。Phase 3B は Cell / ThunkValue の field binding を frozen にしますが、extension wrapper、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3C 以降の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
 
 ```ginger
 let initial: Int = 1
@@ -181,6 +181,20 @@ TypeRef は open-world です。canonical type registry による型名の存在
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
 `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register Box[T] guarantees G`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
+
+### Cell / ThunkValue の shallow immutability（Phase 3B）
+
+`Cell` は frozen dataclass の immutable binding record です。`value` / `typ` / `mutable` の field reassignment は拒否します。`Cell.mutable` は binding 名を再束縛できるかを表す metadata で、Cell 自体の変更許可ではありません。language-level reassignment は従来どおり RHS の source validation → widening → target validation 後、新しい Cell で environment entry を置換します。初期化・parameter binding・resolve recovery も新しい Cell を作ります。失敗した初期化は `Cell(UninitializedBinding(...))` ではなく独立した `UninitializedBinding` entry で表現します。`Cell.typ` は inspection / ExecutionResult / tests / diagnostics 用に残し、型判断の正本は checked metadata のままです。
+
+`ThunkValue` も frozen dataclass で、`expr` / `env` / `outer` / `potential_failure_contract` の field binding は変更できません。保存 failure contract は constructor で `FailureId` の `set` / `frozenset` のみを受け取り、canonical `FailureSet`（`frozenset`）へ正規化します。元の mutable set を変更しても保存契約は変わらず、その他の iterable や不正 element は TypeError です。result TypeRef metadata は追加していません。
+
+capture は従来の `env.copy()` による shallow mapping snapshot と immutable Cell の共有です。通常の再代入後も Thunk は capture 時の binding を保持します。FunctionEnv の copy も mapping だけを新しくし、Cell・type_bindings を共有して call_frame_id を保持します。generic retained frame / nested Thunk の型置換と nonmemoized evaluation は変わりません。
+
+これは runtime 全体の deep immutability ではありません。captured environment の mapping contents、FunctionEnv metadata、outer が参照する環境、opaque list / dict / custom object の内部、raw checked AST と child list は引き続き mutable です。`t.env["x"].value = ...` は拒否しますが、`t.env["x"] = Cell(...)` は可能です。標準 scalar の正常 payload は実質 immutable ですが、open-world payload の `.append(...)` 等は妨げません。
+
+custom builtin に raw ThunkValue 本体を渡す API、同じ Thunk の identity return、host constructor は維持します。frozen 化は constructor input 全体の安全性を保証しません。builtin return / custom call argument / force entry の saved ⊆ public 検査、および identifier / widening / typed write / user return / force success の consumer-side validation は引き続き必要です。tests の mapping replacement や expression result replacement は test-only fault injection であり language semantics ではありません。
+
+ExecutionResult の環境は従来の mapping proxy に加え binding record の fields も immutable ですが、payload は deep frozen / deep copied ではありません。Phase 3C 以降の候補は captured env の read-only 化、FunctionEnv immutable 化、environment handle / extension adapter / read-only view、validated Thunk factory、LanguageThunk / ExtensionThunk 分離、raw AST exposure の除去と AST collection immutable 化、outer isolation、opaque payload ownership、persistent environment、deep ExecutionResult snapshot、host force capability です。
 
 ## 関数の宣言と実装
 
@@ -684,7 +698,7 @@ if result.contract_violation is not None:
 - `incomplete_statements`: call ID、scope、statement index/kind、原因event IDを持つ既存記録のtuple。
 - `contract_violation`: 違反がなければNone。違反時は `ContractViolationSnapshot` にfailure ID、origin、違反call ID、境界名・種別、宣言契約、任意のevent IDを保持します。
 
-RuntimeContextは実行中の状態、ExecutionResultは終了時点のsnapshotです。履歴と未完遂記録は不変レコードのtuple、frame対応表はコピーした読み取り専用mapping、違反情報は例外から切り離したfrozen dataclassです。環境対応表もコピーしますが、bindingやGinger値はdeep copyしません。
+RuntimeContextは実行中の状態、ExecutionResultは終了時点のsnapshotです。履歴と未完遂記録は不変レコードのtuple、frame対応表はコピーした読み取り専用mapping、違反情報は例外から切り離したfrozen dataclassです。環境対応表もコピーして読み取り専用にします。Cell は frozen binding record ですが、binding や Ginger 値の payload は deep copy / deep freeze しません。
 
 unresolvedだけなら正常に完走して結果を返します。契約違反はGingerプログラムを即停止しますが、公開APIは停止時点の結果を返します。ユーザー関数境界の違反では原因eventを履歴に残し、builtin未宣言failureではeventを作りません。違反で伝播が止まったeventはroot pendingに未到達でも `unresolved_events` に含まれます。正常完走時もraw pendingにはresolved参照が残り得るため、現在の未解決状態はevent.statusで判定します。
 

@@ -1,5 +1,6 @@
 import io
 import unittest
+from dataclasses import replace
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import EMPTY_FAILURES
 from ginger.runtime.failures import FailureStatus
 from ginger.runtime.thunk import ThunkValue
+from ginger.runtime.results import Value
 from test_failure_contract import checked
 
 
@@ -115,7 +117,8 @@ class ReturnForceRuntimeTests(unittest.TestCase):
                 result = original(expr, env, syms, outer)
                 value = getattr(result.value_result, 'value', None)
                 if isinstance(value, ThunkValue):
-                    value.potential_failure_contract = EMPTY_FAILURES
+                    result = replace(result, value_result=Value(
+                        replace(value, potential_failure_contract=EMPTY_FAILURES)))
                 return result
             with patch('ginger.eval.eval_expr', side_effect=narrow):
                 result, stdout = self.run_source(prefix + f'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk({expression})\nprint(force(t))\nprint(99)')

@@ -39,10 +39,11 @@ from .ast import (
 # =====================
 Value = Any
 
-@dataclass
+@dataclass(frozen=True)
 class Cell:
+    """Immutable binding record; payload contents are not deep-frozen."""
     value: Value
-    mutable: bool   # let=False, var=True
+    mutable: bool   # Binding may be rebound to a new Cell: let=False, var=True
     typ: Optional[TypeRef] = None
 
 @dataclass(frozen=True)

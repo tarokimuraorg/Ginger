@@ -1,6 +1,7 @@
 """Consumer boundaries exercised through checked source and registered extensions."""
 import io
 import unittest
+from dataclasses import replace
 from contextlib import redirect_stdout
 from unittest.mock import Mock, patch
 
@@ -24,14 +25,22 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def corrupt(self, typ, initial, payload, tail, extra='', metadata=True):
         def mutate(t):
-            t.env['x'].value = payload
-            if metadata:
-                t.env['x'].typ = TypeRef('Box', (TypeRef('Float'),))
+            # Test-only host injection into the live mapping; capture is a separate snapshot.
+            cell = t.env['x']
+            live_env['x'] = evaluator.Cell(payload, cell.mutable,
+                TypeRef('Box', (TypeRef('Float'),)) if metadata else cell.typ)
         source = (f'sig corrupt(Thunk[{typ}]<Never>) -> Unit {{ builtin test.corrupt }}\n'
                   f'var x: {typ} = {initial}\n'
                   f'var captured: Thunk[{typ}]<Never> = thunk(x)\n'
                   'corrupt(captured)\n' + extra + tail + '\nvar later: Int = 1')
-        return self.run_source(source, {'test.corrupt': mutate})
+        original = evaluator.eval_expr
+        live_env = None
+        def observe_env(expr, env, *args, **kwargs):
+            nonlocal live_env
+            live_env = env
+            return original(expr, env, *args, **kwargs)
+        with patch('ginger.eval.eval_expr', side_effect=observe_env):
+            return self.run_source(source, {'test.corrupt': mutate})
 
     def assert_read(self, result, typ):
         v = result.value_contract_violation
@@ -87,7 +96,7 @@ class ConsumerValueContractTests(unittest.TestCase):
             for returned in [False, True]:
                 with self.subTest(body=body, returned=returned):
                     def mutate(t):
-                        t.env['x'].value = float('nan')
+                        t.env['x'] = replace(t.env['x'], value=float('nan'))
                         return t if returned else None
                     ret = f'Thunk[{typ}]<Never>' if returned else 'Unit'
                     tail = 'var u: ' + ret + ' = mutate(t)' if returned else 'mutate(t)'
@@ -98,16 +107,27 @@ class ConsumerValueContractTests(unittest.TestCase):
                     result = self.run_source(source, {'test.mutate': mutate})
                     self.assert_read(result, 'Float')
 
-    def test_saved_contract_mutation_before_force_and_custom_call(self):
-        for tail in ['var y: Int = force(t)', 'observe(t)']:
+    def test_saved_contract_replacement_before_force_and_custom_call(self):
+        # Inject a mismatched host-constructed Thunk after the identifier read.
+        from ginger.ast import IdentExpr
+        from ginger.runtime.results import Value
+        original = evaluator.eval_expr
+        def injected(expr, *args, **kwargs):
+            result = original(expr, *args, **kwargs)
+            if isinstance(expr, IdentExpr) and expr.name == 't':
+                result = replace(result, value_result=Value(replace(
+                    result.value_result.value,
+                    potential_failure_contract={FailureId.FloatOverflow})))
+            return result
+        for tail, boundary in [('var y: Int = force(t)', 'force_argument'),
+                               ('observe(t)', 'call_argument')]:
             observer = Mock(return_value=None)
-            def mutate(t):
-                t.potential_failure_contract = frozenset({FailureId.FloatOverflow})
-            source = ('sig mutate(Thunk[Int]<Never>) -> Unit { builtin test.mutate }\n'
-                      'sig observe(Thunk[Int]<Never>) -> Unit { builtin test.observe }\n'
-                      'var t: Thunk[Int]<Never> = thunk(1)\nmutate(t)\n' + tail)
-            result = self.run_source(source, {'test.mutate': mutate, 'test.observe': observer})
+            source = ('sig observe(Thunk[Int]<Never>) -> Unit { builtin test.observe }\n'
+                      'var t: Thunk[Int]<Never> = thunk(1)\n' + tail)
+            with patch('ginger.eval.eval_expr', side_effect=injected):
+                result = self.run_source(source, {'test.observe': observer})
             self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')
+            self.assertEqual(result.value_contract_violation.boundary_kind, boundary)
             self.assertEqual(result.failure_history, ())
             observer.assert_not_called()
 
@@ -115,7 +135,7 @@ class ConsumerValueContractTests(unittest.TestCase):
         for typ, initial, payload in [('Float','1.0',float('nan')), ('Int','1',True)]:
             for nested in [False, True]:
                 def mutate(t):
-                    t.env['a'].value = payload
+                    t.env['a'] = replace(t.env['a'], value=payload)
                 source = (f'sig mutate(Thunk[Thunk[{typ}]<Never>]<Never>) -> Unit {{ builtin test.mutate }}\n'
                           'sig capture(T) -> Thunk[Thunk[T]<Never>]<Never> {}\n'
                           'func capture(a: T) { return thunk(thunk(a)) }\n'
@@ -130,7 +150,7 @@ class ConsumerValueContractTests(unittest.TestCase):
                 result = self.run_source(source, {'test.mutate': mutate})
                 self.assert_read(result, typ)
 
-    def test_reassignment_uses_checked_target_despite_metadata_mutation(self):
+    def test_reassignment_uses_checked_target_despite_replaced_metadata(self):
         result = self.corrupt('Int', '1', True, 'x = 2\nvar y: Int = x')
         self.assertIsNone(result.value_contract_violation)
         self.assertEqual(result.environment['x'].typ, TypeRef('Int'))
@@ -158,21 +178,34 @@ class ConsumerValueContractTests(unittest.TestCase):
             self.assertIsNone(result.value_contract_violation)
             observer.assert_called_once_with(payload)
 
-    def test_arguments_revalidated_after_later_argument_mutates_thunk(self):
+    def test_arguments_revalidated_after_all_argument_expressions(self):
+        # Test-only expression injection bypasses the earlier identifier validator.
+        from ginger.ast import IdentExpr
+        from ginger.runtime.results import Value
+        original = evaluator.eval_expr
+        later = Mock(return_value=None)
+        def injected(expr, *args, **kwargs):
+            result = original(expr, *args, **kwargs)
+            if isinstance(expr, IdentExpr) and expr.name == 't':
+                result = replace(result, value_result=Value(replace(
+                    result.value_result.value,
+                    potential_failure_contract={FailureId.FloatOverflow})))
+            return result
         for user_function in [False, True]:
             observer = Mock(return_value=None)
-            def mutate(t):
-                t.potential_failure_contract = frozenset({FailureId.FloatOverflow})
+            later.reset_mock()
             declaration = ('sig observe(Thunk[Int]<Never>,Unit) -> Unit {}\n'
                            'func observe(a: Thunk[Int]<Never>, b: Unit) { effect() }'
                            if user_function else
                            'sig observe(Thunk[Int]<Never>,Unit) -> Unit { builtin test.observe }')
             source = (declaration + '\nsig effect() -> Unit { builtin test.observe }\n'
-                      'sig mutate(Thunk[Int]<Never>) -> Unit { builtin test.mutate }\n'
-                      'var t: Thunk[Int]<Never> = thunk(1)\nobserve(t,mutate(t))')
-            result = self.run_source(source, {'test.mutate': mutate, 'test.observe': observer})
+                      'sig later() -> Unit { builtin test.later }\n'
+                      'var t: Thunk[Int]<Never> = thunk(1)\nobserve(t,later())')
+            with patch('ginger.eval.eval_expr', side_effect=injected):
+                result = self.run_source(source, {'test.later': later, 'test.observe': observer})
             self.assertEqual(result.value_contract_violation.boundary_kind, 'call_argument')
             self.assertEqual(result.failure_history, ())
+            later.assert_called_once_with()
             observer.assert_not_called()
 
     def test_each_preparation_boundary_with_fault_injected_expression(self):
@@ -208,7 +241,10 @@ class ConsumerValueContractTests(unittest.TestCase):
         def injected(expr, *args, **kwargs):
             result = original(expr, *args, **kwargs)
             if isinstance(expr, CallExpr) and expr.callee == 'thunk':
-                result.value_result.value.potential_failure_contract = frozenset({FailureId.FloatOverflow})
+                from ginger.runtime.results import Value
+                result = replace(result, value_result=Value(replace(
+                    result.value_result.value,
+                    potential_failure_contract={FailureId.FloatOverflow})))
             return result
         effect = Mock(return_value=None)
         with patch('ginger.eval.eval_expr', side_effect=injected):
@@ -220,7 +256,7 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_nested_thunk_comparison_rejects_captured_nan(self):
         def mutate(t):
-            t.env['x'].value = float('nan')
+            t.env['x'] = replace(t.env['x'], value=float('nan'))
         result = self.run_source(
             'sig mutate(Thunk[Thunk[Bool]<Never>]<Never>) -> Unit { builtin test.mutate }\n'
             'var x: Float = 1.0\n'

@@ -118,6 +118,21 @@ class ExecutionResultTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             snapshot.contract_violation.origin = 'changed'
 
+    def test_frozen_binding_records_do_not_deep_freeze_opaque_payload(self):
+        payload = []
+        with patch.dict(BUILTINS, {'test.make': lambda: payload}):
+            result, _ = self.capture('sig make() -> Box[Int] { builtin test.make }\n'
+                                     'var x: Box[Int] = make()')
+        cell = result.environment['x']
+        for field, value in [('value', []), ('typ', None), ('mutable', False)]:
+            with self.subTest(field=field), self.assertRaises(FrozenInstanceError):
+                setattr(cell, field, value)
+        with self.assertRaises(TypeError):
+            result.environment['x'] = evaluator.Cell([], True)
+        cell.value.append(1)
+        self.assertIs(cell.value, payload)
+        self.assertEqual(payload, [1])
+
     def test_python_and_compile_errors_still_raise(self):
         error = TypeError('implementation bug')
         with patch.dict(BUILTINS, {'core.int.print': lambda x: (_ for _ in ()).throw(error)}):
