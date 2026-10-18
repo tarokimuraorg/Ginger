@@ -26,15 +26,28 @@ x = 2
 print(force(t1))
 print(x)
 
+// t1 は IntegerOverflow を発生させる
 t1 = thunk(add(9007199254740991, 1))
 print(123)
+
+// 警告：Unresolved failure: IntegerOverflow; event: #1; origin: core.int.add; call: 1（t1 は IntegerOverflow を発生させる）
 print(force(t1))
 
+// エラー：Thunk の latent failure は force した結果の binding で解決する
+//resolve t1 {
+//    IntegerOverflow {
+//        t1 = thunk(999)
+//    }
+//}
+
+// エラー：ginger.errors.TypecheckError: Thunk requires a result type and explicit failure contract
 //var t2: Thunk[Int] = thunk(10)
 //print(t2)
 
+// エラー：ginger.errors.TypecheckError: Thunk requires a result type and explicit failure contract
 //var t3: Thunk[Int] = thunk(1)
 //print(force(t3))
 
+// エラー：ginger.errors.TypecheckError: Thunk expects one type argument; write failure contract as Thunk[T]<...>
 //var t4: Thunk[Int, Never] = thunk(1)
 //print(force(t4))

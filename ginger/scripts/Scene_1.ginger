@@ -20,12 +20,20 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 let initial: Int = 1
+
+// letの変数は再代入不可
 //initial = 2
+
 var x: Int = (initial + 2)
+print(x)
+
 x = (x * 3)
 print(x)
 
-var y: Float = div(toFloat(x), 2.0)
+// toFloatは不要（xは自動的にFloatに変換される）
+//var y: Float = div(toFloat(x), 2.0)
+
+var y: Float = div(x,2.0)
 print(y)
 
 var negative: Int = neg(x)
