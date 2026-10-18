@@ -1,3 +1,21 @@
+// Purpose:
+// 初期化・除算引数の Int → Float widening
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_float_finite.py::test_normal_arithmetic_results
+// tests/test_numeric_widening.py::test_catalog_builtin_receives_floats
+// tests/test_numeric_widening.py::test_initialization_and_assignment
+// Expected stdout (ordered):
+// 1.0
+// 0.5
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 var x: Float = 1
 print(x)
 

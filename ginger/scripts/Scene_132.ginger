@@ -1,0 +1,19 @@
+// Purpose:
+// handler 代入にも型検査を適用
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_resolve.py::test_handler_assignment_type_and_mutability_rules_still_apply
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// type mismatch
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+var x: Int = add(9007199254740991,1)
+resolve x { IntegerOverflow { x = 1.5 } }

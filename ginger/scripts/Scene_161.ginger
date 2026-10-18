@@ -1,0 +1,24 @@
+// Purpose:
+// resolve は initializer の warning のみを対象にする
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_resolve.py::test_previous_same_failure_is_not_resolved
+// tests/test_resolve.py::test_resolve_warning_removal_does_not_cover_target_assignment_effects
+// tests/test_resolve.py::test_resolve_warning_removal_is_limited_to_target_binding
+// Expected stdout (ordered):
+// 0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 3
+// Expected normal failure:
+// IntegerOverflow: resolved x 1
+// IntegerOverflow: unresolved x 3
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var x: Int = add(9007199254740991,1)
+x = add(9007199254740991,2)
+var y: Int = add(9007199254740991,3)
+print(add(9007199254740991,4))
+resolve x { IntegerOverflow { x = 0 } }
+print(x)

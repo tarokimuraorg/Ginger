@@ -1,0 +1,23 @@
+// Purpose:
+// Thunk failure 上限の narrowing を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_recursive_matching_does_not_add_constructor_variance
+// tests/test_call_inference.py::test_thunk_latent_effect_uses_selected_implementation
+// tests/test_function_locals.py::test_local_thunk_latent_failure_and_function_contract
+// tests/test_integer_overflow.py::test_thunk_creation_latent_force_and_failureset
+// tests/test_thunk_contract.py::test_assignment_bounds_and_declared_binding
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// type mismatch
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+var t: Thunk[Int]<IntegerOverflow> = thunk(add(1,2))
+var pure: Thunk[Int]<Never> = t

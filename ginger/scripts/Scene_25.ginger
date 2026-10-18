@@ -1,0 +1,46 @@
+// Purpose:
+// widening の各使用境界と元の binding 型
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_bounded_integers.py::test_fixed_types
+// tests/test_bounded_integers.py::test_functions
+// tests/test_call_inference.py::test_local_initializer_preserves_call_type_before_widening
+// tests/test_float_finite.py::test_neg_and_int_conversions_have_empty_contracts
+// tests/test_function_locals.py::test_widening_and_fixed_static_runtime_types
+// tests/test_integer_overflow.py::test_widening_is_pure_but_propagates_argument_failure
+// tests/test_numeric_widening.py::test_bounded_int_converts_exactly
+// tests/test_numeric_widening.py::test_initialization_and_assignment
+// tests/test_numeric_widening.py::test_return_converts_before_caller_uses_value
+// Expected stdout (ordered):
+// 1
+// 2
+// 1.0
+// 1
+// 1
+// 1.0
+// 9007199254740991.0
+// -9007199254740991.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig wide(Int64) -> Int64 {}
+func wide(x: Int64) { print(x) return x }
+sig real() -> Float {}
+func real() { return 1 }
+var i: Int = 1
+var w: Int64 = i
+var f: Float = i
+w = 2
+f = i
+print(i)
+print(w)
+print(f)
+print(wide(i))
+print(real())
+print(toFloat(9007199254740991))
+print(toFloat((-9007199254740991)))

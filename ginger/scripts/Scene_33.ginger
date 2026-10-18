@@ -1,0 +1,34 @@
+// Purpose:
+// forward requirement・marker register・typegroup・複数 requirement
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_implementation.py::test_unused_declaration_only_sig_is_accepted
+// tests/test_requirement_references.py::test_forward_guarantee
+// tests/test_requirement_references.py::test_unused_valid_guarantee_without_implementation
+// tests/test_requirement_references.py::test_user_function_with_valid_requirement
+// tests/test_requirement_references.py::test_valid_typegroup_in_either_source_order
+// tests/test_requirement_typevars.py::test_multiple_and_duplicate_valid_requirements
+// tests/test_requirement_typevars.py::test_normal_parameter_variable
+// tests/test_requirement_typevars.py::test_typegroup_parameter_and_forward_reference
+// tests/test_requirement_typevars.py::test_user_function_valid_target
+// Expected stdout (ordered):
+// 1
+// 2.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig keep(T) -> T { require T guarantees Mark require T guarantees Mark require T in Numbers }
+func keep(x: T) { return x }
+guarantee Mark {}
+register Int guarantees Mark
+register Float guarantees Mark
+typegroup Numbers = Int | Float
+sig unused(Box[Box[T]]) -> T { require T guarantees Mark }
+sig missing(Int) -> Int {}
+print(keep(1))
+print(keep(2.0))

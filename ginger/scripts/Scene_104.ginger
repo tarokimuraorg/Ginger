@@ -1,0 +1,21 @@
+// Purpose:
+// generic arithmetic の Float 条件付き failure 宣言も必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_never_cannot_cover_symbolic_overflow
+// tests/test_float_finite.py::test_generic_body_requires_both_symbolic_clauses
+// tests/test_generic_guarantees.py::test_symbolic_add_failure_upper_bound
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// undeclared failures: FloatOverflow
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f(T,T) -> T { require T guarantees Addable failure IntegerOverflow when T guarantees BoundedArithmetic }
+func f(a: T,b: T) { return add(a,b) }

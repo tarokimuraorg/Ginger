@@ -1,0 +1,19 @@
+// Purpose:
+// 禁止 widening: eq(1,1) → Float
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_type_mismatch_diagnostics
+// tests/test_numeric_widening.py::test_reverse_and_bool_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// type mismatch
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+var x: Float = eq(1,1)

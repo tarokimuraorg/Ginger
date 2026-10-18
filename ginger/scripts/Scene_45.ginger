@@ -1,0 +1,39 @@
+// Purpose:
+// nested generic Thunk は force ごとに一層だけ評価
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_nested_calls_and_symbolic_user_function_frames
+// tests/test_call_inference.py::test_recursive_typeref_and_thunk_runtime
+// tests/test_concrete_identity_positions.py::test_generic_sig_inference_and_return_substitution_remain_valid
+// tests/test_requirement_typevars.py::test_thunk_parameter_binding
+// tests/test_runtime_immutability.py::test_generic_nested_retained_frames_and_custom_identity
+// tests/test_thunk_contract.py::test_nested_thunk_does_not_leak_inner_failures
+// tests/test_thunk_syntax.py::test_generic_signature_parameter_and_return
+// tests/test_thunk_syntax.py::test_nested_type_and_whitespace_boundaries
+// Expected stdout (ordered):
+// 1
+// 2.0
+// 3
+// 4
+// 5.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// DivideByZero: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig capture(T) -> Thunk[Thunk[T]<Never>]<Never> {}
+func capture(a: T) { return thunk(thunk(a)) }
+sig unwrap(Thunk[T]<Never>) -> T {}
+func unwrap(t: Thunk[T]<Never>) { return force(t) }
+print(unwrap(unwrap(capture(1))))
+print(unwrap(unwrap(capture(2.0))))
+print(unwrap(unwrap(capture(3i64))))
+var outer: Thunk[Thunk[Float]<DivideByZero, FloatOverflow>]<Never> = thunk(thunk(div(1.0,0.0)))
+var inner: Thunk[Float]<DivideByZero, FloatOverflow> = force(outer)
+print(4)
+var x: Float = force(inner)
+resolve x { DivideByZero { x = 5 } FloatOverflow { x = 99 } }
+print(x)

@@ -1,0 +1,23 @@
+// Purpose:
+// unknown guarantee は未使用 sig でも拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_requirement_references.py::test_all_requirements_are_checked
+// tests/test_requirement_references.py::test_namespaces_are_distinct
+// tests/test_requirement_references.py::test_unknown_requirement_precedes_signature_validation
+// tests/test_requirement_references.py::test_unused_unknown_guarantee
+// tests/test_requirement_references.py::test_used_unknown_guarantee
+// tests/test_requirement_references.py::test_user_function_does_not_hide_unknown_requirement
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// unknown guarantee
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig op(T) -> T { require T guarantees Missing }

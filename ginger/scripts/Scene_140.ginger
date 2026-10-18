@@ -1,0 +1,18 @@
+// Purpose:
+// failure 宣言には type postfix を付けられない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_thunk_syntax.py::test_failure_declaration_does_not_discard_postfix
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// failure names cannot have
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f() -> Int { failure IntegerOverflow<Never> }

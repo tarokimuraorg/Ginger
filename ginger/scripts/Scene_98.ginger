@@ -1,0 +1,19 @@
+// Purpose:
+// local binding の型注釈は必須
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_function_locals.py::test_required_annotations_and_unsupported_local_constructs
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// Expected SYM(':') but got SYM('=')
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f() -> Unit {}
+func f() { let x = 1 }

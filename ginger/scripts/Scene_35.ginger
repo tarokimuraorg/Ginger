@@ -1,0 +1,29 @@
+// Purpose:
+// 条件付き failure は capability 要求ではない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_custom_float_marker_conditions_are_independent_capabilities
+// tests/test_conditional_failures.py::test_optional_property_does_not_become_a_call_requirement
+// Expected stdout (ordered):
+// 1
+// 1.0
+// 2.0
+// 2
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IOErr} x 2
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+guarantee TaggedFailure {}
+register Float guarantees TaggedFailure
+sig marked(T) -> T { failure IOErr when T guarantees TaggedFailure }
+func marked(x: T) { return x }
+print(marked(1))
+print(marked(1.0))
+sig optional(T) -> T { failure IOErr when T guarantees BoundedArithmetic }
+func optional(x: T) { return x }
+print(optional(2.0))
+print(optional(2))

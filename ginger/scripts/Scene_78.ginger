@@ -1,0 +1,21 @@
+// Purpose:
+// typegroup requirement は呼び出し位置で検査
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_independent_variables_and_typegroup_requirements
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// requirement not satisfied
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+typegroup Floating = Float
+sig keep(T) -> T { require T in Floating }
+func keep(x: T) { return x }
+print(keep(1i64))

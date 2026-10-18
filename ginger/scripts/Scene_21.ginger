@@ -1,3 +1,20 @@
+// Purpose:
+// 純粋 Thunk の引数と force
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_parameter_and_return_typerefs
+// tests/test_thunk_contract.py::test_parameter_bounds_and_exact_declarations
+// tests/test_thunk_syntax.py::test_parser_separates_arguments_and_contract
+// Expected stdout (ordered):
+// 0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 sig good(Thunk[Int]<Never>) -> Int {
 }
 

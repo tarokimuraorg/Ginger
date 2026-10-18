@@ -1,0 +1,27 @@
+// Purpose:
+// generic sub/mul も条件付き failure を具体化
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_standard_explicit_and_infix_arithmetic_share_all_contracts
+// Expected stdout (ordered):
+// -1
+// -1.0
+// 6
+// 6.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 2
+// UNHANDLED_FAILURES {FloatOverflow} x 2
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig difference(T,T) -> T { require T guarantees Subtractable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic }
+func difference(a: T,b: T) { return a - b }
+sig product(T,T) -> T { require T guarantees Multipliable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic }
+func product(a: T,b: T) { return mul(a,b) }
+print(difference(1,2))
+print(difference(1.0,2.0))
+print(product(2,3))
+print(product(2.0,3.0))

@@ -1,0 +1,27 @@
+// Purpose:
+// 宣言済み standard builtin alias の failure は通常回復可能
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_declared_custom_alias_records_failure
+// tests/test_conditional_failures.py::test_runtime_builtin_contracts_and_direct_alias_trust_boundary
+// tests/test_float_finite.py::test_direct_alias_does_not_inherit_implementation_contract
+// Expected stdout (ordered):
+// 7
+// 8.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// IntegerOverflow: resolved x 1
+// DivideByZero: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig alias(Int,Int) -> Int { failure IntegerOverflow builtin core.int.add }
+var x: Int = alias(9007199254740991,1)
+resolve x { IntegerOverflow { x = 7 } }
+print(x)
+sig real(Float,Float) -> Float { failure DivideByZero failure FloatOverflow builtin core.float.div }
+var y: Float = real(1.0,0.0)
+resolve y { DivideByZero { y = 8 } FloatOverflow { y = 99 } }
+print(y)

@@ -1,2 +1,22 @@
+// Purpose:
+// 失敗 initializer 後も独立 statement は継続
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_declared_failure_records_once_and_continues
+// tests/test_contract_violation.py::test_declared_root_failure_continues
+// tests/test_execution_result.py::test_cli_diagnostics_and_exit_codes
+// tests/test_execution_result.py::test_unresolved_multiple_events_and_incomplete_bindings
+// tests/test_statement_continuation.py::test_basic_continuation_and_incomplete_cause
+// tests/test_uninitialized_reads.py::test_independent_statement_continues
+// Expected stdout (ordered):
+// 999
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// Expected normal failure:
+// DivideByZero: unresolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 var a: Float = div(1.0,0.0)
 print(999)

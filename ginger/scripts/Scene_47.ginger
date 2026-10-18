@@ -1,0 +1,29 @@
+// Purpose:
+// Thunk の公開 failure 上限は再代入後も保持
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_thunk_contract.py::test_assignment_bounds_and_declared_binding
+// tests/test_thunk_contract.py::test_force_argument_evaluation_effects
+// tests/test_thunk_contract.py::test_valid_contracts_and_normalization
+// Expected stdout (ordered):
+// 1.0
+// 2
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {DivideByZero, IOErr} x 1
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+failureset Calculation { DivideByZero FloatOverflow IOErr }
+var narrow: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))
+var wide: Thunk[Float]<Calculation> = narrow
+wide = thunk(1.0)
+var x: Float = force(wide)
+resolve x { IOErr { x = 99 } }
+print(x)
+sig make() -> Thunk[Int]<DivideByZero> { failure IOErr }
+func make() { return thunk(2) }
+print(force(make()))

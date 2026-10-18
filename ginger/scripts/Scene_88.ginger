@@ -1,0 +1,21 @@
+// Purpose:
+// guarantee method parameter は Self projection 後に一致が必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_guarantee_method_signature.py::test_arity_then_parameters_then_return
+// tests/test_guarantee_method_signature.py::test_parameter_mismatch
+// tests/test_guarantee_method_signature.py::test_sig_only_variable_is_not_a_projection
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// parameter type mismatch
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee G { op(self: Self, other: Float) -> Self }
+sig op(T,T) -> T { require T guarantees G }

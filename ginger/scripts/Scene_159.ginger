@@ -1,0 +1,20 @@
+// Purpose:
+// catalog function override も宣言 failure を保持
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_integer_overflow.py::test_user_function_override_keeps_catalog_signature_contract
+// Expected stdout (ordered):
+// 1
+// 1.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 1
+// UNHANDLED_FAILURES {FloatOverflow} x 1
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+func add(a: T,b: T) { return a }
+print(add(1,2))
+print(add(1.0,2.0))

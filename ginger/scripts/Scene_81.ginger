@@ -1,0 +1,20 @@
+// Purpose:
+// concrete identity の register に型変数は使えない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_concrete_identity_positions.py::test_symbolic_targets_rejected_at_declaration_time
+// tests/test_concrete_identity_positions.py::test_validation_precedes_registration_conflicts
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// symbolic type variable
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee G {}
+register Box[T] guarantees G

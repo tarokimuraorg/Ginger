@@ -1,0 +1,23 @@
+// Purpose:
+// 正常 return 後の effect は契約に加算しない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_unreachable_effects_but_not_types_are_ignored
+// tests/test_function_locals.py::test_unreachable_statements_still_checked_but_not_effectful
+// Expected stdout (ordered):
+// 1
+// 2
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig early() -> Int {}
+func early() { return 1 let later: Int = add(1,2) }
+print(early())
+sig earlyUnit() -> Unit {}
+func earlyUnit() { return print(2) print(div(1.0,0.0)) }
+earlyUnit()

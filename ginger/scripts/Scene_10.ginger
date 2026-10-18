@@ -1,11 +1,32 @@
+// Purpose:
+// Int 上限・overflow 回復・Int64 literal
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_integer_overflow_effect_and_resolve_eligibility
+// tests/test_function_locals.py::test_integer_overflow_acceptance_and_upper_bounds
+// tests/test_integer_overflow.py::test_resolve_and_unhandled_propagation
+// tests/test_resolve.py::test_matching_failure_recovers_binding_and_preserves_public_history
+// tests/test_resolve.py::test_matching_resolve_removes_initializer_warning
+// Expected stdout (ordered):
+// 9007199254740991
+// 999
+// 9007199254740992
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 1
+// Expected normal failure:
+// IntegerOverflow: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 var a: Int = 9007199254740991
 a = add(a, 0)
 
 print(a)
 
 var overflow: Int = add(a, 1)
-resolve overflow { 
-    IntegerOverflow { 
+resolve overflow {
+    IntegerOverflow {
         overflow = 999
     }
 }
@@ -14,8 +35,8 @@ print(overflow)
 
 // Float initializer には IntegerOverflow がないため、次の resolve は静的エラー。
 //var normal: Float = add(1.0, 2.0)
-//resolve normal { 
-//    IntegerOverflow { 
+//resolve normal {
+//    IntegerOverflow {
 //        normal = 999
 //    }
 //}

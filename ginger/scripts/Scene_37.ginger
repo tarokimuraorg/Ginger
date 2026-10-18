@@ -1,0 +1,33 @@
+// Purpose:
+// return NoValue は関数終了、通常値と pending は共存
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_frames.py::test_failed_return_no_value_and_caller_incomplete
+// tests/test_call_frames.py::test_value_and_unit_results_keep_pending_ids
+// tests/test_return_force_runtime.py::test_return_ends_body_and_no_value_cause_reaches_initializer
+// tests/test_return_force_runtime.py::test_value_and_unit_with_pending
+// tests/test_statement_continuation.py::test_failed_return_does_not_execute_unreachable_body
+// tests/test_statement_continuation.py::test_user_function_body_continues_with_child_frame
+// tests/test_statement_continuation.py::test_valid_return_after_incomplete_statement_keeps_root_history
+// Expected stdout (ordered):
+// 3
+// 4
+// 2
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 3
+// Expected normal failure:
+// DivideByZero: unresolved x 3
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig failed() -> Float { failure DivideByZero failure FloatOverflow }
+func failed() { return div(1.0,0.0) print(99) return 4.0 }
+var absent: Float = failed()
+print(3)
+sig value() -> Int { failure DivideByZero failure FloatOverflow }
+func value() { print(div(1.0,0.0)) return 4 }
+sig unit() -> Unit { failure DivideByZero failure FloatOverflow }
+func unit() { print(div(1.0,0.0)) return print(2) }
+print(value())
+unit()

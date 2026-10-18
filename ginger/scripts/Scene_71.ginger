@@ -1,0 +1,19 @@
+// Purpose:
+// generic print に Printable proof が必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_generic_guarantees.py::test_printable_capability_in_generic_unit_body
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// does not guarantee Printable
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig show(T) -> Unit {}
+func show(x: T) { print(x) }

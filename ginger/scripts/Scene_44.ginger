@@ -1,0 +1,34 @@
+// Purpose:
+// Thunk 作成は無評価、force は非 memoized、local snapshot
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_function_locals.py::test_local_thunk_storage_snapshot_and_force
+// tests/test_return_force_runtime.py::test_creation_force_call_and_repeated_evaluation
+// Expected stdout (ordered):
+// 0
+// 7
+// 3
+// 7
+// 3
+// 1
+// 2
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig effect() -> Int {}
+func effect() { print(7) return 3 }
+var t: Thunk[Int]<Never> = thunk(effect())
+print(0)
+print(force(t))
+print(force(t))
+sig snapshot() -> Int {}
+func snapshot() { var x: Int = 1 let saved: Thunk[Int]<Never> = thunk(x) x = 2 return force(saved) }
+print(snapshot())
+var replaceable: Thunk[Int]<Never> = thunk(1)
+replaceable = thunk(2)
+print(force(replaceable))

@@ -1,0 +1,26 @@
+// Purpose:
+// Float overflow Thunk は force ごとに新しい通常 failure
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_float_finite.py::test_resolve_and_repeated_thunk_force_recover_overflow
+// Expected stdout (ordered):
+// 1
+// 0.0
+// 2
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {FloatOverflow} x 1
+// Expected normal failure:
+// FloatOverflow: resolved x 1
+// FloatOverflow: unresolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var big: Float = 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0
+var t: Thunk[Float]<FloatOverflow> = thunk(mul(big,2.0))
+print(1)
+var x: Float = force(t)
+resolve x { FloatOverflow { x = 0 } }
+print(x)
+var y: Float = force(t)
+print(2)

@@ -1,0 +1,24 @@
+// Purpose:
+// generic の余分な無条件 failure は公開契約に残る
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_unconditional_declared_failure_covers_conditional_effect
+// tests/test_generic_guarantees.py::test_extra_unconditional_failure_remains_public_for_float
+// tests/test_guarantee_method_signature.py::test_public_failure_contract_remains_on_sig
+// Expected stdout (ordered):
+// 3.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {FloatOverflow, IntegerOverflow} x 1
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig addBoth(T,T) -> T {
+    require T guarantees Addable
+    failure IntegerOverflow
+    failure FloatOverflow
+}
+func addBoth(a: T,b: T) { return a + b }
+print(addBoth(1.0,2.0))

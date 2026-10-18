@@ -1,0 +1,37 @@
+// Purpose:
+// 未使用 declaration の構造受理・recursive Self projection・forward refs
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_concrete_identity_positions.py::test_concrete_and_open_world_targets_remain_valid
+// tests/test_failure_contract.py::test_recursion_uses_signatures
+// tests/test_failure_contract.py::test_upper_bounds
+// tests/test_guarantee_method_signature.py::test_absent_method_and_multiple_requirements_unchanged
+// tests/test_guarantee_method_signature.py::test_recursive_projection_and_normalization
+// tests/test_requirement_references.py::test_preloaded_guarantee
+// tests/test_requirement_references.py::test_unused_valid_guarantee_without_implementation
+// tests/test_requirement_typevars.py::test_nested_parameter_variable
+// Expected stdout (ordered):
+// 1
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+failureset Overflow { IntegerOverflow }
+guarantee Projection {
+    project(self: Self, other: Thunk[Thunk[Self]<IntegerOverflow>]<Never>) -> Thunk[Thunk[Self]<IntegerOverflow>]<Never>
+}
+sig project(T,Thunk[Thunk[T]<Overflow>]<Never>) -> Thunk[Thunk[T]<Overflow>]<Never> { require T guarantees Projection }
+sig unused(Box[Box[T]]) -> T { require T guarantees Mark }
+guarantee Mark {}
+sig make() -> T {}
+sig recur() -> Unit {}
+func recur() { recur() }
+sig pure() -> Unit { failure Never }
+func pure() {}
+sig spare() -> Unit { failure IOErr }
+func spare() {}
+print(1)

@@ -1,0 +1,23 @@
+// Purpose:
+// nested/multi-argument identity も完全一致が必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_parameterized_type_identity.py::test_nested_and_multi_argument_isolation_across_all_registrations
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// requirement not satisfied
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee Mark {}
+register Pair[Int,Float] guarantees Mark
+sig keep(T) -> T { require T guarantees Mark }
+func keep(x: T) { return x }
+sig invalid(Pair[Float,Int]) -> Pair[Float,Int] {}
+func invalid(x: Pair[Float,Int]) { return keep(x) }

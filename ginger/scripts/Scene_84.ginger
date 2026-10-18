@@ -1,0 +1,20 @@
+// Purpose:
+// parameterized register の完全一致重複を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_parameterized_type_identity.py::test_distinct_registers_allowed_but_exact_duplicate_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// duplicate register
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee G {}
+register Box[Int] guarantees G
+register Box[Int] guarantees G

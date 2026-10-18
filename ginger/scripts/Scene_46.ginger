@@ -1,0 +1,31 @@
+// Purpose:
+// repeated force の別 failure と handler 内 force
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_frames.py::test_repeated_calls_and_top_level_origin
+// tests/test_conditional_failures.py::test_thunk_uses_instantiated_latent_failures_and_remains_nonmemoized
+// tests/test_execution_result.py::test_unresolved_multiple_events_and_incomplete_bindings
+// tests/test_resolve.py::test_repeated_force_produces_distinct_binding_causes
+// tests/test_return_force_runtime.py::test_creation_force_call_and_repeated_evaluation
+// tests/test_return_force_runtime.py::test_force_resolve_and_handler_causality
+// tests/test_statement_continuation.py::test_repeated_failure_is_not_collapsed
+// Expected stdout (ordered):
+// 0.0
+// 3
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {FloatOverflow} x 2
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// Expected normal failure:
+// DivideByZero: resolved x 1
+// DivideByZero: unresolved x 2
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))
+var x: Float = force(t)
+var y: Float = force(t)
+resolve x { DivideByZero { x = 0 } }
+print(x)
+resolve y { DivideByZero { y = force(t) } }
+print(3)

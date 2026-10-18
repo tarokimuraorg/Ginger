@@ -1,0 +1,18 @@
+// Purpose:
+// 同一条件付き failure の重複を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_duplicate_conditional_clause_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// duplicate failure 'IntegerOverflow'
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f(T) -> T { failure IntegerOverflow when T guarantees BoundedArithmetic failure IntegerOverflow when T guarantees BoundedArithmetic }

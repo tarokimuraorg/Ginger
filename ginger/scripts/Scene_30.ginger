@@ -1,0 +1,55 @@
+// Purpose:
+// generic inference・混合実引数・独立型変数
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_bounded_integers.py::test_generic_parameter_keeps_concrete_type
+// tests/test_call_inference.py::test_exact_inference_and_expression_types
+// tests/test_call_inference.py::test_independent_variables_and_typegroup_requirements
+// tests/test_call_inference.py::test_int64_unification_then_guarantee_validation
+// tests/test_call_inference.py::test_local_initializer_preserves_call_type_before_widening
+// tests/test_call_inference.py::test_mixed_arguments_share_static_runtime_and_effect_resolution
+// tests/test_call_inference.py::test_nested_calls_and_symbolic_user_function_frames
+// tests/test_call_inference.py::test_print_without_expected_type
+// tests/test_call_inference.py::test_user_function_parameters_are_coerced_to_resolved_type
+// tests/test_concrete_identity_positions.py::test_generic_sig_inference_and_return_substitution_remain_valid
+// tests/test_float_finite.py::test_normal_arithmetic_results
+// tests/test_integer_overflow.py::test_return_infers_from_arguments_only
+// tests/test_requirement_typevars.py::test_second_parameter_need_not_appear_in_return
+// Expected stdout (ordered):
+// 1
+// 1
+// 2.0
+// 1.0
+// 1.0
+// 1
+// 1
+// 3.0
+// 3.0
+// 2.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {FloatOverflow} x 2
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig identity(T) -> T {}
+func identity(x: T) { return x }
+sig first(T,T) -> T {}
+func first(a: T,b: T) { return a }
+sig relay(U) -> U {}
+func relay(x: U) { let y: U = identity(x) return y }
+typegroup Floating = Float
+sig choose(T,U) -> U { require U in Floating }
+func choose(a: T,b: U) { return b }
+print(identity(1))
+print(identity(1i64))
+print(relay(2.0))
+print(first(1,2.0))
+print(first(1.0,2))
+print(first(1,2i64))
+print(first(1i64,2))
+print(add(1,2.0))
+print(add(1.0,2))
+print(choose(1i64,2.0))

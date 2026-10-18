@@ -1,0 +1,23 @@
+// Purpose:
+// return 期待型から型変数を補完しない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_unresolved_variables_not_filled_from_any_outer_boundary
+// tests/test_function_locals.py::test_return_context_is_not_reintroduced
+// tests/test_integer_overflow.py::test_return_infers_from_arguments_only
+// tests/test_requirement_typevars.py::test_return_only_without_requirement_is_unchanged
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// cannot determine type variable 'T'
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig make() -> T {}
+sig f() -> Int {}
+func f() { return make() }

@@ -1,0 +1,29 @@
+// Purpose:
+// 関数の failure 上限に未宣言の effect を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_returns_and_function_upper_bounds
+// tests/test_failure_contract.py::test_function_contracts_are_never_deferred_by_dependencies
+// tests/test_failure_contract.py::test_multiple_missing_and_declared_order
+// tests/test_failure_contract.py::test_recursion_uses_signatures
+// tests/test_failure_contract.py::test_undeclared_in_return_statement_and_nested_calls
+// tests/test_failure_contract.py::test_user_call_propagation
+// tests/test_failureset.py::test_upper_bound_and_call_propagation
+// tests/test_function_locals.py::test_initializer_dependency_requires_failure_contract
+// tests/test_function_locals.py::test_integer_overflow_acceptance_and_upper_bounds
+// tests/test_integer_overflow.py::test_function_upper_bound_and_transitive_effects
+// tests/test_unary_minus.py::test_function_failure_contract
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// undeclared failures
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f() -> Float {}
+func f() { return div(1.0,0.0) }

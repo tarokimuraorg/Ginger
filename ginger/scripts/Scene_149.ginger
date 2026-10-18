@@ -1,0 +1,26 @@
+// Purpose:
+// 標準 builtin alias も自身の failure 契約が必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_managed_arithmetic_shares_contract_but_alias_does_not_inherit_it
+// tests/test_builtin_bridge.py::test_undeclared_failure_not_legitimized_by_caller
+// tests/test_conditional_failures.py::test_runtime_builtin_contracts_and_direct_alias_trust_boundary
+// tests/test_float_finite.py::test_direct_alias_does_not_inherit_implementation_contract
+// tests/test_integer_overflow.py::test_direct_builtin_alias_still_needs_its_own_failure_declaration
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// FailureContractViolation
+// Failure contract violation
+// Expected completion: stops at FailureContractViolation
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig alias(Int,Int) -> Int { builtin core.int.add }
+sig caller() -> Int { failure IntegerOverflow }
+func caller() { return alias(9007199254740991,1) }
+var x: Int = caller()
+resolve x { IntegerOverflow { x = 0 print(999) } }
+print(999)

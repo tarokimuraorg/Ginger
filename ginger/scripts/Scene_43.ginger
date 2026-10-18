@@ -1,0 +1,27 @@
+// Purpose:
+// 複数 resolve の静的 coverage と実際の matching handler
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_resolve.py::test_multiple_resolve_statements_combine_initializer_coverage
+// tests/test_resolve.py::test_only_matching_handler_runs
+// tests/test_resolve.py::test_unmatched_actual_failure_does_nothing
+// Expected stdout (ordered):
+// 1
+// 2
+// 1.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// DivideByZero: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig risky() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow }
+func risky() { return div(1.0,0.0) }
+var x: Float = risky()
+resolve x { IntegerOverflow { print(999) x = 0 } }
+print(1)
+resolve x { DivideByZero { print(2) x = 1 } }
+resolve x { FloatOverflow { print(999) x = 2 } }
+print(x)

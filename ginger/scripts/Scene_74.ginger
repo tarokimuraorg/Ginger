@@ -1,0 +1,28 @@
+// Purpose:
+// requirement target は引数から推論できる型変数のみ
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_requirement_typevars.py::test_all_requirement_targets_are_checked
+// tests/test_requirement_typevars.py::test_body_return_is_not_an_inference_source
+// tests/test_requirement_typevars.py::test_concrete_target
+// tests/test_requirement_typevars.py::test_implementation_count_is_not_an_inference_source
+// tests/test_requirement_typevars.py::test_requirement_only_used_and_unused
+// tests/test_requirement_typevars.py::test_return_only_used_and_unused
+// tests/test_requirement_typevars.py::test_target_precedes_signature_projection
+// tests/test_requirement_typevars.py::test_target_precedes_unknown_reference
+// tests/test_requirement_typevars.py::test_typegroup_invalid_targets
+// tests/test_requirement_typevars.py::test_user_function_invalid_target
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// not inferable
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee G {}
+sig make() -> T { require T guarantees G }

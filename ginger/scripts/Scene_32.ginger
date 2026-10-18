@@ -1,0 +1,29 @@
+// Purpose:
+// source guarantee/impl と concrete/deferred dispatch
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_generic_guarantees.py::test_nested_generic_substitution_and_frame_bindings
+// tests/test_guarantee_method_arity.py::test_matching_concrete_and_deferred_dispatch
+// Expected stdout (ordered):
+// -2
+// -3
+// -2.5
+// -3.5
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+guarantee Opposite { flip(self: Self) -> Self }
+impl Int guarantees Opposite { flip = builtin core.int.neg }
+impl Float guarantees Opposite { flip = builtin core.float.neg }
+sig flip(T) -> T { require T guarantees Opposite }
+sig relay(U) -> U { require U guarantees Opposite }
+func relay(x: U) { return flip(x) }
+print(flip(2))
+print(relay(3))
+print(flip(2.5))
+print(relay(3.5))
