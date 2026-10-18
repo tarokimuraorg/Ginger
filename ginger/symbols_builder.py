@@ -51,6 +51,7 @@ class Symbols:
     failuresets: Dict[str, FailureSet]
     funcs: Dict[str, FuncDecl]                       # name -> decl
     impls: Dict[Tuple[TypeIdentityKey, str, str], str]           # (Type, Guarantee, Method) -> builtin_id
+    binding_types: Dict[int, TypeRef]  # Checked assignment targets, independent of Cell metadata
     expression_types: Dict[int, TypeRef]  # Static, per-check expression annotations
     resolved_calls: Dict[int, ResolvedCall]  # Shared by effects and runtime; keyed by expression id.
 
@@ -344,6 +345,7 @@ def build_symbols(prog: Program) -> Symbols:
         failuresets=failuresets,
         funcs=funcs,
         impls=impls,
+        binding_types={},
         expression_types={},
         resolved_calls={},
     )

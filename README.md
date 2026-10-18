@@ -119,8 +119,8 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | 標準 Int add / sub / mul | 範囲内の Int を返すか IntegerOverflow を送出 |
 | Int / Int64 neg | 有効入力では対称範囲内。failure なし |
 | その他の標準 builtin | div / toFloat は Float、cmp は Ordering、eq / lt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
-| 変数・引数・return・Thunk | 標準演算が範囲外の値を返さないため、その値を格納・伝播しない。入力自体は既存の型契約を信頼 |
-| 独自 builtin sig / impl | return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
+| 変数・引数・return・Thunk | 具体的な静的 TypeRef により、read / argument / write / return / force の consumer 境界でも検証 |
+| 独自 builtin sig / impl | argument / return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
 | Python API の直接呼び出し | Cell / 外部 environment の注入などは全面検証しない |
 
 独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装を直接参照する alias も同様に、自身の FloatOverflow 宣言が必要です。
@@ -131,7 +131,17 @@ Phase 2.5 では custom builtin の `Thunk[T]<F>` return にも共通の `valida
 
 `force` は既存の実 failure 契約検証後、Value の場合だけ具体化済み result TypeRef で同じ validator を適用します。標準6型の成功値を検査し、NaN / ±inf などを caller・assignment・後続処理へ公開する前に fatal に停止します。NoValue は検査対象外です。診断 snapshot は expected TypeRef、Python type、安全な値表現、reason、call ID と境界を保持し、force は `boundary_kind="thunk"`、`implementation="force"` で識別します。nested Thunk は force ごとに一層だけ外形と保存契約を検査し、内側の式を先行評価しません。ThunkValue は result TypeRef を保持せず、force 式の静的型と call frame の type binding による既存の型置換を正本にします。generic T も Python 値から推測しません。Box / Pair / MissingType などを result に持つ Thunk も外形と保存契約は検査しますが、opaque payload の representation は検査しません。
 
-保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と extension builtin の公開 return / force 境界です。builtin argument 全体の validation は導入しません。直接 `call_builtin()` の raw value / RaisedFailure、`eval_expr()` による直接 AST 評価、`_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue の直接 constructor は trusted low-level boundary として残します。ExecutionResult 返却後の Python mutation も保証対象外です。ThunkValue は mutable のままで、返却後 mutation の完全防止、result TypeRef metadata、custom type validator registry、ExecutionResult deep copy は今回導入しません。直接構築した FloatLit も通常の typecheck を通せば有限性を検査します。不正な non-finite 入力由来の non-finite 算術結果は FloatOverflow とせず、builtin return 境界で ValueContractViolation にします。
+Phase 3A では runtime value contract を producer / consumer 双方で検証します。共通の `prepare_typed_value` は source TypeRef の検証 → widening → target TypeRef の検証を行います。`Int -> Float` / `Int -> Int64` の変換規則は変更せず、範囲外 Int や Bool-as-Int が変換により正常値になる前に停止します。`numeric.widen_value` は pure conversion helper のままです。
+
+checked identifier は expression の静的 TypeRef で読み出しを検証します。builtin / custom builtin / user function は全 argument の準備後にだけ実行し、parameter Cell に不正値を保存しません。引数式の評価順は従来どおり左から右です。user function の正常 return、typed Cell の初期化・再代入・resolve recovery も同じ preparation を通します。resolve は保存成功後に回復を確定し、違反時は既存 failure history を保持します。UninitializedBinding は従来どおり read 時の EvalError、真の NoValue は ordinary value validation の対象外です。
+
+期待型は型検査が記録した expression / assignment target、resolved parameter / return、宣言の TypeRef を正本にします。generic は retained call frame の bindings で具体化し、Python 値・implementation ID・mutable `Cell.typ` から型を推測しません。NaN / ±inf などは print の出力、comparison / arithmetic の実行、custom consumer implementation の呼び出しより前に停止します。consumer 違反も FailureEvent を作らず resolve 不可の fatal `ValueContractViolation` です。既存の immutable snapshot と reason を使い、boundary は `value_read` / `call_argument` / `binding_write` / `function_return` / `force_argument` で区別します。
+
+force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。extension が共有 Cell の payload や `Cell.typ` を変更しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
+
+保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と正式 custom builtin extension を使用する checked evaluation です。Box / Pair / MissingType / `Float[Int]` などの open-world payload は再帰的に検証しません。canonical standard return / parameter として使用する境界では共通 validator が働きます。
+
+直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後の mutation も保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。ThunkValue / Cell の immutable 化、extension wrapper、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3B 以降の object model の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
 
 ```ginger
 let initial: Int = 1
@@ -694,7 +704,7 @@ Thunkは非memoizedです。作成時には式を実行せず、FailureEventも�
 
 force時は通常のEvalResult経路を使います。NoValueなら親演算を実行せず、正常値とpendingが共存するなら両方を保持します。builtinとユーザー関数の契約検証を通した後、今回のforce中に新しく生じたunresolved eventを、Thunkが保持する推論契約およびforce引数の公開Thunk型の潜在契約に照合します。契約外なら境界種別 `thunk`、境界名 `force` のFailureContractViolationとして停止し、既存eventを履歴へ残します。
 
-Phase 2.5 の builtin return 時の保存契約 subset 検査後も、この force 時の二重の failure 契約検証を維持します。保存 metadata の mutation による契約外 failure もここで検出します。その検証後に成功値だけを value contract で検査し、違反は `ExecutionResult.value_contract_violation` に記録します。FailureContractViolation と ValueContractViolation は別の診断です。
+Phase 2.5 の builtin return 時の保存契約 subset 検査後も、この force 時の二重の failure 契約検証を維持します。Phase 3A では保存 metadata の契約超過を read / argument / force 開始時にも検出し、実 failure が出なくても停止します。その検証後に成功値だけを value contract で検査し、違反は `ExecutionResult.value_contract_violation` に記録します。FailureContractViolation と ValueContractViolation は別の診断です。
 
 Thunkが未初期化bindingをcaptureすること自体は許可します。forceがその値を実際に要求すると同じ読み出し境界で EvalError により停止し、過去の原因eventを再発生させず、新しいFailureEventや潜在failureとして扱いません。lexical environment snapshotは維持するため、capture後に元のvarを回復しても、snapshot内の未初期化bindingをforceで読むと停止します。
 

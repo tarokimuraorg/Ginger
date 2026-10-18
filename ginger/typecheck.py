@@ -209,6 +209,7 @@ def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
         binding = env[stmt.name]
         if not binding.mutable:
             raise TypecheckError(f"cannot assign to immutable binding '{stmt.name}'")
+        syms.binding_types[id(stmt)] = binding.ty
         type_expr(stmt.expr, expected=binding.ty, env=env, syms=syms)
         return effect_expr(stmt.expr, env=env, syms=syms)
     if isinstance(stmt, ExprStmt):
@@ -261,6 +262,7 @@ def typecheck_func_bodies(syms) -> None:
                 binding = fenv[st.name]
                 if not binding.mutable:
                     raise TypecheckError(f"cannot assign to immutable binding '{st.name}'")
+                syms.binding_types[id(st)] = binding.ty
                 type_expr(st.expr, expected=binding.ty, env=fenv, syms=syms, tv_guars=tv_guars)
             elif isinstance(st, ReturnStmt):
                 rt = type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)

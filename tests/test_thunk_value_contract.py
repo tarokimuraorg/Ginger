@@ -172,7 +172,7 @@ class ThunkValueContractTests(unittest.TestCase):
         with patch.dict(BUILTINS, {'test.make': lambda: payload}):
             self.assertIs(call_builtin('test.make'), payload)
 
-    def test_force_public_failure_contract_still_checked(self):
+    def test_narrowed_public_contract_rejected_before_evaluation(self):
         original = evaluator.expression_type
 
         def narrow_public(expr, env, syms, outer=None):
@@ -185,6 +185,7 @@ class ThunkValueContractTests(unittest.TestCase):
             result = evaluator.eval_program(lower_program(parse(
                 'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0, 0.0))\n'
                 'var x: Float = force(t)')))
-        self.assertEqual(result.contract_violation.boundary_kind, 'thunk')
-        self.assertIsNone(result.value_contract_violation)
-        self.assertEqual(len(result.failure_history), 1)
+        self.assertIsNone(result.contract_violation)
+        self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')
+        self.assertEqual(result.value_contract_violation.boundary_kind, 'value_read')
+        self.assertEqual(result.failure_history, ())
