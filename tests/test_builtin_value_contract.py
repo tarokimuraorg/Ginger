@@ -144,14 +144,15 @@ class BuiltinValueContractTests(unittest.TestCase):
                     self.assertIsNone(result.value_contract_violation)
                     self.assertIs(result.environment['result'].value, payload)
 
-    def test_extension_thunk_return_requires_thunk_value(self):
+    def test_extension_thunk_return_rejects_raw_thunk_value(self):
         expr = parse('var x: Int = 1').items[0].expr
         for payload in [ThunkValue(expr, {}, None, EMPTY_FAILURES)]:
             with patch.dict(BUILTINS, {'test.value': lambda: payload}):
                 result = self.evaluate('sig make() -> Thunk[Int]<Never> { builtin test.value }\n'
                                        'var x: Thunk[Int]<Never> = make()')
-            self.assertIsNone(result.value_contract_violation)
-            self.assertIs(result.environment['x'].value, payload)
+            self.assertEqual(result.value_contract_violation.reason, 'wrong_python_type')
+            self.assertNotIn('x', result.environment)
+            self.assertEqual(result.failure_history, ())
 
     def test_fatal_stops_assignment_resolve_widening_and_later_calls(self):
         source = ('sig bad() -> Int { failure IOErr builtin test.value }\n'

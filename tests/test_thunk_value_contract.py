@@ -18,7 +18,14 @@ class ThunkValueContractTests(unittest.TestCase):
                           {'payload': evaluator.Cell(payload, False)}, None, saved)
 
     def run_source(self, source, thunk):
-        with patch.dict(BUILTINS, {'test.make': lambda: thunk}):
+        # Low-level runtime fixture: inject an internal return through the raw
+        # bridge; formal extension return rejection is tested separately.
+        bridge = evaluator.invoke_builtin
+        def raw_fixture(implementation, args, *rest, **kwargs):
+            if implementation == 'test.make':
+                kwargs.pop('parameter_types', None)
+            return bridge(implementation, args, *rest, **kwargs)
+        with patch('ginger.eval.invoke_builtin', side_effect=raw_fixture), patch.dict(BUILTINS, {'test.make': lambda: thunk}):
             return evaluator.eval_program(lower_program(parse(source)))
 
     def source(self, typ='Float', contract='Never', tail=None):

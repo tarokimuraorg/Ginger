@@ -127,7 +127,7 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 
 builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
-Phase 2.5 では custom builtin の `Thunk[T]<F>` return にも共通の `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
+Phase 3C では custom builtin の `Thunk[T]<F>` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
 
 `force` は既存の実 failure 契約検証後、Value の場合だけ具体化済み result TypeRef で同じ validator を適用します。標準6型の成功値を検査し、NaN / ±inf などを caller・assignment・後続処理へ公開する前に fatal に停止します。NoValue は検査対象外です。診断 snapshot は expected TypeRef、Python type、安全な値表現、reason、call ID と境界を保持し、force は `boundary_kind="thunk"`、`implementation="force"` で識別します。nested Thunk は force ごとに一層だけ外形と保存契約を検査し、内側の式を先行評価しません。ThunkValue は result TypeRef を保持せず、force 式の静的型と call frame の type binding による既存の型置換を正本にします。generic T も Python 値から推測しません。Box / Pair / MissingType などを result に持つ Thunk も外形と保存契約は検査しますが、opaque payload の representation は検査しません。
 
@@ -137,11 +137,11 @@ checked identifier は expression の静的 TypeRef で読み出しを検証し�
 
 期待型は型検査が記録した expression / assignment target、resolved parameter / return、宣言の TypeRef を正本にします。generic は retained call frame の bindings で具体化し、Python 値・implementation ID・`Cell.typ` metadata から型を推測しません。NaN / ±inf などは print の出力、comparison / arithmetic の実行、custom consumer implementation の呼び出しより前に停止します。consumer 違反も FailureEvent を作らず resolve 不可の fatal `ValueContractViolation` です。既存の immutable snapshot と reason を使い、boundary は `value_read` / `call_argument` / `binding_write` / `function_return` / `force_argument` で区別します。
 
-force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。extension が captured environment の entry を不正な payload / 異なる `Cell.typ` を持つ新しい Cell に置換しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
+force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。low-level host fixture が captured environment の entry を不正な payload / 異なる `Cell.typ` を持つ新しい Cell に置換しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
 
 保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と正式 custom builtin extension を使用する checked evaluation です。Box / Pair / MissingType / `Float[Int]` などの open-world payload は再帰的に検証しません。canonical standard return / parameter として使用する境界では共通 validator が働きます。
 
-直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後も payload 内部の mutation は保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。Phase 3B は Cell / ThunkValue の field binding を frozen にしますが、extension wrapper、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3C 以降の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
+直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後も payload 内部の mutation は保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。Phase 3B は Cell / ThunkValue の field binding を frozen にしますが、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3D 以降の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
 
 ```ginger
 let initial: Int = 1
@@ -192,9 +192,42 @@ capture は従来の `env.copy()` による shallow mapping snapshot と immutab
 
 これは runtime 全体の deep immutability ではありません。captured environment の mapping contents、FunctionEnv metadata、outer が参照する環境、opaque list / dict / custom object の内部、raw checked AST と child list は引き続き mutable です。`t.env["x"].value = ...` は拒否しますが、`t.env["x"] = Cell(...)` は可能です。標準 scalar の正常 payload は実質 immutable ですが、open-world payload の `.append(...)` 等は妨げません。
 
-custom builtin に raw ThunkValue 本体を渡す API、同じ Thunk の identity return、host constructor は維持します。frozen 化は constructor input 全体の安全性を保証しません。builtin return / custom call argument / force entry の saved ⊆ public 検査、および identifier / widening / typed write / user return / force success の consumer-side validation は引き続き必要です。tests の mapping replacement や expression result replacement は test-only fault injection であり language semantics ではありません。
+Phase 3C では custom builtin に opaque ThunkHandle を渡し、identity return は adapter が元の internal ThunkValue に戻します。host constructor は low-level/internal 用に残ります。frozen 化は constructor input 全体の安全性を保証しません。builtin return / custom call argument / force entry の saved ⊆ public 検査、および identifier / widening / typed write / user return / force success の consumer-side validation は引き続き必要です。tests の mapping replacement や expression result replacement は test-only fault injection であり language semantics ではありません。
 
-ExecutionResult の環境は従来の mapping proxy に加え binding record の fields も immutable ですが、payload は deep frozen / deep copied ではありません。Phase 3C 以降の候補は captured env の read-only 化、FunctionEnv immutable 化、environment handle / extension adapter / read-only view、validated Thunk factory、LanguageThunk / ExtensionThunk 分離、raw AST exposure の除去と AST collection immutable 化、outer isolation、opaque payload ownership、persistent environment、deep ExecutionResult snapshot、host force capability です。
+ExecutionResult の環境は従来の mapping proxy に加え binding record の fields も immutable ですが、payload は deep frozen / deep copied ではありません。Phase 3D 以降の候補は captured env の read-only 化、FunctionEnv immutable 化、read-only ThunkView、validated Thunk factory、LanguageThunk / ExtensionThunk 分離、raw AST exposure の除去と AST collection immutable 化、outer isolation、opaque payload ownership、persistent environment、deep ExecutionResult snapshot、host force capability です。
+
+### Opaque ThunkHandle / extension adapter（Phase 3C）
+
+正式な custom builtin の Python representation は次のとおりです。callable は従来どおり payload だけを受け取り、RuntimeContext や registry は受け取りません。
+
+| Ginger type | Python implementation の値 |
+|---|---|
+| Int / Int64 | exact `int`（各範囲内） |
+| Float | finite `float` |
+| Bool | exact `bool` |
+| Ordering | canonical tuple `("Ordering", "Left" / "Flat" / "Right")` |
+| Unit | `None` |
+| open-world type | raw opaque Python payload |
+| Thunk[T]<F> | opaque `ginger.extension.ThunkHandle` |
+
+```python
+from ginger.extension import ThunkHandle
+
+def identity(t: ThunkHandle) -> ThunkHandle:
+    return t
+```
+
+ThunkHandle は field を持たない identity-based Python object で、repr は `<ThunkHandle>` です。`expr` / `env` / `outer` / `potential_failure_contract`、Cell、FunctionEnv、retained frame metadata は extension API ではありません。TypeRef や failure contract も公開しません。ThunkValue は runtime internal representation であり、正式 custom builtin の直接の Thunk 引数として渡しません。
+
+全引数の evaluation、source validation → widening → target validation が完了した後、direct Thunk parameter だけを handle に変換します。RuntimeContext の private registry は handle → immutable entry（元の ThunkValue、発行時の concrete public Thunk TypeRef）を保持します。parameter / return 型は checked `resolved_calls` の型を generic frame bindings で具体化したものです。registry は context ごとに空で開始し、entry は追加のみです。ExecutionResult、call frame、failure history、diagnostics へコピーしません。
+
+正常な direct Thunk return は handle の型、current registry membership、issued → expected 型の既存 `typecheck.compatible` 規則を検査して元の ThunkValue に戻し、既存の saved ⊆ public failure contract / runtime value validation を実施します。Int result の handle を Float result に再型付けできません。latent failure の互換性も静的規則と同一です。raw ThunkValue / int / None 等は `wrong_python_type`、手動構築・別 execution の handle は `invalid_extension_handle`、型の不一致は `contract_mismatch` として、`extension_return` 境界の fatal ValueContractViolation になります。FailureEvent は生成せず、実行済み Python side effect は rollback しません。RaisedFailure の経路では return adapter を実行しません。
+
+handle は同一 execution 内で受け取り、Python 側に保存し、別 callable に渡し、後の builtin call から返せます。identity return は capture / frame / saved contract を含め元の internal ThunkValue をそのまま復元します。別 `run()` / RuntimeContext への持ち越しは拒否します。独立して発行された handle が同じ underlying Thunk を表すかは API 契約にせず、Ginger に Thunk equality / identity operation を追加しません。
+
+adapter は direct Thunk 型だけに適用します。nested Thunk は outer handle 1個になり、Ginger `force(...)` が一層ずつ評価します。Box / Pair / MissingType などの open-world payload は再帰変換せず、alias / mutable payload も維持します。内部に raw ThunkValue や ThunkHandle があってもそのままです。opaque payload から取り出した handle を正式 Thunk return として返す際には current registry membership を検査します。
+
+新しい language Thunk の正式 factory、Python host force、result type / public failure contract inspection、serialization、cross-execution transfer は提供しません。作成・評価には Ginger source の `thunk(expr)` / `force(...)` intrinsic を使います。`ThunkValue(...)` constructor と直接 `call_builtin(...)` は low-level/internal responsibility として raw semantics を維持します。これは Python reflection に対する sandbox ではありません。captured env の read-only 化、AST isolation、persistent environment、LanguageThunk / ExtensionThunk 分離も今回の対象外です。
 
 ## 関数の宣言と実装
 

@@ -17,8 +17,18 @@ from ginger.runtime.results import NoValue
 
 class ConsumerValueContractTests(unittest.TestCase):
     def run_source(self, source, extensions):
+        # Host-side fault injection precedes the extension adapter. The actual
+        # Python extension receives only handles, even in these corruption tests.
+        bridge = evaluator.invoke_builtin
+        def inject(implementation, args, *rest, **kwargs):
+            if implementation in {'test.mutate', 'test.corrupt'}:
+                returned = extensions[implementation](*args)
+                callback = (lambda handle: handle) if returned is args[0] else (lambda handle: returned)
+                with patch.dict(BUILTINS, {implementation: callback}):
+                    return bridge(implementation, args, *rest, **kwargs)
+            return bridge(implementation, args, *rest, **kwargs)
         out = io.StringIO()
-        with patch.dict(BUILTINS, extensions), redirect_stdout(out):
+        with patch('ginger.eval.invoke_builtin', side_effect=inject), patch.dict(BUILTINS, extensions), redirect_stdout(out):
             result = evaluator.eval_program(lower_program(parse(source)))
         self.assertEqual(out.getvalue(), '')
         return result

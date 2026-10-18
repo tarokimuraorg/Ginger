@@ -3,12 +3,23 @@
 from dataclasses import dataclass, field, replace
 from contextvars import ContextVar
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, TYPE_CHECKING
+
+from ginger.extension import ThunkHandle
+
+if TYPE_CHECKING:
+    from .thunk import ThunkValue
 
 from ginger.ast import TypeRef
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, FailureSet
 from .failures import FailureEvent, FailureStatus, FailureContractViolation
 from .value_contract import ValueContractViolation
+
+
+@dataclass(frozen=True)
+class _HandleEntry:
+    thunk: "ThunkValue"
+    public_type: TypeRef
 
 
 @dataclass(frozen=True)
@@ -50,6 +61,7 @@ class RuntimeContext:
     def __init__(self):
         self.last_value_contract_violation: ValueContractViolation | None = None
         self.last_contract_violation: FailureContractViolation | None = None
+        self._thunk_handles: dict[ThunkHandle, _HandleEntry] = {}
         self._next_event_id = 1
         self._next_call_id = 1
         self._events: dict[int, FailureEvent] = {}
@@ -57,6 +69,18 @@ class RuntimeContext:
         self._incomplete_statements: list[IncompleteStatement] = []
         self._current_call: ContextVar[int | None] = ContextVar("ginger_current_call", default=None)
         self._handling_event: ContextVar[int | None] = ContextVar("ginger_handling_event", default=None)
+
+    def _issue_thunk_handle(self, thunk: "ThunkValue", public_type: TypeRef) -> ThunkHandle:
+        """Register an already validated internal value at its concrete boundary type."""
+        handle = ThunkHandle()
+        self._thunk_handles[handle] = _HandleEntry(thunk, public_type)
+        return handle
+
+    def _resolve_thunk_handle(self, handle: ThunkHandle) -> _HandleEntry | None:
+        # Issued handles are exact objects; subclasses cannot override lookup hashing.
+        if type(handle) is not ThunkHandle:
+            return None
+        return self._thunk_handles.get(handle)
 
     @property
     def current_call_id(self) -> int | None:

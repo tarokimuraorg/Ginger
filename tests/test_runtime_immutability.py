@@ -50,10 +50,14 @@ class RuntimeImmutabilityTests(unittest.TestCase):
 
     def test_reassignment_replaces_cell_and_preserves_capture(self):
         captured = []
-        def inspect(t):
+        from ginger.runtime.context import RuntimeContext
+        issue = RuntimeContext._issue_thunk_handle
+        def inspect(context, t, typ):
             captured.append(t.env['x'])
+            return issue(context, t, typ)
         out = io.StringIO()
-        with patch.dict(BUILTINS, {'test.inspect': inspect}), redirect_stdout(out):
+        with patch.object(RuntimeContext, '_issue_thunk_handle', inspect), patch.dict(
+                BUILTINS, {'test.inspect': lambda handle: None}), redirect_stdout(out):
             result = run('sig inspect(Thunk[Int]<Never>) -> Unit { builtin test.inspect }\n'
                          'var x: Int = 1\nvar t: Thunk[Int]<Never> = thunk(x)\n'
                          'inspect(t)\nx = 2\nprint(force(t))\nprint(x)')
@@ -89,7 +93,8 @@ class RuntimeImmutabilityTests(unittest.TestCase):
                              f'var x: {typ} = force(inner)')
             self.assertIsNone(result.value_contract_violation)
             self.assertEqual(result.environment['x'].value, expected)
-            self.assertIs(result.environment['u'].value, seen[-1])
-            self.assertIs(result.environment['t'].value, seen[-1])
-            env = seen[-1].env
+            self.assertIs(result.environment['u'].value, result.environment['t'].value)
+            from ginger.extension import ThunkHandle
+            self.assertIsInstance(seen[-1], ThunkHandle)
+            env = result.environment['t'].value.env
             self.assertEqual(result.call_frames[env.call_frame_id].type_bindings['T'], TypeRef(typ))
