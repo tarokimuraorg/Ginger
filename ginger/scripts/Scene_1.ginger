@@ -21,7 +21,7 @@
 
 let initial: Int = 1
 
-// letの変数は再代入不可
+// // letで宣言した binding は再代入不可
 //initial = 2
 
 var x: Int = (initial + 2)
