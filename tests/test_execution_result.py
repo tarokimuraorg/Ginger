@@ -182,7 +182,7 @@ class ExecutionResultTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / 'ginger/scripts/Scene_1.ginger').read_text(encoding='utf-8')
         with patch('ginger.main.run', side_effect=lambda _: run(source)), redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(main(), 0)
-        self.assertEqual(out.getvalue(), '9\n4.5\n-9\n')
+        self.assertEqual(out.getvalue(), '3\n9\n4.5\n-9\n')
         self.assertEqual(err.getvalue().splitlines(), [
             'warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow',
             'warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow',

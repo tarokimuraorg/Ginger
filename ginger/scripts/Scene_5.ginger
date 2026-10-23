@@ -24,15 +24,18 @@ failureset CalculationFailure {
     IOErr
 }
 
-sig calculate() -> Float {
+sig calculate(Float, Float) -> Float {
     failure CalculationFailure
 }
 
-func calculate() {
-    return div(1.0, 0.0)
+func calculate(a:Float,b:Float) {
+    return div(a, b)
 }
 
-var result: Float = calculate()
+// 引数を指定していないためエラー
+//var result: Float = calculate()
+
+var result: Float = calculate(1,0)
 
 resolve result {
 
@@ -40,10 +43,10 @@ resolve result {
         result = 0
     }
     FloatOverflow {
-        result = 0
+        result = 1
     }
     IOErr {
-        result = 1
+        result = 2
     }
 }
 

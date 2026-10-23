@@ -263,7 +263,7 @@ class ExistingRegressionTests(unittest.TestCase):
 
     def test_samples_outputs_and_warnings(self):
         expected = {
-            "Scene_1": ("9\n4.5\n-9\n", ["unhandled failures: IntegerOverflow"] * 2
+            "Scene_1": ("3\n9\n4.5\n-9\n", ["unhandled failures: IntegerOverflow"] * 2
                         + ["unhandled failures: DivideByZero, FloatOverflow"]),
             "Scene_2": ("2.0\n", []),
             "Scene_3": ("-1\n0.0\n", ["unhandled failures: FloatOverflow"]),

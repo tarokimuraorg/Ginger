@@ -1,0 +1,2 @@
+// Expected static rejection: TypecheckError: Float literal must be finite
+var x: Float = 1e400

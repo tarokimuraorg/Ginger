@@ -88,7 +88,11 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 
 範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。`toFloat` にも FloatOverflow はありません。
 
-Float の正常値は `type(value) is float and math.isfinite(value)` です。NaN / +inf / -inf は正常な Float ではありません。±0.0、subnormal、丸められた有限値、underflow による ±0.0 は有効です。decimal literal を parser が Python float に変換して inf になった場合は、typecheck の FloatLit 検査で静的に拒否します。負方向の `(-literal)` も同様です。nan / inf / infinity の literal 構文は追加していません。
+Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は既存どおり `(-1e3)` と書きます。`1e` / `1e+` / `1e-` は指数の数字が不足する syntax error です。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
+
+`1e308` や `5e-324` は有限値として有効で、`1e-400` のように underflow で `0.0` になる literal も有効です。`1e400` は literal 自体が非有限になるため、実行前に `TypecheckError: Float literal must be finite` で拒否します。一方 `mul(1e308, 1e308)` は有限な入力の演算結果が overflow するため、runtime の FloatOverflow となり resolve で回復できます。
+
+Float の正常値は `type(value) is float and math.isfinite(value)` です。NaN / +inf / -inf は正常な Float ではありません。±0.0、subnormal、丸められた有限値、underflow による ±0.0 は有効です。decimal / exponent literal を parser が Python float に変換して inf になった場合は、typecheck の FloatLit 検査で静的に拒否します。負方向の `(-literal)` も同様です。nan / inf / infinity の literal 構文は追加していません。
 
 標準 Float の add / sub / mul / div は、全 operand が finite で結果が non-finite の場合に `RaisedFailure(FailureId.FloatOverflow)` を送出します。FloatOverflow は finite Float domain の overflow を表す通常 failure で、FailureEvent → NoValue を経て resolve で回復できます。div は divisor が ±0.0 なら DivideByZero を優先し、nonzero finite の除算結果が non-finite なら FloatOverflow です。finite 値の neg は常に finite なので failure を持ちません。cmp / eq / lt のアルゴリズムは変更せず、通常 source と builtin return 境界で NaN の流入を防ぎます。
 

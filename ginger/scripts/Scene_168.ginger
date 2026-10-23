@@ -1,0 +1,9 @@
+// Finite literals, runtime FloatOverflow, resolve; expected stdout: 999.0
+var a: Float = 1e308
+var x: Float = mul(a, a)
+resolve x {
+    FloatOverflow {
+        x = 999.0
+    }
+}
+print(x)

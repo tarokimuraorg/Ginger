@@ -6,10 +6,15 @@ from contextlib import redirect_stdout
 from unittest.mock import Mock, patch
 
 from test_failure_contract import checked
-from ginger.ast import TypeRef
+from ginger.ast import FloatLit, IntLit, TypeRef
 from ginger.builtin import BUILTINS, builtin_failure_contract
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, failures
+from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
+from ginger.lower import lower_program
+from ginger.parser import parse
+from ginger.tokenizer import tokenize
+from ginger.typecheck import typecheck_program
 from ginger.eval import UninitializedBinding, eval_program
 from ginger.numeric import INT_MIN, INT_MAX
 from ginger.runtime.builtin_bridge import invoke_builtin
@@ -25,7 +30,7 @@ MAX = sys.float_info.max
 
 
 def literal(value):
-    # The language has decimal literals, without exponent notation.
+    # Keep decimal spelling to cover the original literal path.
     text = format(abs(value), '.1074f').rstrip('0')
     if text.endswith('.'):
         text += '0'
@@ -39,6 +44,107 @@ class FloatFiniteTests(unittest.TestCase):
         with redirect_stdout(stdout):
             result = eval_program(program)
         return result, diagnostics, stdout.getvalue()
+
+    def test_exponent_spellings_tokens_ast_lowering_and_values(self):
+        for mantissa in ['1', '1.0', '1.5', '001.5']:
+            for marker in ['e', 'E']:
+                for exponent in ['3', '+3', '-3', '10', '+10', '-10']:
+                    spelling = mantissa + marker + exponent
+                    with self.subTest(spelling=spelling):
+                        token, eof = tokenize(spelling)
+                        self.assertEqual((token.kind, token.text, token.pos), ('FLOAT', spelling, 0))
+                        self.assertEqual(eof.kind, 'EOF')
+                        program = parse(f'var x: Float = {spelling}')
+                        self.assertEqual(program.items[0].expr, FloatLit(float(spelling)))
+                        self.assertEqual(lower_program(program), program)
+                        result, diagnostics, _ = self.execute(f'var x: Float = {spelling}')
+                        self.assertIs(type(result.environment['x'].value), float)
+                        self.assertEqual(result.environment['x'].value, float(spelling))
+                        self.assertEqual(diagnostics.items, [])
+
+    def test_exponent_print_output(self):
+        _, _, stdout = self.execute('\n'.join(f'print({s})' for s in
+            ['1e3', '1E3', '1e+3', '1e-3', '1.5e2', '1.5E-2']))
+        self.assertEqual(stdout, '1000.0\n1000.0\n1000.0\n0.001\n150.0\n0.015\n')
+
+    def test_exponent_static_type_and_widening_metadata(self):
+        program = lower_program(parse('var x: Float = 1\nvar y: Float = 1e0'))
+        syms = build_symbols(program)
+        typecheck_program(program, Diagnostics(), syms=syms)
+        self.assertIsInstance(program.items[0].expr, IntLit)
+        self.assertIsInstance(program.items[1].expr, FloatLit)
+        self.assertEqual([syms.expression_types[id(item.expr)] for item in program.items],
+                         [TypeRef('Int'), TypeRef('Float')])
+        for typ in ['Int', 'Int64']:
+            with self.subTest(typ=typ), self.assertRaises(TypecheckError):
+                checked(f'var x: {typ} = 1e3')
+
+    def test_exponent_finite_boundaries_and_underflow(self):
+        for spelling in ['1e308', '1.7976931348623157e308', '1e-3', '1e-10', '5e-324', '1e-400']:
+            with self.subTest(spelling=spelling):
+                self.assertTrue(math.isfinite(float(spelling)))
+                result, _, _ = self.execute(f'var x: Float = {spelling}')
+                self.assertEqual(result.environment['x'].value, float(spelling))
+
+    def test_nonfinite_exponents_rejected_statically(self):
+        for spelling in ['1e400', '1E+400', '1.7976931348623159e308']:
+            self.assertFalse(math.isfinite(float(spelling)))
+            for expression in [spelling, f'(-{spelling})', f'thunk({spelling})']:
+                with self.subTest(expression=expression), self.assertRaisesRegex(
+                        TypecheckError, 'Float literal must be finite'):
+                    checked(f'print({expression})')
+
+    def test_malformed_exponent_diagnostic(self):
+        for mantissa in ['1', '1.0']:
+            for marker in ['e', 'E']:
+                for sign in ['', '+', '-']:
+                    spelling = mantissa + marker + sign
+                    with self.subTest(spelling=spelling), self.assertRaisesRegex(
+                            SyntaxError, 'Float exponent requires digits at 7'):
+                        parse(f'print( {spelling})')
+
+    def test_excluded_float_syntax(self):
+        for spelling in ['.5e3', '.e3', '1.e3', '1.', '.5', '1e3i64', '1.0e3i64', '1i64e3']:
+            with self.subTest(spelling=spelling), self.assertRaises(SyntaxError):
+                parse(f'print({spelling})')
+
+    def test_exponent_sign_preserves_unary_grammar(self):
+        self.assertEqual([(t.kind, t.text) for t in tokenize('-1e-3')[:-1]],
+                         [('SYM', '-'), ('FLOAT', '1e-3')])
+        self.assertEqual([(t.kind, t.text) for t in tokenize('+1e+3')[:-1]],
+                         [('SYM', '+'), ('FLOAT', '1e+3')])
+        for expression in ['-1e3', '+1e3', '1e3 * -1e3', '(-(-1e3))']:
+            with self.subTest(expression=expression), self.assertRaises(SyntaxError):
+                parse(f'print({expression})')
+        for spelling in ['1e3', '1e-3', '0e0', '1e-400']:
+            result, _, _ = self.execute(f'var x: Float = (-{spelling})')
+            self.assertEqual(result.environment['x'].value, -float(spelling))
+            self.assertEqual(math.copysign(1, result.environment['x'].value), -1)
+            self.assertEqual(lower_program(parse(f'print((-{spelling}))')),
+                             lower_program(parse(f'print(neg({spelling}))')))
+
+    def test_numeric_and_identifier_token_regressions(self):
+        for spelling, kind in [('1', 'INT'), ('123', 'INT'), ('001', 'INT'),
+                               ('1i64', 'INT64'), ('001i64', 'INT64'),
+                               ('0.0', 'FLOAT'), ('1.0', 'FLOAT'), ('001.0', 'FLOAT'),
+                               ('123e2', 'FLOAT'), ('energy', 'IDENT'), ('Energy', 'IDENT'),
+                               ('nan', 'IDENT'), ('inf', 'IDENT'), ('infinity', 'IDENT')]:
+            with self.subTest(spelling=spelling):
+                self.assertEqual(tokenize(spelling)[0].kind, kind)
+        result, _, _ = self.execute('var energy: Int = 001\nvar Energy: Int64 = 001i64')
+        self.assertEqual(result.environment['energy'].value, 1)
+        self.assertEqual(result.environment['Energy'].value, 1)
+
+    def test_exponent_runtime_overflow_resolve(self):
+        result, diagnostics, stdout = self.execute(
+            'var a: Float = 1e308\nvar x: Float = mul(a,a)\n'
+            'resolve x { FloatOverflow { x = 999.0 } }\nprint(x)')
+        self.assertEqual(stdout, '999.0\n')
+        self.assertEqual(diagnostics.items, [])
+        event, = result.failure_history
+        self.assertEqual(event.failure_id, FailureId.FloatOverflow)
+        self.assertEqual(event.status, FailureStatus.RESOLVED)
+        self.assertIsNone(result.value_contract_violation)
 
     def test_finite_literals_include_max_subnormal_and_signed_zero(self):
         for value in [MAX, -MAX, 5e-324, -5e-324, 0.0, -0.0]:
