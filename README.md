@@ -37,7 +37,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
 2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、括弧付き単項マイナスを `neg` の呼び出しへ変換します。
-3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding initializer に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
+3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding の latest write に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
 `compile(src)` は型検査済み AST を返し、`execute(prog)` が評価します。`run(src)` は両方を実行します。型検査の通過だけで、未完成部分を含むすべての実行時契約が保証されるわけではありません。
@@ -55,7 +55,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
-| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、initializer の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
+| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
 
@@ -443,22 +443,22 @@ resolve x {
 print(x)
 ```
 
-この例は警告なしで `0.0` を出力します。initializer が値を生成できないと、x は型・可変性・原因 event ID を持つ `UninitializedBinding` になります。`resolve x` はその原因 `FailureEvent` の FailureId に一致する handler を実行し、x が有効な値を持った場合だけ元 event を resolved にします。
+この例は警告なしで `0.0` を出力します。initializer が値を生成できないと、x は型・可変性・原因 event ID を持つ `UninitializedBinding` になります。`resolve x` はその原因 `FailureEvent` の FailureId に一致する handler を実行し、handler 内で x への write が成功した場合だけ元 event を resolved にします。
 
-resolve の静的資格は対象 binding の元の initializer から宣言・推論した failure 集合で検査します。後の代入でこの集合を書き換えません。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、failure を持たない initializer の var は拒否します。
+resolve の静的資格は対象 binding に対する最新の write（initializer または assignment）から宣言・推論した failure 集合で検査します。通常の再代入はこの集合を置き換え、他 binding への write や式文は変更しません。handler は条件付き実行なので、後続 resolve では未実行経路と各 handler の最後の write の集合を合算します。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、最新 write が failure を持たない var は拒否します。
 
 - resolve はトップレベルの statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。return、関数内 resolve、handler 内 resolve は許可しません。新しい block scope は作らず、実行された handler の宣言はトップレベル環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
-- 対象が通常値を持っていれば no-op です。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
-- handler が `print(1)` などを正常に終えても、対象が未初期化のままなら元 event は unresolved のままです。
-- handler の代入が新しい宣言済み failure で失敗して対象が未初期化のままなら、元 event と新 event は両方 unresolved です。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
+- latest write が success なら no-op です。過去の正常値が残っていても latest write が failed なら handler を実行できます。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
+- handler が `print(1)` などを正常に終えても、target への write が成功しなければ元 event は unresolved のままです。過去の正常値は保持され、その値を読む処理も継続できます。成功値が一度もなければ UninitializedBinding のままで、後続 read は fatal です。
+- handler の target への代入が新しい宣言済み failure で失敗し、回復できなければ元 event と新 event は両方 unresolved です。既存値は保持し、新しい失敗代入が latest write になります。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
 - 成功時も event を削除せず、`ExecutionResult.failure_history` に resolved として保持します。`unresolved_events` は status に基づいて除外します。
 - FailureContractViolation、EvalError、Python 内部例外は resolve の対象外で、従来どおり fatal です。
 
-トップレベル未処理警告は後続 resolve を含めて集計します。概念的には `(initializer failures - resolve の FailureId) ∪ handler failures` です。initializer が `{IntegerOverflow, DivideByZero}` を持ち、後続 resolve に IntegerOverflow だけを書けば、元 initializer の警告には DivideByZero だけが残ります。handler 内の式や代入の failure は別に合算し、元 initializer の処理対象を指定しただけでは消しません。静的な処理対象の指定は runtime の回復成功を保証しません。警告だけでは実行を止めず、関数本体の上限契約違反を型エラーにする規則は維持します。
+トップレベル未処理警告は write statement ごとに保持し、後続 resolve は最新 write の handler 対象だけを covered とします。同じ FailureId を持つ古い write の警告は消しません。handler 内の式や代入の failure は別の statement として集計し、後続 resolve はその handler の最新 write も対象にできます。静的な coverage は runtime 回復の成功を保証しません。警告だけでは実行を止めず、関数本体の上限契約違反を型エラーにする規則は維持します。
 
 builtin の宣言は静的解析が信頼する契約です。Python実装から契約を自動推論しませんが、runtimeでは実際のRaisedFailureを宣言と照合します。独自 builtin sig の宣言漏れは静的には検出できませんが、実際に未宣言 RaisedFailure が出た境界で契約違反として検出します。print / IO の failure 契約は未確定です。有効な Int の toFloat は failure を持ちません。現在、標準 print の出力失敗や、低水準 Python API から不正な巨大整数を直接渡した場合の toFloat 変換失敗は Python 例外として伝播し、通常の `FailureEvent` には変換されません。
 
-旧 `try` / `catch` 構文は削除しました。予約語として保持し、使用すると `try/catch has been removed; use resolve <binding>` という構文エラーになります。失敗し得る式の結果を var の initializer に置き、resolve でその binding を回復してください。
+旧 `try` / `catch` 構文は削除しました。予約語として保持し、使用すると `try/catch has been removed; use resolve <binding>` という構文エラーになります。失敗し得る式の結果を var の initializer または再代入に置き、resolve でその binding を回復してください。
 
 ## @attr.handled の廃止（failure runtime 再設計 Phase 1）
 
@@ -505,7 +505,7 @@ print(3)
 
 関数本体の通常文でもNoValueなら次の独立文へ継続します。Phase 5以降は関数ごとのpendingを保持し、正常値・正常Unitと未解決failureが共存できます。明示returnなしで本体末尾へ到達した場合は、途中に未完遂文があっても正常Unitです。return式がNoValueなら関数を終了し、caller側で継続します。
 
-現在の resolve は対象 binding の未初期化原因だけを扱います。handler が実行されたこと自体では resolved にせず、対象 binding が有効な値を得た場合に status を更新します。
+現在の resolve は対象 binding の latest failed write の直接原因だけを扱います。handler が実行されたこと自体では resolved にせず、handler 内で target への write が成功した場合に status を更新します。
 
 Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約のruntime照合は Phase 9 で追加しました。Phase 4 時点の公開 API は環境辞書でした。Phase 7 で契約違反、Phase 8 で ExecutionResult と履歴公開・main診断を導入しました。正常終了・契約違反時は未初期化bindingも結果環境に保持します。未初期化値の読み出しによる EvalError は他の fatal EvalError と同様に例外として表面化し、ExecutionResult は返しません。内部入口へ渡した環境と RuntimeContext には停止までの状態が残ります。
 
@@ -517,28 +517,46 @@ RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValu
 
 CallFrame.pendingが実行時の正本です。関数のEvalResultには生成された値（またはNoValue）と関連イベントIDを添えます。正常値はpendingがあっても利用でき、値を得たことだけでfailureをresolvedにしません。関数末尾への到達は正常Unit `Value(None)` であり、途中の未完遂文によるpendingがあってもNoValueにはしません。失敗したreturnはPhase 4同様、関数を終了してNoValueを返します。callerはその依存文を未完遂とし、独立した次の文へ進みます。
 
-incomplete statementには実際のユーザー関数call IDが記録されます。resolve の選択根拠は未初期化 binding が保持する直接の原因 event ID であり、関数の pending 全体を処理しません。
+incomplete statementには実際のユーザー関数call IDが記録されます。resolve の選択根拠は RuntimeContext の latest write metadata が保持する直接の原因 event ID であり、関数の pending 全体を処理しません。
 
 同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、returnの終了規則とThunk契約の統合はPhase 9で確定しました。
 
 ## binding に基づく resolve runtime
 
-resolve 判定の正本は runtime の binding 状態と FailureEvent 履歴です。
+`resolve <binding>` が対象とするのは current value ではなく **latest write attempt** です。initializer と assignment を同じ write として扱います。
 
-```text
-failure 発生
-→ initializer が値を生成できない
-→ UninitializedBinding が原因 event ID を保持
-→ resolve binding
-→ 原因 event の FailureId に一致する handler
-→ binding が有効な値を得た場合だけ event を resolved に更新
+```ginger
+var x: Float = 5.0
+x = div(1.0, 0.0)
+resolve x {
+    DivideByZero {
+        x = 0
+    }
+}
+print(x)
 ```
 
-`UninitializedBinding.related_event_ids` の既存 tuple は維持します。正常値と pending が共存した earlier event と、最後に値を失わせた直接原因を区別するため、`cause_event_id` property はこの tuple の最新 event ID を返します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、最新の関連 event が直接原因になります。resolve はこの ID で `RuntimeContext.get_event` を呼び、同名 event を履歴全体から検索しません。
+出力は `0.0` です（静的には未指定の FloatOverflow の警告が残ります）。失敗した再代入の直後は current value が 5.0、latest write が failed です。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
 
-例えば x と y の initializer がそれぞれ IntegerOverflow を発生させても、`resolve x` は x の原因 event だけを選びます。同じ initializer の途中で別の failure が pending として残っている場合も、直接原因以外の event を resolved にしません。initializer が正常値を生成した binding は、pending があっても通常値として扱い、resolve は no-op です。
+```text
+initializer / assignment が NoValue
+→ current value は保持（成功値がなければ UninitializedBinding）
+→ latest write に直接原因 event ID を記録
+→ resolve binding が matching handler を実行
+→ handler 内の target write 成功で元 event を resolved に更新
+```
 
-handler は既存の block evaluator で statement 単位に継続します。実行後に target binding を再取得し、有効な値があれば元 event の status を更新します。代入が failure で完了しなければ未初期化 binding の原因 tuple は保持します。handler 中の新 event には `caused_by = 元 event ID` を設定し、元 event と区別します。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
+metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な BindingWrite レコードに保持します。Cell は frozen のままで、ThunkValue / ThunkHandle は変更しません。成功 write は原因 ID を空にし、成功 write 数を増加させます。resolve はこの数の変化で新たな回復を判定するため、既存値だけで元 event を resolved にしません。handler 内で回復後に再び代入が失敗した場合は、元 event は resolved、新 event は unresolved、latest write は新しい失敗です。
+
+`UninitializedBinding.related_event_ids` は診断用として維持します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、失敗 write の最新の関連 event ID が直接原因です。正常値と pending が共存した earlier event は回復しません。`calculate(mul(1e308, 1e308), 1)` では calculate を実行せず、mul の FloatOverflow が assignment の直接原因になります。
+
+`x = bad1()` の後に `x = bad2()` があれば、resolve x が見るのは bad2 の失敗だけです。同じ FailureId でも event ID で区別し、bad1 の event は unresolved history に残します。さらに `x = 123.0` が成功すれば latest write は success となり、古い失敗は回復対象になりません。その literal write に failure はないため、対応する handler は静的にも拒否されます。静的 failure がある write が runtime で成功した場合は、resolve は合法ですが no-op です。
+
+handler の新 event には `caused_by = 元 event ID` を設定します。target への代入が失敗した場合も latest write はその新しい失敗で置き換え、元の write には戻しません。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
+
+Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery と local resolve は未実装です。
+
+手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler と既存値保持、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。Scene 38 の top-level / local の既存値保持も維持します。
 
 resolved event も履歴に残ります。CallFrame.pending_event_ids の参照は伝播履歴として保持し、現在有効な pending は `RuntimeContext.unresolved_pending` が status を照合して取得します。callee 終了時も unresolved だけを caller へ渡します。ExecutionResult の公開フィールドは変更していません。
 
@@ -696,7 +714,7 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
 
 集合名自体は FailureId ではなく、resolve の handler 名には使用できません。対象 binding の
-initializer から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
+最新 write から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
 
 ## runtime failure 契約検証（Phase 7）
 
@@ -761,4 +779,4 @@ Thunkが未初期化bindingをcaptureすること自体は許可します。forc
 
 force専用CallFrameは追加していません。builtin failureはforce実行中のcurrent callへ帰属し、Thunk内のユーザー関数呼び出しは通常のchild frameを作ります。lexical environmentを作成元から取得してもcall identityを作成元へ戻しません。
 
-force中に生成されたeventがbindingの初期化失敗の原因になれば、resolveでそのbindingを回復できます。handler内forceの新eventには通常どおりcaused_byが付き、対象が回復しなければ元eventもunresolvedのままです。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。公開結果フィールドは変更していません。
+force中に生成されたeventがbindingのwrite失敗の原因になれば、resolveでそのbindingを回復できます。handler内forceの新eventには通常どおりcaused_byが付き、対象が回復しなければ元eventもunresolvedのままです。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。公開結果フィールドは変更していません。

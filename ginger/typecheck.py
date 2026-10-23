@@ -35,7 +35,7 @@ from .ast import (
 class Binding:
     ty: TypeRef
     mutable: bool   # let=False, var=True
-    initializer_failures: FailureSet = EMPTY_FAILURES
+    latest_write_failures: FailureSet = EMPTY_FAILURES
 
 def same_type(a: TypeRef, b: TypeRef) -> bool:
     return _same_type(a, b)
@@ -148,12 +148,12 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
     # Defer warnings until later resolve statements have contributed coverage.
     # Each entry belongs to one source statement; handler effects stay separate.
     warning_effects: list[FailureSet] = []
-    initializer_warnings: dict[str, int] = {}
+    latest_warnings: dict[str, set[int]] = {}
 
     def check_statement(stmt):
         eff = typecheck_binding_or_expression(stmt, env, syms)
-        if isinstance(stmt, VarDecl):
-            initializer_warnings[stmt.name] = len(warning_effects)
+        if isinstance(stmt, (VarDecl, AssignStmt)):
+            latest_warnings[stmt.name] = {len(warning_effects)}
         warning_effects.append(eff)
 
     for item in prog.items:
@@ -163,8 +163,8 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
             binding = env[item.target]
             if not binding.mutable:
                 raise TypecheckError(f"cannot resolve immutable binding '{item.target}'; target must be var")
-            if not binding.initializer_failures:
-                raise TypecheckError(f"cannot resolve '{item.target}': initializer has no declared or inferred failures")
+            if not binding.latest_write_failures:
+                raise TypecheckError(f"cannot resolve '{item.target}': latest write has no declared or inferred failures")
             resolve_failures = set()
             for handler in item.handlers:
                 try:
@@ -173,17 +173,31 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
                     raise TypecheckError(f"unknown failure '{handler.failure_name}' in resolve") from None
                 if fid in resolve_failures:
                     raise TypecheckError(f"duplicate failure '{handler.failure_name}' in resolve")
-                if fid not in binding.initializer_failures:
+                if fid not in binding.latest_write_failures:
                     raise TypecheckError(
-                        f"cannot resolve '{handler.failure_name}': initializer of '{item.target}' "
+                        f"cannot resolve '{handler.failure_name}': latest write of '{item.target}' "
                         f"has no declared or inferred {handler.failure_name} failure"
                     )
                 resolve_failures.add(fid)
-            index = initializer_warnings[item.target]
-            warning_effects[index] = warning_effects[index] - resolve_failures
+            for index in latest_warnings[item.target]:
+                warning_effects[index] = warning_effects[index] - resolve_failures
+            # Handlers are alternatives and may not execute. Retain the incoming
+            # write plus each branch's final write, never intermediate writes.
+            incoming_env = env.copy()
+            incoming_warnings = latest_warnings.copy()
+            branches = []
             for handler in item.handlers:
+                env.update(incoming_env)
+                latest_warnings.update(incoming_warnings)
                 for stmt in handler.body.stmts:
                     check_statement(stmt)
+                branches.append((env.copy(), latest_warnings.copy()))
+            for name, original in incoming_env.items():
+                env[name] = Binding(original.ty, original.mutable, union_failures(
+                    original.latest_write_failures,
+                    *(branch[name].latest_write_failures for branch, _ in branches)))
+                latest_warnings[name] = set(incoming_warnings[name]).union(
+                    *(warnings[name] for _, warnings in branches))
         elif isinstance(item, (VarDecl, AssignStmt, ExprStmt)):
             check_statement(item)
 
@@ -211,7 +225,9 @@ def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
             raise TypecheckError(f"cannot assign to immutable binding '{stmt.name}'")
         syms.binding_types[id(stmt)] = binding.ty
         type_expr(stmt.expr, expected=binding.ty, env=env, syms=syms)
-        return effect_expr(stmt.expr, env=env, syms=syms)
+        eff = effect_expr(stmt.expr, env=env, syms=syms)
+        env[stmt.name] = Binding(binding.ty, binding.mutable, eff)
+        return eff
     if isinstance(stmt, ExprStmt):
         typ = type_expr(stmt.expr, expected=None, env=env, syms=syms)
         if not same_type(typ, TypeRef("Unit")):

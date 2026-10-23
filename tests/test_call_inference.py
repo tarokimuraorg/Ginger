@@ -197,7 +197,7 @@ class CallInferenceTests(unittest.TestCase):
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '999\n')
         for args in ['1.0,2.0', '1,2.0', '1.0,2']:
-            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred'):
+            with self.assertRaisesRegex(TypecheckError, 'latest write.*no declared or inferred'):
                 checked(f'var x: Float = add({args})\n'
                         'resolve x { IntegerOverflow { x = 0\nprint(999) } }')
         program, syms, bindings, _ = self.annotated('print(add(add(1,2),3.0))')

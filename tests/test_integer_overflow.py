@@ -121,7 +121,7 @@ class IntegerOverflowTests(unittest.TestCase):
             program, diags = checked(source + 'var x: Float = f(1.0)')
             self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
             self.assertEqual(eval_program(program).environment['x'].value, result)
-            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred'):
+            with self.assertRaisesRegex(TypecheckError, 'latest write.*no declared or inferred'):
                 checked(source + 'var result: Float = f(1.0)\n'
                         'resolve result { IntegerOverflow { result = 0 } }')
         program, _ = checked('var x: Float = mul(' + format(1e308, '.1f') + ',2.0)\nprint(7)')
@@ -185,7 +185,7 @@ class IntegerOverflowTests(unittest.TestCase):
         identity = 'sig identity(Float) -> Float {}\nfunc identity(x: Float) { return x }\n'
         for op in ['add', 'sub', 'mul']:
             with self.subTest(op=op), self.assertRaisesRegex(
-                    TypecheckError, 'initializer.*no declared or inferred'):
+                    TypecheckError, 'latest write.*no declared or inferred'):
                 checked(identity + f'var x: Float = identity({op}(1.0,2.0))\n'
                         'resolve x { IntegerOverflow { x = 0 } }')
         prefix = f'var t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'

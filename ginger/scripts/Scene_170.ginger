@@ -1,0 +1,8 @@
+// Failed reassignment recovers despite an existing value.
+// Expected stdout: 1.0; no warnings; FloatOverflow resolved.
+var result: Float = 10.0
+result = mul(1e308, 1e308)
+resolve result {
+    FloatOverflow { result = 1 }
+}
+print(result)

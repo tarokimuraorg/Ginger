@@ -50,6 +50,13 @@ class IncompleteStatement:
     related_event_ids: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class BindingWrite:
+    """Latest completed write and cumulative successful publications."""
+    cause_event_ids: tuple[int, ...] = ()
+    successful_writes: int = 0
+
+
 class RuntimeContext:
     """Own IDs and ordered history for one execution.
 
@@ -67,8 +74,19 @@ class RuntimeContext:
         self._events: dict[int, FailureEvent] = {}
         self._calls: dict[int, CallFrame] = {}
         self._incomplete_statements: list[IncompleteStatement] = []
+        self._binding_writes: dict[tuple[int, str], BindingWrite] = {}
         self._current_call: ContextVar[int | None] = ContextVar("ginger_current_call", default=None)
         self._handling_event: ContextVar[int | None] = ContextVar("ginger_handling_event", default=None)
+
+    def binding_write(self, name: str) -> BindingWrite:
+        return self._binding_writes.get((self.current_call_id, name), BindingWrite())
+
+    def record_binding_write(self, name: str, cause_event_ids: tuple[int, ...] = ()) -> None:
+        previous = self.binding_write(name)
+        for event_id in cause_event_ids:
+            self.get_event(event_id)
+        self._binding_writes[self.current_call_id, name] = BindingWrite(
+            tuple(cause_event_ids), previous.successful_writes + (not cause_event_ids))
 
     def _issue_thunk_handle(self, thunk: "ThunkValue", public_type: TypeRef) -> ThunkHandle:
         """Register an already validated internal value at its concrete boundary type."""

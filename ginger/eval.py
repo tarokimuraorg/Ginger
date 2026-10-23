@@ -156,24 +156,22 @@ def _eval_program(prog, env) -> Dict[str, Binding]:
 
 
 def eval_resolve_statement(stmt: ResolveStmt, env, syms):
-    """Recover only the event that prevented this binding's initialization."""
+    """Recover the direct cause of the target's latest failed write."""
     if stmt.target not in env:
         raise EvalError(f"unknown identifier '{stmt.target}'")
-    binding = env[stmt.target]
-    if isinstance(binding, Cell):
-        return
-
-    event_id = binding.cause_event_id
     context = _active_runtime.get()
-    event = context.get_event(event_id)
-    handler = next((h for h in stmt.handlers
-                    if h.failure_name == event.failure_id.value), None)
-    if handler is None:
-        return
-
-    context.run_handler(event_id, lambda: eval_block(handler.body, env, syms))
-    if isinstance(env[stmt.target], Cell):
-        context.resolve(event_id)
+    write = context.binding_write(stmt.target)
+    for event_id in write.cause_event_ids:
+        event = context.get_event(event_id)
+        if event.status is FailureStatus.RESOLVED:
+            continue
+        handler = next((h for h in stmt.handlers
+                        if h.failure_name == event.failure_id.value), None)
+        if handler is None:
+            continue
+        context.run_handler(event_id, lambda: eval_block(handler.body, env, syms))
+        if context.binding_write(stmt.target).successful_writes > write.successful_writes:
+            context.resolve(event_id)
 
 
 def record_incomplete(stmt, index, result):
@@ -198,6 +196,9 @@ def eval_binding_statement(stmt, env, syms, outer=None):
         mutable = cell.mutable
     result = eval_expr(stmt.expr, env, syms, outer)
     if isinstance(result.value_result, NoValue):
+        # NoValue short-circuits arguments/returns: the newest related event is
+        # the direct cause, not earlier pending from successful subexpressions.
+        _active_runtime.get().record_binding_write(stmt.name, (max(result.related_event_ids),))
         if isinstance(stmt, VarDecl):
             env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
         return result
@@ -205,6 +206,7 @@ def eval_binding_statement(stmt, env, syms, outer=None):
         result.value_result.value, expression_type(stmt.expr, env, syms, outer), typ,
         boundary="binding_write", implementation=stmt.name)
     env[stmt.name] = Cell(value=value, mutable=mutable, typ=typ)
+    _active_runtime.get().record_binding_write(stmt.name)
     return EvalResult(ProducedValue(None), result.related_event_ids)
 
 def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None) -> EvalResult:

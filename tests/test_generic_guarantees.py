@@ -138,7 +138,7 @@ class GenericGuaranteeTests(unittest.TestCase):
             program, syms, bindings, diags = self.annotated(
                 addition(body) + 'var x: Float = addTwo(1.0,2.0)')
             self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), OVERFLOW)
-            self.assertEqual(bindings['x'].initializer_failures, OVERFLOW)
+            self.assertEqual(bindings['x'].latest_write_failures, OVERFLOW)
             self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, IntegerOverflow'])
 
     def test_negatable_capability_and_unary_sugar(self):

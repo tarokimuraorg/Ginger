@@ -60,7 +60,7 @@ class ConditionalFailureTests(unittest.TestCase):
                     call = program.items[-2].expr
                     self.assertEqual(syms.resolved_calls[id(call)].type_bindings, {'T': TypeRef(typ)})
                     self.assertEqual(effect_expr(call, env, syms), effect)
-                    self.assertEqual(env['x'].initializer_failures, effect)
+                    self.assertEqual(env['x'].latest_write_failures, effect)
                     self.assertEqual(output(program), expected)
 
     def test_int64_still_lacks_addable(self):
@@ -127,7 +127,7 @@ class ConditionalFailureTests(unittest.TestCase):
     def test_float_resolve_rejected_for_absent_conditional_effect(self):
         for body in ['add(a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
-                    TypecheckError, 'initializer.*no declared or inferred'):
+                    TypecheckError, 'latest write.*no declared or inferred'):
                 checked(addition(body) + 'var x: Float = addTwo(1.0,2.0)\n'
                         'resolve x { IntegerOverflow { x = 0 } }')
 
