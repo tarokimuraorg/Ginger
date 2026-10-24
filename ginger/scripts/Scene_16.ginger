@@ -17,5 +17,19 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 var a: Float = div(1.0,0.0)
+//print(a)
+
+resolve a {
+    DivideByZero {
+        print(888)
+    }
+}
+
+resolve a {
+    DivideByZero {
+        a = 10
+    }
+}
+
 print(a)
 print(999)

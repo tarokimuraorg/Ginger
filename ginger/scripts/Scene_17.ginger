@@ -15,16 +15,32 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig broken(Float) -> Float {
+//sig broken(Float) -> Float {
+//    failure DivideByZero
+//    failure FloatOverflow
+//}
+
+//func broken(x: Float) {
+//    var a: Float = div(x,0.0)
+//    var b: Float = add(a,1.0)
+//    return b
+//}
+
+sig f(Float) -> Float {
     failure DivideByZero
     failure FloatOverflow
 }
 
-func broken(x: Float) {
+func f(x:Float) {
     var a: Float = div(x,0.0)
-    var b: Float = add(a,1.0)
-    return b
+    resolve a {
+        DivideByZero {
+            a = div(x,2.0)
+        }
+    }
+    return a
 }
 
-print(broken(1.0))
+//print(broken(1.0))
+print(f(2))
 print(999)
