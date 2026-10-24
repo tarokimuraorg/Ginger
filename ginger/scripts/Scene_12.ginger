@@ -20,6 +20,8 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var x: Float = div(1.0, 0.0)
+
+// ここで x の値は更新されないため、resolveされない => Unresolved failure: DivideByZero を出力する
 resolve x {
     DivideByZero {
         print(2)
