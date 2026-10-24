@@ -173,7 +173,7 @@ class UnaryMinusTests(unittest.TestCase):
             'Scene_4': ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
             'Scene_5': ('0.0\n1.0\n', []),
             'Scene_6': ('0.0\n5.0\n', []),
-            'Scene_7': ('-2\n-2\n3\n', ['unhandled failures: IntegerOverflow']),
+            'Scene_7': ('-2\n-2\n3\n3\n', ['unhandled failures: IntegerOverflow', 'unhandled failures: IntegerOverflow']),
         }
         root = Path(__file__).resolve().parents[1] / 'ginger' / 'scripts'
         for name, (stdout, warnings) in expected.items():

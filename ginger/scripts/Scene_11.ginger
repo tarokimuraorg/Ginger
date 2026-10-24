@@ -21,12 +21,22 @@ sig f(Int) -> Int {
 
 func f(x: Int) {
     var y: Int = add(x, 1)
+
+    //resolve y {
+    //    IntegerOverflow {
+    //        y = 888
+    //    }
+    //}
+
     return y
 }
 
+var result: Int = f(1)
+print(result)
+
 // f 内の return y が未初期化 binding を読むため、fatal な EvalError で停止する。
 // 関数呼び出し自体が完了しないので、後続の resolve には到達しない。
-var result: Int = f(9007199254740991)
+result = f(9007199254740991)
 resolve result {
     IntegerOverflow {
         result = 999
