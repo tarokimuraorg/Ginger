@@ -14,15 +14,15 @@ from ginger.symbols_builder import build_symbols
 from test_failure_contract import checked, output
 
 
-SET = 'failureset CalculationFailure { DivideByZero IOErr }\n'
-EXPECTED = frozenset({FailureId.DivideByZero, FailureId.IOErr})
+SET = 'failureset CalculationFailure { DivideByZero FloatOverflow IOErr }\n'
+EXPECTED = frozenset({FailureId.DivideByZero, FailureId.FloatOverflow, FailureId.IOErr})
 
 
 class FailureSetTests(unittest.TestCase):
     def test_parser_and_lowering(self):
         program = parse(SET)
         self.assertEqual(program.items, [FailureSetDecl('CalculationFailure',
-                                                       ['DivideByZero', 'IOErr'])])
+                                                       ['DivideByZero', 'FloatOverflow', 'IOErr'])])
         self.assertIs(lower_program(program).items[0], program.items[0])
         self.assertEqual(build_symbols(program).failuresets['CalculationFailure'], EXPECTED)
 
@@ -38,15 +38,15 @@ class FailureSetTests(unittest.TestCase):
         source = SET + '''
 sig f() -> Float { failure CalculationFailure }
 func f() { return div(1.0, 0.0) }
-sig g() -> Float { failure DivideByZero failure IOErr }
+sig g() -> Float { failure DivideByZero failure FloatOverflow failure IOErr }
 func g() { return f() }
 '''
         _, diags = checked(source)
         self.assertEqual(diags.items, [])
         with self.assertRaisesRegex(TypecheckError, "func 'g'.*undeclared failures: IOErr"):
-            checked(source.replace('failure DivideByZero failure IOErr', 'failure DivideByZero'))
+            checked(source.replace('failure DivideByZero failure FloatOverflow failure IOErr', 'failure DivideByZero failure FloatOverflow'))
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
-            checked(source.replace('{ DivideByZero IOErr }', '{ IOErr }'))
+            checked(source.replace('{ DivideByZero FloatOverflow IOErr }', '{ IOErr }'))
 
     def test_symbol_validation(self):
         cases = [
@@ -82,7 +82,7 @@ func Shared() {}
         syms = build_symbols(parse('''
 sig f() -> Unit { failure A failure B failure IOErr }
 failureset A { IOErr }
-failureset B { IOErr DivideByZero }
+failureset B { IOErr DivideByZero FloatOverflow }
 '''))
         self.assertEqual(syms.sig_failures['f'], EXPECTED)
 
@@ -103,7 +103,7 @@ var x: Float = f()
             checked(prefix + 'resolve x { CalculationFailure { x = 0 } }')
         program, diags = checked(prefix + 'resolve x { DivideByZero { x = 0\nprint(0) }\n'
                                  'IOErr { x = 1\nprint(1) } }')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '0\n')
         with self.assertRaisesRegex(TypecheckError, "cannot resolve 'PrintErr'"):
             checked(prefix + 'resolve x { PrintErr { x = 0 } }')
@@ -123,19 +123,19 @@ var x: Float = f()
         sources = [
             'sig f() -> Unit { %s }\n'
             'func f() { print(div(1.0,0.0)) }\n'
-            'sig g() -> Unit { failure DivideByZero failure IOErr }\nfunc g() { f() }\nf()',
+            'sig g() -> Unit { failure DivideByZero failure FloatOverflow failure IOErr }\nfunc g() { f() }\nf()',
             'sig f(Thunk[Float]<Never>) -> Float { %s }\n'
             'func f(t: Thunk[Float]<Never>) { return force(t) }',
             'sig h(Int) -> Unit { %s builtin core.int.print }\n'
-            'sig f() -> Unit { failure DivideByZero failure IOErr }\nfunc f() { h(1) }',
+            'sig f() -> Unit { failure DivideByZero failure FloatOverflow failure IOErr }\nfunc f() { h(1) }',
         ]
         for source in sources:
             with self.subTest(source=source):
                 _, named = checked(SET + source % 'failure CalculationFailure')
-                _, explicit = checked(source % 'failure DivideByZero failure IOErr')
+                _, explicit = checked(source % 'failure DivideByZero failure FloatOverflow failure IOErr')
                 self.assertEqual(named.items, explicit.items)
                 self.assertFalse(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named))
         _, diags = checked(SET + 'sig h(Int) -> Unit { failure CalculationFailure '
                            'builtin core.int.print }\nvar x: Unit = h(1)\n'
                            'resolve x { IOErr { x = print(0) } }')
-        self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero'])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero, FloatOverflow'])

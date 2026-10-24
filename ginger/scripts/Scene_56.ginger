@@ -1,0 +1,18 @@
+// Purpose:
+// nan は builtin literal ではない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_float_finite.py::test_nan_inf_remain_identifiers_not_literals
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// unknown identifier
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+var x: Float = nan

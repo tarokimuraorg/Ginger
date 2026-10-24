@@ -3,11 +3,23 @@
 from dataclasses import dataclass, field, replace
 from contextvars import ContextVar
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, TYPE_CHECKING
+
+from ginger.extension import ThunkHandle
+
+if TYPE_CHECKING:
+    from .thunk import ThunkValue
 
 from ginger.ast import TypeRef
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, FailureSet
 from .failures import FailureEvent, FailureStatus, FailureContractViolation
+from .value_contract import ValueContractViolation
+
+
+@dataclass(frozen=True)
+class _HandleEntry:
+    thunk: "ThunkValue"
+    public_type: TypeRef
 
 
 @dataclass(frozen=True)
@@ -38,6 +50,13 @@ class IncompleteStatement:
     related_event_ids: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class BindingWrite:
+    """Latest completed write and cumulative successful publications."""
+    cause_event_ids: tuple[int, ...] = ()
+    successful_writes: int = 0
+
+
 class RuntimeContext:
     """Own IDs and ordered history for one execution.
 
@@ -47,14 +66,39 @@ class RuntimeContext:
     """
 
     def __init__(self):
+        self.last_value_contract_violation: ValueContractViolation | None = None
         self.last_contract_violation: FailureContractViolation | None = None
+        self._thunk_handles: dict[ThunkHandle, _HandleEntry] = {}
         self._next_event_id = 1
         self._next_call_id = 1
         self._events: dict[int, FailureEvent] = {}
         self._calls: dict[int, CallFrame] = {}
         self._incomplete_statements: list[IncompleteStatement] = []
+        self._binding_writes: dict[tuple[int, str], BindingWrite] = {}
         self._current_call: ContextVar[int | None] = ContextVar("ginger_current_call", default=None)
         self._handling_event: ContextVar[int | None] = ContextVar("ginger_handling_event", default=None)
+
+    def binding_write(self, name: str) -> BindingWrite:
+        return self._binding_writes.get((self.current_call_id, name), BindingWrite())
+
+    def record_binding_write(self, name: str, cause_event_ids: tuple[int, ...] = ()) -> None:
+        previous = self.binding_write(name)
+        for event_id in cause_event_ids:
+            self.get_event(event_id)
+        self._binding_writes[self.current_call_id, name] = BindingWrite(
+            tuple(cause_event_ids), previous.successful_writes + (not cause_event_ids))
+
+    def _issue_thunk_handle(self, thunk: "ThunkValue", public_type: TypeRef) -> ThunkHandle:
+        """Register an already validated internal value at its concrete boundary type."""
+        handle = ThunkHandle()
+        self._thunk_handles[handle] = _HandleEntry(thunk, public_type)
+        return handle
+
+    def _resolve_thunk_handle(self, handle: ThunkHandle) -> _HandleEntry | None:
+        # Issued handles are exact objects; subclasses cannot override lookup hashing.
+        if type(handle) is not ThunkHandle:
+            return None
+        return self._thunk_handles.get(handle)
 
     @property
     def current_call_id(self) -> int | None:
@@ -69,7 +113,7 @@ class RuntimeContext:
              *, type_bindings: Mapping[str, TypeRef] | None = None):
         """Activate a retained frame and propagate unresolved references to its parent.
 
-        Propagation is skipped for FailureContractViolation, but not other exceptions.
+        Propagation is skipped for fatal contract violations, but not other exceptions.
         """
         return _CallScope(self, function_name, declared_failure_contract, type_bindings)
 
@@ -203,7 +247,7 @@ class _CallScope:
 
     def __exit__(self, exc_type, exc, traceback):
         try:
-            if self.parent is not None and not isinstance(exc, FailureContractViolation):
+            if self.parent is not None and not isinstance(exc, (FailureContractViolation, ValueContractViolation)):
                 for event_id in self.context.unresolved_pending(self.frame.call_id):
                     self.context.add_pending(self.parent, event_id)
         finally:

@@ -1,0 +1,23 @@
+// Purpose:
+// Int64 は Addable を提供しない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_bounded_integers.py::test_capabilities
+// tests/test_bounded_integers.py::test_rejected_boundaries
+// tests/test_call_inference.py::test_int64_unification_then_guarantee_validation
+// tests/test_conditional_failures.py::test_int64_still_lacks_addable
+// tests/test_generic_guarantees.py::test_int64_call_site_rejected
+// tests/test_integer_overflow.py::test_int64_arithmetic_stays_disabled
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// does not guarantee Addable
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+print(add(1,2i64))

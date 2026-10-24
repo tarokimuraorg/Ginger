@@ -1,0 +1,31 @@
+// Purpose:
+// nested failure の伝播と caller recovery
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_user_functions_have_child_frame_without_duplicate_registration
+// tests/test_call_frames.py::test_nested_propagation_keeps_one_event_and_original_call
+// tests/test_call_frames.py::test_resolve_keeps_original_child_event_and_frame_references
+// tests/test_execution_result.py::test_nested_frame_path
+// tests/test_failure_contract.py::test_function_contracts_are_never_deferred_by_dependencies
+// tests/test_failure_contract.py::test_user_call_propagation
+// Expected stdout (ordered):
+// 2.0
+// 3
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// Expected normal failure:
+// DivideByZero: resolved x 1
+// DivideByZero: unresolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig a() -> Float { failure DivideByZero failure FloatOverflow }
+sig b() -> Float { failure DivideByZero failure FloatOverflow }
+func a() { return b() }
+func b() { return div(1.0,0.0) }
+var x: Float = a()
+resolve x { DivideByZero { x = 2 } FloatOverflow { x = 99 } }
+print(x)
+var y: Float = a()
+print(3)

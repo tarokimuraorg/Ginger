@@ -17,6 +17,7 @@ from ginger.typecheck import effect_expr, typecheck_program
 
 
 OVERFLOW = failures(FailureId.IntegerOverflow)
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
 # Concrete parameter boundaries already support these calls. ReturnStmt itself
 # must never provide a type argument to a generic call.
 INT_IDENTITY = 'sig keepInt(Int) -> Int {}\nfunc keepInt(x: Int) { return x }\n'
@@ -85,7 +86,7 @@ class IntegerOverflowTests(unittest.TestCase):
 
     def test_static_effect_specializes_on_int_impl(self):
         for op in ['add', 'sub', 'mul']:
-            for typ, args, expected in [('Int', '1,2', OVERFLOW), ('Float', '1.0,2.0', EMPTY_FAILURES)]:
+            for typ, args, expected in [('Int', '1,2', OVERFLOW), ('Float', '1.0,2.0', FLOAT_OVERFLOW)]:
                 program, syms, bindings, _ = self.annotated(f'var x: {typ} = {op}({args})')
                 self.assertEqual(effect_expr(program.items[0].expr, bindings, syms), expected)
                 self.assertEqual(syms.sig_failures[op], EMPTY_FAILURES)
@@ -116,14 +117,19 @@ class IntegerOverflowTests(unittest.TestCase):
 
     def test_float_runtime_effect_and_resolve_eligibility(self):
         for op, result in [('add', 3.0), ('sub', -1.0), ('mul', 2.0)]:
-            source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure Never }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
+            source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure FloatOverflow }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
             program, diags = checked(source + 'var x: Float = f(1.0)')
-            self.assertEqual(diags.items, [])
+            self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
             self.assertEqual(eval_program(program).environment['x'].value, result)
-            with self.assertRaisesRegex(TypecheckError, 'initializer.*no declared or inferred failures'):
+            with self.assertRaisesRegex(TypecheckError, 'latest write.*no declared or inferred'):
                 checked(source + 'var result: Float = f(1.0)\n'
                         'resolve result { IntegerOverflow { result = 0 } }')
-        self.assertEqual(call_builtin('core.float.mul', 1e308, 2.0), float('inf'))
+        program, _ = checked('var x: Float = mul(' + format(1e308, '.1f') + ',2.0)\nprint(7)')
+        env, context, stdout = recorded(program)
+        self.assertIsInstance(env['x'], UninitializedBinding)
+        self.assertEqual(stdout, '7\n')
+        self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.FloatOverflow])
+        self.assertEqual(context.failure_history[0].status.value, 'unresolved')
 
     def test_thunk_creation_latent_force_and_failureset(self):
         prefix = ('failureset ArithmeticFailure { IntegerOverflow }\n'
@@ -160,12 +166,15 @@ class IntegerOverflowTests(unittest.TestCase):
             with self.subTest(op=op), self.assertRaises(TypecheckError):
                 checked(f'var x: Int64 = {op}(1i64,2i64)')
 
-    def test_custom_direct_builtin_contract_remains_trusted(self):
+    def test_custom_direct_builtin_return_value_contract_violation(self):
         source = 'sig custom() -> Int { builtin test.custom }\nvar x: Int = custom()'
         with patch.dict(BUILTINS, {'test.custom': lambda: INT_MAX + 1}):
             program, diags = checked(source)
             self.assertEqual(diags.items, [])
-            self.assertEqual(eval_program(program).environment['x'].value, INT_MAX + 1)
+            result = eval_program(program)
+            self.assertEqual(result.value_contract_violation.reason, 'out_of_range')
+            self.assertEqual(result.failure_history, ())
+            self.assertNotIn('x', result.environment)
 
     def test_user_function_override_keeps_catalog_signature_contract(self):
         program, diags = checked('func add(a: T,b: T) { return a }\nvar x: Int = add(1,2)')
@@ -176,14 +185,14 @@ class IntegerOverflowTests(unittest.TestCase):
         identity = 'sig identity(Float) -> Float {}\nfunc identity(x: Float) { return x }\n'
         for op in ['add', 'sub', 'mul']:
             with self.subTest(op=op), self.assertRaisesRegex(
-                    TypecheckError, 'initializer.*no declared or inferred failures'):
+                    TypecheckError, 'latest write.*no declared or inferred'):
                 checked(identity + f'var x: Float = identity({op}(1.0,2.0))\n'
                         'resolve x { IntegerOverflow { x = 0 } }')
         prefix = f'var t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'
         program, diags = checked(identity + prefix +
                                  'var x: Float = identity(add(toFloat(force(t)),2.0))\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(8) } }')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '8\n')
 
     def test_failed_initialization_and_assignment_do_not_store_result(self):
@@ -218,7 +227,7 @@ class IntegerOverflowTests(unittest.TestCase):
         for typ, arg in [('Int', '1'), ('Float', '1.0')]:
             for op in ['add', 'sub', 'mul', 'neg']:
                 args = arg if op == 'neg' else f'{arg},{arg}'
-                source = (f'sig f() -> {typ} {{ failure IntegerOverflow }}\n'
+                source = (f'sig f() -> {typ} {{ failure IntegerOverflow failure FloatOverflow }}\n'
                           f'func f() {{ return {op}({args}) }}')
                 with self.subTest(typ=typ, op=op):
                     checked(source)

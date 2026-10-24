@@ -25,7 +25,7 @@ run(Path("ginger/scripts/Scene_7.ginger").read_text(encoding="utf-8"))
 PY
 ```
 
-Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2・3・5・6 には未処理警告はありません。Scene 4 は現在 `1`、`2`、`123` を出力し、IntegerOverflow の静的警告が2件、実行時の未解決イベントが1件あります。上の Scene 7 の例は、標準出力へ `-2`、`-2`、`3` の順に出力します。警告は標準エラー出力へ `warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow` と表示され、実際の failure は発生しません。
+Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero / FloatOverflow の警告が1件、Scene 3 は FloatOverflow が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2・5・6 には未処理警告はありません。Scene 4 は現在 `1`、`2`、`123` を出力し、IntegerOverflow の静的警告が2件、実行時の未解決イベントが1件あります。上の Scene 7 の例は、標準出力へ `-2`、`-2`、`3` の順に出力します。警告は標準エラー出力へ `warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow` と表示され、実際の failure は発生しません。
 
 ## 処理フロー
 
@@ -37,7 +37,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
 2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、括弧付き単項マイナスを `neg` の呼び出しへ変換します。
-3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding initializer に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
+3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding の latest write に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
 `compile(src)` は型検査済み AST を返し、`execute(prog)` が評価します。`run(src)` は両方を実行します。型検査の通過だけで、未完成部分を含むすべての実行時契約が保証されるわけではありません。
@@ -55,7 +55,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
-| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、initializer の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
+| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
 
@@ -67,6 +67,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 |---|---|
 | Int | `-(2^53 - 1)` ～ `+(2^53 - 1)`（±9,007,199,254,740,991） |
 | Int64 | `-(2^63 - 1)` ～ `+(2^63 - 1)`（±9,223,372,036,854,775,807） |
+| Float | finite-only binary64。exact Python float かつ `math.isfinite(value)` |
 
 Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `(-1)` / `(-1i64)` と書き、裸の `-1` は引き続き無効です。
 
@@ -85,11 +86,19 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 
 標準 Int の **add / sub / mul は結果を範囲検査**し、Int 範囲外なら `RaisedFailure(FailureId.IntegerOverflow)` を送出します。範囲外の結果を変数や関数の戻り値へ渡しません。Int64 への自動昇格・wraparound・clamp・saturation は行いません。戻り値型は常に Int です。neg は対称範囲内に収まるため IntegerOverflow を持ちません。
 
-範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。Float の add / sub / mul と Infinity の挙動も変更しません。
+範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。`toFloat` にも FloatOverflow はありません。
 
-**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul は、呼び出し側へ `failure IntegerOverflow when T guarantees BoundedArithmetic` を公開します。call-site で T = Int なら IntegerOverflow、T = Float なら空集合になります。`BoundedArithmetic` はメソッドを持たない marker guarantee で、現在の標準登録は Int のみです。Addable・Subtractable・Multipliable とは独立し、marker の登録だけで算術を使用できるようにはなりません。Int64 算術は未対応のままです。
+Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は既存どおり `(-1e3)` と書きます。`1e` / `1e+` / `1e-` は指数の数字が不足する syntax error です。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
 
-`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
+`1e308` や `5e-324` は有限値として有効で、`1e-400` のように underflow で `0.0` になる literal も有効です。`1e400` は literal 自体が非有限になるため、実行前に `TypecheckError: Float literal must be finite` で拒否します。一方 `mul(1e308, 1e308)` は有限な入力の演算結果が overflow するため、runtime の FloatOverflow となり resolve で回復できます。
+
+Float の正常値は `type(value) is float and math.isfinite(value)` です。NaN / +inf / -inf は正常な Float ではありません。±0.0、subnormal、丸められた有限値、underflow による ±0.0 は有効です。decimal / exponent literal を parser が Python float に変換して inf になった場合は、typecheck の FloatLit 検査で静的に拒否します。負方向の `(-literal)` も同様です。nan / inf / infinity の literal 構文は追加していません。
+
+標準 Float の add / sub / mul / div は、全 operand が finite で結果が non-finite の場合に `RaisedFailure(FailureId.FloatOverflow)` を送出します。FloatOverflow は finite Float domain の overflow を表す通常 failure で、FailureEvent → NoValue を経て resolve で回復できます。div は divisor が ±0.0 なら DivideByZero を優先し、nonzero finite の除算結果が non-finite なら FloatOverflow です。finite 値の neg は常に finite なので failure を持ちません。cmp / eq / lt のアルゴリズムは変更せず、通常 source と builtin return 境界で NaN の流入を防ぎます。
+
+**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul は、呼び出し側へ `failure IntegerOverflow when T guarantees BoundedArithmetic` と `failure FloatOverflow when T guarantees FiniteArithmetic` を公開します。call-site で T = Int なら `{IntegerOverflow}`、T = Float なら `{FloatOverflow}` になります。両 guarantee はメソッドを持たない独立した marker です。標準登録は BoundedArithmetic が Int のみ、FiniteArithmetic が Float のみで、Int64 はどちらにも登録しません。FiniteArithmetic は標準 Float 算術が finite domain の overflow を FloatOverflow として公開する能力を示します。Addable・Subtractable・Multipliable とは独立し、marker の登録だけで算術を使用できるようにはなりません。Int64 算術は未対応のままです。
+
+`ginger/builtin.py` の `INT_ARITHMETIC_FAILURES`・`FLOAT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` と `core.float.add/sub/mul/div` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
 型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。resolve 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
 
@@ -114,10 +123,29 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | 標準 Int add / sub / mul | 範囲内の Int を返すか IntegerOverflow を送出 |
 | Int / Int64 neg | 有効入力では対称範囲内。failure なし |
 | その他の標準 builtin | div / toFloat は Float、cmp は Ordering、eq / lt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
-| 変数・引数・return・Thunk | 標準演算が範囲外の値を返さないため、その値を格納・伝播しない。入力自体は既存の型契約を信頼 |
-| 独自 builtin sig / impl・Python API の直接呼び出し | 引き続き信頼境界。宣言と実装の型・値域・failure を全面検証しない。範囲外 Python int を Int として返す実装は技術的に可能 |
+| 変数・引数・return・Thunk | 具体的な静的 TypeRef により、read / argument / write / return / force の consumer 境界でも検証 |
+| 独自 builtin sig / impl | argument / return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
+| Python API の直接呼び出し | Cell / 外部 environment の注入などは全面検証しない |
 
-独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。任意の独自 builtin が不正な Int を生成した場合は、neg・widening・toFloat などの保証の前提を破ります。builtin sandbox や全面的な runtime validation は導入していません。
+独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装を直接参照する alias も同様に、自身の FloatOverflow 宣言が必要です。
+
+builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
+
+Phase 3C では custom builtin の `Thunk[T]<F>` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
+
+`force` は既存の実 failure 契約検証後、Value の場合だけ具体化済み result TypeRef で同じ validator を適用します。標準6型の成功値を検査し、NaN / ±inf などを caller・assignment・後続処理へ公開する前に fatal に停止します。NoValue は検査対象外です。診断 snapshot は expected TypeRef、Python type、安全な値表現、reason、call ID と境界を保持し、force は `boundary_kind="thunk"`、`implementation="force"` で識別します。nested Thunk は force ごとに一層だけ外形と保存契約を検査し、内側の式を先行評価しません。ThunkValue は result TypeRef を保持せず、force 式の静的型と call frame の type binding による既存の型置換を正本にします。generic T も Python 値から推測しません。Box / Pair / MissingType などを result に持つ Thunk も外形と保存契約は検査しますが、opaque payload の representation は検査しません。
+
+Phase 3A では runtime value contract を producer / consumer 双方で検証します。共通の `prepare_typed_value` は source TypeRef の検証 → widening → target TypeRef の検証を行います。`Int -> Float` / `Int -> Int64` の変換規則は変更せず、範囲外 Int や Bool-as-Int が変換により正常値になる前に停止します。`numeric.widen_value` は pure conversion helper のままです。
+
+checked identifier は expression の静的 TypeRef で読み出しを検証します。builtin / custom builtin / user function は全 argument の準備後にだけ実行し、parameter Cell に不正値を保存しません。引数式の評価順は従来どおり左から右です。user function の正常 return、typed Cell の初期化・再代入・resolve recovery も同じ preparation を通します。resolve は保存成功後に回復を確定し、違反時は既存 failure history を保持します。UninitializedBinding は従来どおり read 時の EvalError、真の NoValue は ordinary value validation の対象外です。
+
+期待型は型検査が記録した expression / assignment target、resolved parameter / return、宣言の TypeRef を正本にします。generic は retained call frame の bindings で具体化し、Python 値・implementation ID・`Cell.typ` metadata から型を推測しません。NaN / ±inf などは print の出力、comparison / arithmetic の実行、custom consumer implementation の呼び出しより前に停止します。consumer 違反も FailureEvent を作らず resolve 不可の fatal `ValueContractViolation` です。既存の immutable snapshot と reason を使い、boundary は `value_read` / `call_argument` / `binding_write` / `function_return` / `force_argument` で区別します。
+
+force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。low-level host fixture が captured environment の entry を不正な payload / 異なる `Cell.typ` を持つ新しい Cell に置換しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
+
+保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と正式 custom builtin extension を使用する checked evaluation です。Box / Pair / MissingType / `Float[Int]` などの open-world payload は再帰的に検証しません。canonical standard return / parameter として使用する境界では共通 validator が働きます。
+
+直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後も payload 内部の mutation は保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。Phase 3B は Cell / ThunkValue の field binding を frozen にしますが、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3D 以降の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
 
 ```ginger
 let initial: Int = 1
@@ -130,7 +158,7 @@ var negative: Int = neg(x)
 print(negative)
 ```
 
-この例の評価結果は `9`、`4.5`、`-9` です。実行前に、Int 算術の IntegerOverflow 警告が2件と、未処理の `div` 呼び出しに対する DivideByZero 警告が1件表示されます。
+この例の評価結果は `9`、`4.5`、`-9` です。実行前に、Int 算術の IntegerOverflow 警告が2件と、未処理の `div` 呼び出しに対する DivideByZero / FloatOverflow 警告が1件表示されます。
 
 - 中置演算は `a + b` のように使用できます。`*`・`/` は `+`・`-` より優先され、同じ優先順位では左から結合します。括弧で評価順序を指定できます。
 - `(x)` や `(f())` は通常の括弧式として使用できます。
@@ -157,6 +185,53 @@ TypeRef は open-world です。canonical type registry による型名の存在
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
 `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register Box[T] guarantees G`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
+
+### Cell / ThunkValue の shallow immutability（Phase 3B）
+
+`Cell` は frozen dataclass の immutable binding record です。`value` / `typ` / `mutable` の field reassignment は拒否します。`Cell.mutable` は binding 名を再束縛できるかを表す metadata で、Cell 自体の変更許可ではありません。language-level reassignment は従来どおり RHS の source validation → widening → target validation 後、新しい Cell で environment entry を置換します。初期化・parameter binding・resolve recovery も新しい Cell を作ります。失敗した初期化は `Cell(UninitializedBinding(...))` ではなく独立した `UninitializedBinding` entry で表現します。`Cell.typ` は inspection / ExecutionResult / tests / diagnostics 用に残し、型判断の正本は checked metadata のままです。
+
+`ThunkValue` も frozen dataclass で、`expr` / `env` / `outer` / `potential_failure_contract` の field binding は変更できません。保存 failure contract は constructor で `FailureId` の `set` / `frozenset` のみを受け取り、canonical `FailureSet`（`frozenset`）へ正規化します。元の mutable set を変更しても保存契約は変わらず、その他の iterable や不正 element は TypeError です。result TypeRef metadata は追加していません。
+
+capture は従来の `env.copy()` による shallow mapping snapshot と immutable Cell の共有です。通常の再代入後も Thunk は capture 時の binding を保持します。FunctionEnv の copy も mapping だけを新しくし、Cell・type_bindings を共有して call_frame_id を保持します。generic retained frame / nested Thunk の型置換と nonmemoized evaluation は変わりません。
+
+これは runtime 全体の deep immutability ではありません。captured environment の mapping contents、FunctionEnv metadata、outer が参照する環境、opaque list / dict / custom object の内部、raw checked AST と child list は引き続き mutable です。`t.env["x"].value = ...` は拒否しますが、`t.env["x"] = Cell(...)` は可能です。標準 scalar の正常 payload は実質 immutable ですが、open-world payload の `.append(...)` 等は妨げません。
+
+Phase 3C では custom builtin に opaque ThunkHandle を渡し、identity return は adapter が元の internal ThunkValue に戻します。host constructor は low-level/internal 用に残ります。frozen 化は constructor input 全体の安全性を保証しません。builtin return / custom call argument / force entry の saved ⊆ public 検査、および identifier / widening / typed write / user return / force success の consumer-side validation は引き続き必要です。tests の mapping replacement や expression result replacement は test-only fault injection であり language semantics ではありません。
+
+ExecutionResult の環境は従来の mapping proxy に加え binding record の fields も immutable ですが、payload は deep frozen / deep copied ではありません。Phase 3D 以降の候補は captured env の read-only 化、FunctionEnv immutable 化、read-only ThunkView、validated Thunk factory、LanguageThunk / ExtensionThunk 分離、raw AST exposure の除去と AST collection immutable 化、outer isolation、opaque payload ownership、persistent environment、deep ExecutionResult snapshot、host force capability です。
+
+### Opaque ThunkHandle / extension adapter（Phase 3C）
+
+正式な custom builtin の Python representation は次のとおりです。callable は従来どおり payload だけを受け取り、RuntimeContext や registry は受け取りません。
+
+| Ginger type | Python implementation の値 |
+|---|---|
+| Int / Int64 | exact `int`（各範囲内） |
+| Float | finite `float` |
+| Bool | exact `bool` |
+| Ordering | canonical tuple `("Ordering", "Left" / "Flat" / "Right")` |
+| Unit | `None` |
+| open-world type | raw opaque Python payload |
+| Thunk[T]<F> | opaque `ginger.extension.ThunkHandle` |
+
+```python
+from ginger.extension import ThunkHandle
+
+def identity(t: ThunkHandle) -> ThunkHandle:
+    return t
+```
+
+ThunkHandle は field を持たない identity-based Python object で、repr は `<ThunkHandle>` です。`expr` / `env` / `outer` / `potential_failure_contract`、Cell、FunctionEnv、retained frame metadata は extension API ではありません。TypeRef や failure contract も公開しません。ThunkValue は runtime internal representation であり、正式 custom builtin の直接の Thunk 引数として渡しません。
+
+全引数の evaluation、source validation → widening → target validation が完了した後、direct Thunk parameter だけを handle に変換します。RuntimeContext の private registry は handle → immutable entry（元の ThunkValue、発行時の concrete public Thunk TypeRef）を保持します。parameter / return 型は checked `resolved_calls` の型を generic frame bindings で具体化したものです。registry は context ごとに空で開始し、entry は追加のみです。ExecutionResult、call frame、failure history、diagnostics へコピーしません。
+
+正常な direct Thunk return は handle の型、current registry membership、issued → expected 型の既存 `typecheck.compatible` 規則を検査して元の ThunkValue に戻し、既存の saved ⊆ public failure contract / runtime value validation を実施します。Int result の handle を Float result に再型付けできません。latent failure の互換性も静的規則と同一です。raw ThunkValue / int / None 等は `wrong_python_type`、手動構築・別 execution の handle は `invalid_extension_handle`、型の不一致は `contract_mismatch` として、`extension_return` 境界の fatal ValueContractViolation になります。FailureEvent は生成せず、実行済み Python side effect は rollback しません。RaisedFailure の経路では return adapter を実行しません。
+
+handle は同一 execution 内で受け取り、Python 側に保存し、別 callable に渡し、後の builtin call から返せます。identity return は capture / frame / saved contract を含め元の internal ThunkValue をそのまま復元します。別 `run()` / RuntimeContext への持ち越しは拒否します。独立して発行された handle が同じ underlying Thunk を表すかは API 契約にせず、Ginger に Thunk equality / identity operation を追加しません。
+
+adapter は direct Thunk 型だけに適用します。nested Thunk は outer handle 1個になり、Ginger `force(...)` が一層ずつ評価します。Box / Pair / MissingType などの open-world payload は再帰変換せず、alias / mutable payload も維持します。内部に raw ThunkValue や ThunkHandle があってもそのままです。opaque payload から取り出した handle を正式 Thunk return として返す際には current registry membership を検査します。
+
+新しい language Thunk の正式 factory、Python host force、result type / public failure contract inspection、serialization、cross-execution transfer は提供しません。作成・評価には Ginger source の `thunk(expr)` / `force(...)` intrinsic を使います。`ThunkValue(...)` constructor と直接 `call_builtin(...)` は low-level/internal responsibility として raw semantics を維持します。これは Python reflection に対する sandbox ではありません。captured env の read-only 化、AST isolation、persistent environment、LanguageThunk / ExtensionThunk 分離も今回の対象外です。
 
 ## 関数の宣言と実装
 
@@ -214,11 +289,11 @@ call expression 自体の型は置換済み return TypeRef です。外側の ex
 | 呼び出しと格納先 | call の型・実装・effect |
 |---|---|
 | `var x: Float = add(1,2)` | call は Int / core.int.add / IntegerOverflow。格納境界で Float に変換 |
-| `var x: Float = add(1,2.0)` | call は Float / core.float.add / IntegerOverflow なし。第一引数を Float に変換 |
+| `var x: Float = add(1,2.0)` | call は Float / core.float.add / FloatOverflow。第一引数を Float に変換 |
 | `var x: Int = add(1,2.0)` | call は Float。Float → Int は拒否 |
 | `var x: Int64 = identity(1)` | identity call は Int。格納境界で Int64 に変換 |
 
-`print(add(1,2))` は `3`（未処理 IntegerOverflow 警告あり）、`print(add(1,2.0))` は `3.0`（警告なし）を出力します。Float 演算の引数式自体が failure を持つ場合は、その effect は従来どおり合算します。
+`print(add(1,2))` は `3`（未処理 IntegerOverflow 警告あり）、`print(add(1,2.0))` は `3.0`（未処理 FloatOverflow 警告あり）を出力します。Float 演算の引数式自体が failure を持つ場合は、その effect は従来どおり合算します。
 
 user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使います。`first(1,2.0)` は両 parameter を Float として束縛します。nested call は内側を解決した静的型を外側の evidence に使います。generic 関数フレームは call site で解決した binding を保持し、本体の symbolic TypeRef を置換します。本体内では sig に明示した guarantee を能力証明として使います。Thunk の環境スナップショットは作成元の retained frame ID を保持し、関数終了後の force でも元 frame の型 binding を参照できます。sig / func の厳密な構造照合、型変数名の一致条件は変更しません。
 
@@ -263,6 +338,7 @@ requirement は型変数を宣言・推論するものではなく、すでに s
 sig addTwo(T, T) -> T {
     require T guarantees Addable
     failure IntegerOverflow when T guarantees BoundedArithmetic
+    failure FloatOverflow when T guarantees FiniteArithmetic
 }
 func addTwo(a: T, b: T) {
     return (a + b)
@@ -271,13 +347,13 @@ print(addTwo(1, 2))
 print(addTwo(1.0, 2.0))
 ```
 
-この例は `3` と `3.0` を出力し、IntegerOverflow の未処理警告は Int の call にだけ出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
+この例は `3` と `3.0` を出力し、Int の call には IntegerOverflow、Float の call には FloatOverflow の未処理警告が出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
 
 能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。メソッドを持つ guarantee には `impl` が必要で、`register` はメソッドを持たない保証に使います。guarantee 間の継承・包含は導入していません。
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
 
-catalog の `failures` は従来の文字列と条件付き object を混在できます。object は以下の形式だけを許可します。marker 登録は `"registers": [{"type": {"ref": "Int"}, "guarantee": "BoundedArithmetic"}]` と記述します。
+catalog の `failures` は従来の文字列と条件付き object を混在できます。object は以下の形式だけを許可します。Float の marker 登録は `"registers": [{"type": {"ref": "Float"}, "guarantee": "FiniteArithmetic"}]`、Int は `"registers": [{"type": {"ref": "Int"}, "guarantee": "BoundedArithmetic"}]` と記述します。
 
 ```json
 {
@@ -286,6 +362,10 @@ catalog の `failures` は従来の文字列と条件付き object を混在で�
     {
       "failure": "IntegerOverflow",
       "when": {"typevar": "T", "guarantees": "BoundedArithmetic"}
+    },
+    {
+      "failure": "FloatOverflow",
+      "when": {"typevar": "T", "guarantees": "FiniteArithmetic"}
     }
   ]
 }
@@ -321,13 +401,14 @@ sig 本体に `failure DivideByZero` などを列挙できます。個別 Failur
 sig relay(U, U) -> U {
     require U guarantees Addable
     failure IntegerOverflow when U guarantees BoundedArithmetic
+    failure FloatOverflow when U guarantees FiniteArithmetic
 }
 func relay(a: U, b: U) {
     return addTwo(a, b)
 }
 ```
 
-先の addTwo と組み合わせると、callee の `T guarantees BoundedArithmetic` は caller の `U guarantees BoundedArithmetic` に置換されます。具体型が決まった call-site では marker の登録を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
+先の addTwo と組み合わせると、callee の `T guarantees BoundedArithmetic` は caller の `U guarantees BoundedArithmetic` に置換されます。FiniteArithmetic の条件も同じく T から U に置換します。具体型が決まった call-site では marker の登録を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{FloatOverflow}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
 
 上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure IntegerOverflow` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure Never` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
 
@@ -341,13 +422,13 @@ resolve integer {
 var floating: Float = addTwo(1.0, 2.0)
 ```
 
-integer の resolve は許可され、実際の overflow を回復できます。floating の initializer は IntegerOverflow を持たないため、floating に対する同じ handler は静的エラーです。`thunk(addTwo(...))` の潜在契約も concrete binding で既存の FailureSet に具体化し、runtime ThunkValue に symbolic contract は追加しません。
+integer の resolve は許可され、実際の overflow を回復できます。floating の initializer は IntegerOverflow を持たないため、floating に対する同じ handler は静的エラーです。floating は FloatOverflow を持つので、その handler は許可されます。`thunk(addTwo(...))` の潜在契約も concrete binding で既存の FailureSet に具体化し、runtime ThunkValue に symbolic contract は追加しません。
 
 conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・typegroup 条件・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
 通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve は未対応です。handled による上限検証の保留は廃止しました。
 
-標準 `div` は `DivideByZero` を宣言しています。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
+標準 `div` は `DivideByZero` と `FloatOverflow` を無条件に宣言しています。`div(1.0,2.0)` も両方を持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
 ```ginger
 var x: Float = div(1.0, 0.0)
@@ -355,26 +436,29 @@ resolve x {
     DivideByZero {
         x = 0
     }
+    FloatOverflow {
+        x = 0
+    }
 }
 print(x)
 ```
 
-この例は警告なしで `0.0` を出力します。initializer が値を生成できないと、x は型・可変性・原因 event ID を持つ `UninitializedBinding` になります。`resolve x` はその原因 `FailureEvent` の FailureId に一致する handler を実行し、x が有効な値を持った場合だけ元 event を resolved にします。
+この例は警告なしで `0.0` を出力します。initializer が値を生成できないと、x は型・可変性・原因 event ID を持つ `UninitializedBinding` になります。`resolve x` はその原因 `FailureEvent` の FailureId に一致する handler を実行し、handler 内で x への write が成功した場合だけ元 event を resolved にします。
 
-resolve の静的資格は対象 binding の元の initializer から宣言・推論した failure 集合で検査します。後の代入でこの集合を書き換えません。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、failure を持たない initializer の var は拒否します。
+resolve の静的資格は対象 binding に対する最新の write（initializer または assignment）から宣言・推論した failure 集合で検査します。通常の再代入はこの集合を置き換え、他 binding への write や式文は変更しません。handler は条件付き実行なので、後続 resolve では未実行経路と各 handler の最後の write の集合を合算します。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、最新 write が failure を持たない var は拒否します。
 
 - resolve はトップレベルの statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。return、関数内 resolve、handler 内 resolve は許可しません。新しい block scope は作らず、実行された handler の宣言はトップレベル環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
-- 対象が通常値を持っていれば no-op です。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
-- handler が `print(1)` などを正常に終えても、対象が未初期化のままなら元 event は unresolved のままです。
-- handler の代入が新しい宣言済み failure で失敗して対象が未初期化のままなら、元 event と新 event は両方 unresolved です。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
+- latest write が success なら no-op です。過去の正常値が残っていても latest write が failed なら handler を実行できます。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
+- handler が `print(1)` などを正常に終えても、target への write が成功しなければ元 event は unresolved のままです。過去の正常値は保持され、その値を読む処理も継続できます。成功値が一度もなければ UninitializedBinding のままで、後続 read は fatal です。
+- handler の target への代入が新しい宣言済み failure で失敗し、回復できなければ元 event と新 event は両方 unresolved です。既存値は保持し、新しい失敗代入が latest write になります。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
 - 成功時も event を削除せず、`ExecutionResult.failure_history` に resolved として保持します。`unresolved_events` は status に基づいて除外します。
 - FailureContractViolation、EvalError、Python 内部例外は resolve の対象外で、従来どおり fatal です。
 
-トップレベル未処理警告は後続 resolve を含めて集計します。概念的には `(initializer failures - resolve の FailureId) ∪ handler failures` です。initializer が `{IntegerOverflow, DivideByZero}` を持ち、後続 resolve に IntegerOverflow だけを書けば、元 initializer の警告には DivideByZero だけが残ります。handler 内の式や代入の failure は別に合算し、元 initializer の処理対象を指定しただけでは消しません。静的な処理対象の指定は runtime の回復成功を保証しません。警告だけでは実行を止めず、関数本体の上限契約違反を型エラーにする規則は維持します。
+トップレベル未処理警告は write statement ごとに保持し、後続 resolve は最新 write の handler 対象だけを covered とします。同じ FailureId を持つ古い write の警告は消しません。handler 内の式や代入の failure は別の statement として集計し、後続 resolve はその handler の最新 write も対象にできます。静的な coverage は runtime 回復の成功を保証しません。警告だけでは実行を止めず、関数本体の上限契約違反を型エラーにする規則は維持します。
 
-builtin の宣言は静的解析が信頼する契約です。Python実装から契約を自動推論しませんが、runtimeでは実際のRaisedFailureを宣言と照合します。独自 builtin sig の宣言漏れは静的には検出できませんが、実際に未宣言 RaisedFailure が出た境界で契約違反として検出します。print / IO / toFloat の failure 契約は未確定のままです。現在、標準 print の出力失敗や、独自 builtin が契約違反の巨大整数を返した場合の toFloat 変換失敗は Python 例外として伝播し、通常の `FailureEvent` には変換されません。
+builtin の宣言は静的解析が信頼する契約です。Python実装から契約を自動推論しませんが、runtimeでは実際のRaisedFailureを宣言と照合します。独自 builtin sig の宣言漏れは静的には検出できませんが、実際に未宣言 RaisedFailure が出た境界で契約違反として検出します。print / IO の failure 契約は未確定です。有効な Int の toFloat は failure を持ちません。現在、標準 print の出力失敗や、低水準 Python API から不正な巨大整数を直接渡した場合の toFloat 変換失敗は Python 例外として伝播し、通常の `FailureEvent` には変換されません。
 
-旧 `try` / `catch` 構文は削除しました。予約語として保持し、使用すると `try/catch has been removed; use resolve <binding>` という構文エラーになります。失敗し得る式の結果を var の initializer に置き、resolve でその binding を回復してください。
+旧 `try` / `catch` 構文は削除しました。予約語として保持し、使用すると `try/catch has been removed; use resolve <binding>` という構文エラーになります。失敗し得る式の結果を var の initializer または再代入に置き、resolve でその binding を回復してください。
 
 ## @attr.handled の廃止（failure runtime 再設計 Phase 1）
 
@@ -421,7 +505,7 @@ print(3)
 
 関数本体の通常文でもNoValueなら次の独立文へ継続します。Phase 5以降は関数ごとのpendingを保持し、正常値・正常Unitと未解決failureが共存できます。明示returnなしで本体末尾へ到達した場合は、途中に未完遂文があっても正常Unitです。return式がNoValueなら関数を終了し、caller側で継続します。
 
-現在の resolve は対象 binding の未初期化原因だけを扱います。handler が実行されたこと自体では resolved にせず、対象 binding が有効な値を得た場合に status を更新します。
+現在の resolve は対象 binding の latest failed write の直接原因だけを扱います。handler が実行されたこと自体では resolved にせず、handler 内で target への write が成功した場合に status を更新します。
 
 Thunk / force は EvalResult の受け渡しに必要な対応のみ行い、遅延評価・snapshot の既存規則は維持します。潜在契約のruntime照合は Phase 9 で追加しました。Phase 4 時点の公開 API は環境辞書でした。Phase 7 で契約違反、Phase 8 で ExecutionResult と履歴公開・main診断を導入しました。正常終了・契約違反時は未初期化bindingも結果環境に保持します。未初期化値の読み出しによる EvalError は他の fatal EvalError と同様に例外として表面化し、ExecutionResult は返しません。内部入口へ渡した環境と RuntimeContext には停止までの状態が残ります。
 
@@ -433,28 +517,46 @@ RuntimeContext.current_call_id を scope で切り替え、正常終了・NoValu
 
 CallFrame.pendingが実行時の正本です。関数のEvalResultには生成された値（またはNoValue）と関連イベントIDを添えます。正常値はpendingがあっても利用でき、値を得たことだけでfailureをresolvedにしません。関数末尾への到達は正常Unit `Value(None)` であり、途中の未完遂文によるpendingがあってもNoValueにはしません。失敗したreturnはPhase 4同様、関数を終了してNoValueを返します。callerはその依存文を未完遂とし、独立した次の文へ進みます。
 
-incomplete statementには実際のユーザー関数call IDが記録されます。resolve の選択根拠は未初期化 binding が保持する直接の原因 event ID であり、関数の pending 全体を処理しません。
+incomplete statementには実際のユーザー関数call IDが記録されます。resolve の選択根拠は RuntimeContext の latest write metadata が保持する直接の原因 event ID であり、関数の pending 全体を処理しません。
 
 同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、returnの終了規則とThunk契約の統合はPhase 9で確定しました。
 
 ## binding に基づく resolve runtime
 
-resolve 判定の正本は runtime の binding 状態と FailureEvent 履歴です。
+`resolve <binding>` が対象とするのは current value ではなく **latest write attempt** です。initializer と assignment を同じ write として扱います。
 
-```text
-failure 発生
-→ initializer が値を生成できない
-→ UninitializedBinding が原因 event ID を保持
-→ resolve binding
-→ 原因 event の FailureId に一致する handler
-→ binding が有効な値を得た場合だけ event を resolved に更新
+```ginger
+var x: Float = 5.0
+x = div(1.0, 0.0)
+resolve x {
+    DivideByZero {
+        x = 0
+    }
+}
+print(x)
 ```
 
-`UninitializedBinding.related_event_ids` の既存 tuple は維持します。正常値と pending が共存した earlier event と、最後に値を失わせた直接原因を区別するため、`cause_event_id` property はこの tuple の最新 event ID を返します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、最新の関連 event が直接原因になります。resolve はこの ID で `RuntimeContext.get_event` を呼び、同名 event を履歴全体から検索しません。
+出力は `0.0` です（静的には未指定の FloatOverflow の警告が残ります）。失敗した再代入の直後は current value が 5.0、latest write が failed です。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
 
-例えば x と y の initializer がそれぞれ IntegerOverflow を発生させても、`resolve x` は x の原因 event だけを選びます。同じ initializer の途中で別の failure が pending として残っている場合も、直接原因以外の event を resolved にしません。initializer が正常値を生成した binding は、pending があっても通常値として扱い、resolve は no-op です。
+```text
+initializer / assignment が NoValue
+→ current value は保持（成功値がなければ UninitializedBinding）
+→ latest write に直接原因 event ID を記録
+→ resolve binding が matching handler を実行
+→ handler 内の target write 成功で元 event を resolved に更新
+```
 
-handler は既存の block evaluator で statement 単位に継続します。実行後に target binding を再取得し、有効な値があれば元 event の status を更新します。代入が failure で完了しなければ未初期化 binding の原因 tuple は保持します。handler 中の新 event には `caused_by = 元 event ID` を設定し、元 event と区別します。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
+metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な BindingWrite レコードに保持します。Cell は frozen のままで、ThunkValue / ThunkHandle は変更しません。成功 write は原因 ID を空にし、成功 write 数を増加させます。resolve はこの数の変化で新たな回復を判定するため、既存値だけで元 event を resolved にしません。handler 内で回復後に再び代入が失敗した場合は、元 event は resolved、新 event は unresolved、latest write は新しい失敗です。
+
+`UninitializedBinding.related_event_ids` は診断用として維持します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、失敗 write の最新の関連 event ID が直接原因です。正常値と pending が共存した earlier event は回復しません。`calculate(mul(1e308, 1e308), 1)` では calculate を実行せず、mul の FloatOverflow が assignment の直接原因になります。
+
+`x = bad1()` の後に `x = bad2()` があれば、resolve x が見るのは bad2 の失敗だけです。同じ FailureId でも event ID で区別し、bad1 の event は unresolved history に残します。さらに `x = 123.0` が成功すれば latest write は success となり、古い失敗は回復対象になりません。その literal write に failure はないため、対応する handler は静的にも拒否されます。静的 failure がある write が runtime で成功した場合は、resolve は合法ですが no-op です。
+
+handler の新 event には `caused_by = 元 event ID` を設定します。target への代入が失敗した場合も latest write はその新しい失敗で置き換え、元の write には戻しません。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
+
+Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery と local resolve は未実装です。
+
+手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler と既存値保持、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。Scene 38 の top-level / local の既存値保持も維持します。
 
 resolved event も履歴に残ります。CallFrame.pending_event_ids の参照は伝播履歴として保持し、現在有効な pending は `RuntimeContext.unresolved_pending` が status を照合して取得します。callee 終了時も unresolved だけを caller へ渡します。ExecutionResult の公開フィールドは変更していません。
 
@@ -492,12 +594,15 @@ sig use(Thunk[T]<Never>) -> T {
 ```
 
 ```ginger
-failureset CalculationFailure { DivideByZero IOErr }
+failureset CalculationFailure { DivideByZero FloatOverflow IOErr }
 // 型の例: Thunk[Int]<Never>, Thunk[Int]<DivideByZero>, Thunk[Int]<CalculationFailure>
 var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0, 0.0))
 var x: Float = force(t)
 resolve x {
     DivideByZero {
+        x = 0
+    }
+    FloatOverflow {
         x = 0
     }
     IOErr {
@@ -519,7 +624,7 @@ failure指定には個別FailureId、failureset、単独のNeverを使えます�
 sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
 
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
-`sig make() -> Thunk[Float]<DivideByZero> { failure Never }` は有効です。
+`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow> { failure Never }` は有効です。
 静的に解決されたThunkは本体上限検証の対象です。
 ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
@@ -532,7 +637,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 | 型宣言・コンテナ | nominal type declarations、type aliases、Array は未実装 |
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 明示した require を generic 本体の能力証明に使用。型・guarantee・method による既存 impl dispatch を維持し、継承・associated types・overload は未対応 |
-| failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO / toFloat の契約は未確定。未処理は警告 |
+| failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
 | resolve | トップレベルの var のみ。let・関数内・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
@@ -549,7 +654,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 
 `tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・open-world・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
 
-failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
+failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_float_finite.py` は finite literal、正負の Float overflow、ゼロ除算優先順位、不正な外部入力、alias、resolve / Thunk を確認します。`tests/test_builtin_value_contract.py` は non-finite return の拒否と他型・opaque 型の回帰を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
 
 ```sh
 python3 -B -m unittest discover -s tests -v
@@ -585,6 +690,7 @@ python3 -B -m unittest discover -s tests -v
 ```ginger
 failureset CalculationFailure {
     DivideByZero
+    FloatOverflow
     IOErr
 }
 sig calculate() -> Float {
@@ -608,7 +714,7 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
 
 集合名自体は FailureId ではなく、resolve の handler 名には使用できません。対象 binding の
-initializer から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
+最新 write から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
 
 ## runtime failure 契約検証（Phase 7）
 
@@ -647,7 +753,7 @@ if result.contract_violation is not None:
 - `incomplete_statements`: call ID、scope、statement index/kind、原因event IDを持つ既存記録のtuple。
 - `contract_violation`: 違反がなければNone。違反時は `ContractViolationSnapshot` にfailure ID、origin、違反call ID、境界名・種別、宣言契約、任意のevent IDを保持します。
 
-RuntimeContextは実行中の状態、ExecutionResultは終了時点のsnapshotです。履歴と未完遂記録は不変レコードのtuple、frame対応表はコピーした読み取り専用mapping、違反情報は例外から切り離したfrozen dataclassです。環境対応表もコピーしますが、bindingやGinger値はdeep copyしません。
+RuntimeContextは実行中の状態、ExecutionResultは終了時点のsnapshotです。履歴と未完遂記録は不変レコードのtuple、frame対応表はコピーした読み取り専用mapping、違反情報は例外から切り離したfrozen dataclassです。環境対応表もコピーして読み取り専用にします。Cell は frozen binding record ですが、binding や Ginger 値の payload は deep copy / deep freeze しません。
 
 unresolvedだけなら正常に完走して結果を返します。契約違反はGingerプログラムを即停止しますが、公開APIは停止時点の結果を返します。ユーザー関数境界の違反では原因eventを履歴に残し、builtin未宣言failureではeventを作りません。違反で伝播が止まったeventはroot pendingに未到達でも `unresolved_events` に含まれます。正常完走時もraw pendingにはresolved参照が残り得るため、現在の未解決状態はevent.statusで判定します。
 
@@ -667,8 +773,10 @@ Thunkは非memoizedです。作成時には式を実行せず、FailureEventも�
 
 force時は通常のEvalResult経路を使います。NoValueなら親演算を実行せず、正常値とpendingが共存するなら両方を保持します。builtinとユーザー関数の契約検証を通した後、今回のforce中に新しく生じたunresolved eventを、Thunkが保持する推論契約およびforce引数の公開Thunk型の潜在契約に照合します。契約外なら境界種別 `thunk`、境界名 `force` のFailureContractViolationとして停止し、既存eventを履歴へ残します。
 
+Phase 2.5 の builtin return 時の保存契約 subset 検査後も、この force 時の二重の failure 契約検証を維持します。Phase 3A では保存 metadata の契約超過を read / argument / force 開始時にも検出し、実 failure が出なくても停止します。その検証後に成功値だけを value contract で検査し、違反は `ExecutionResult.value_contract_violation` に記録します。FailureContractViolation と ValueContractViolation は別の診断です。
+
 Thunkが未初期化bindingをcaptureすること自体は許可します。forceがその値を実際に要求すると同じ読み出し境界で EvalError により停止し、過去の原因eventを再発生させず、新しいFailureEventや潜在failureとして扱いません。lexical environment snapshotは維持するため、capture後に元のvarを回復しても、snapshot内の未初期化bindingをforceで読むと停止します。
 
 force専用CallFrameは追加していません。builtin failureはforce実行中のcurrent callへ帰属し、Thunk内のユーザー関数呼び出しは通常のchild frameを作ります。lexical environmentを作成元から取得してもcall identityを作成元へ戻しません。
 
-force中に生成されたeventがbindingの初期化失敗の原因になれば、resolveでそのbindingを回復できます。handler内forceの新eventには通常どおりcaused_byが付き、対象が回復しなければ元eventもunresolvedのままです。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。公開結果フィールドは変更していません。
+force中に生成されたeventがbindingのwrite失敗の原因になれば、resolveでそのbindingを回復できます。handler内forceの新eventには通常どおりcaused_byが付き、対象が回復しなければ元eventもunresolvedのままです。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。公開結果フィールドは変更していません。

@@ -1,10 +1,39 @@
+// Purpose:
+// 基本の let/var・算術・変換・再代入
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_samples_outputs_and_warnings
+// tests/test_float_finite.py::test_normal_arithmetic_results
+// tests/test_function_locals.py::test_existing_ast_and_lowering
+// tests/test_unary_minus.py::test_all_sample_baselines
+// Expected stdout (ordered):
+// 9
+// 4.5
+// -9
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 2
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 let initial: Int = 1
+
+// // letで宣言した binding は再代入不可
 //initial = 2
+
 var x: Int = (initial + 2)
+print(x)
+
 x = (x * 3)
 print(x)
 
-var y: Float = div(toFloat(x), 2.0)
+// toFloatは不要（xは自動的にFloatに変換される）
+//var y: Float = div(toFloat(x), 2.0)
+
+var y: Float = div(x,2.0)
 print(y)
 
 var negative: Int = neg(x)

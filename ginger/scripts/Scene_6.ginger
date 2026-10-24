@@ -1,5 +1,33 @@
+// Purpose:
+// failureset 付き Thunk と force/resolve
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_thunk_contract_validation_and_saved_force
+// tests/test_failureset.py::test_function_and_thunk_contract_equivalence
+// tests/test_integer_overflow.py::test_thunk_creation_latent_force_and_failureset
+// tests/test_resolve.py::test_force_failure_can_be_resolved_from_initializer_binding
+// tests/test_thunk_contract.py::test_creation_and_force_effects_and_runtime
+// tests/test_thunk_contract.py::test_functions_and_transitive_validation
+// tests/test_thunk_contract.py::test_valid_contracts_and_normalization
+// tests/test_thunk_syntax.py::test_multiple_failures_are_order_independent
+// tests/test_thunk_value_contract.py::test_standard_thunk_success_and_no_value
+// tests/test_unary_minus.py::test_all_sample_baselines
+// tests/test_unary_minus.py::test_inner_failure_warning_resolve_and_runtime
+// tests/test_unary_minus.py::test_thunk_preserves_latent_and_force_failures
+// Expected stdout (ordered):
+// 0.0
+// 5.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// DivideByZero: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 failureset CalculationFailure {
     DivideByZero
+    FloatOverflow
     IOErr
 }
 
@@ -10,19 +38,26 @@ resolve first {
     DivideByZero {
         first = 0
     }
-    IOErr {
+    FloatOverflow {
         first = 1
+    }
+    IOErr {
+        first = 2
     }
 }
 
 print(first)
 
-var t2: Thunk[Float]<DivideByZero> = thunk(div(10.0,2.0))
+var t2: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(10.0,2.0))
 
 var second: Float = force(t2)
+
 resolve second {
-    DivideByZero {
+    FloatOverflow {
         second = 0
+    }
+    DivideByZero {
+        second = 1
     }
 }
 

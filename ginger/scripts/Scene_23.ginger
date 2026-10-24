@@ -1,0 +1,39 @@
+// Purpose:
+// Int/Int64 対称境界・neg・比較・leading zero
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_bounded_integers.py::test_capabilities
+// tests/test_bounded_integers.py::test_literals
+// tests/test_bounded_integers.py::test_syntax
+// tests/test_integer_overflow.py::test_negation_has_no_overflow_effect
+// Expected stdout (ordered):
+// -9007199254740991
+// 9007199254740991
+// -9223372036854775807
+// 9223372036854775807
+// 1
+// false
+// true
+// Right
+// Flat
+// Left
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var lo: Int = (-9007199254740991)
+print(lo)
+print(neg(lo))
+var low: Int64 = (-9223372036854775807i64)
+print(low)
+print(neg(low))
+print(001i64)
+print(eq(low,neg(low)))
+print(lt(low,neg(low)))
+print(cmp(low,neg(low)))
+print(cmp(1,1))
+print(cmp(2.0,1.0))

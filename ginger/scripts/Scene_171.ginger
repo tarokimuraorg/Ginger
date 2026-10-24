@@ -1,0 +1,10 @@
+// Only the latest failed write is recovered; older history remains.
+// Expected stdout: 2.0; two FloatOverflow static warnings.
+// FloatOverflow unresolved; DivideByZero resolved.
+var result: Float = 10.0
+result = mul(1e308, 1e308)
+result = div(1.0, 0.0)
+resolve result {
+    DivideByZero { result = 2 }
+}
+print(result)

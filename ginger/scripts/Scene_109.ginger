@@ -1,0 +1,18 @@
+// Purpose:
+// Never に条件は付けられない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_conditional_never_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// Never cannot have a failure condition
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f(T) -> T { failure Never when T guarantees BoundedArithmetic }

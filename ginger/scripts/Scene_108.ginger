@@ -1,0 +1,18 @@
+// Purpose:
+// 条件付き failure の未知 guarantee を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_unknown_guarantee_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// unknown guarantee
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f(T) -> T { failure IOErr when T guarantees Missing }

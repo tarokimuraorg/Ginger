@@ -52,11 +52,19 @@
       ]
     },
     {
+      "name": "FiniteArithmetic",
+      "methods": []
+    },
+    {
       "name": "BoundedArithmetic",
       "methods": []
     }
   ],
   "registers": [
+    {
+      "type": { "ref": "Float" },
+      "guarantee": "FiniteArithmetic"
+    },
     {
       "type": { "ref": "Int" },
       "guarantee": "BoundedArithmetic"
@@ -128,6 +136,10 @@
         {
           "failure": "IntegerOverflow",
           "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+        },
+        {
+          "failure": "FloatOverflow",
+          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -144,6 +156,10 @@
         {
           "failure": "IntegerOverflow",
           "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+        },
+        {
+          "failure": "FloatOverflow",
+          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -160,6 +176,10 @@
         {
           "failure": "IntegerOverflow",
           "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+        },
+        {
+          "failure": "FloatOverflow",
+          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -170,7 +190,7 @@
       "params": [{ "ref": "Float" }, { "ref": "Float" }],
       "ret": { "ref": "Float" },
       "requires": [],
-      "failures": ["DivideByZero"],
+      "failures": ["DivideByZero", "FloatOverflow"],
       "attrs": [],
       "builtin": "core.float.div"
     },

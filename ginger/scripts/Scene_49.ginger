@@ -1,0 +1,29 @@
+// Purpose:
+// expected return 型は call inference を変えず引数 failure も伝播
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_expected_type_only_applies_after_call_resolution
+// tests/test_call_inference.py::test_returns_and_function_upper_bounds
+// tests/test_conditional_failures.py::test_expected_type_and_argument_effect_do_not_change_instantiation
+// tests/test_integer_overflow.py::test_direct_float_resolve_rejected_but_argument_effect_preserved
+// tests/test_integer_overflow.py::test_widening_is_pure_but_propagates_argument_failure
+// Expected stdout (ordered):
+// 1.0
+// 2.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {FloatOverflow} x 1
+// Expected normal failure:
+// IntegerOverflow: resolved x 2
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig identity(Float) -> Float {}
+func identity(x: Float) { return x }
+var widened: Float = add(9007199254740991,1)
+resolve widened { IntegerOverflow { widened = 1 } }
+print(widened)
+var t: Thunk[Int]<IntegerOverflow> = thunk(add(9007199254740991,1))
+var x: Float = identity(add(toFloat(force(t)),2.0))
+resolve x { IntegerOverflow { x = 2 } }
+print(x)

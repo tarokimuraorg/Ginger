@@ -1,0 +1,20 @@
+// Purpose:
+// generic neg にも Negatable proof が必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_generic_guarantees.py::test_missing_negatable_rejects_explicit_and_lowered_unary
+// tests/test_unary_minus.py::test_invalid_types_match_neg_diagnostics
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// does not guarantee Negatable
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig opposite(T) -> T {}
+func opposite(x: T) { return (-x) }

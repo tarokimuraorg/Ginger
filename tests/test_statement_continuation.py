@@ -99,7 +99,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_user_function_body_continues_with_child_frame(self):
         _, context, stdout = self.run_source(
-            'sig f() -> Unit { failure DivideByZero }\n'
+            'sig f() -> Unit { failure DivideByZero failure FloatOverflow }\n'
             'func f() { print(div(1.0,0.0))\nprint(2) }\nf()\nprint(3)')
         self.assertEqual(stdout, '2\n3\n')
         self.assertEqual(len(context.call_frames), 2)
@@ -107,7 +107,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_failed_return_does_not_execute_unreachable_body(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Float { failure DivideByZero }\n'
+            'sig f() -> Float { failure DivideByZero failure FloatOverflow }\n'
             'func f() { return div(1.0,0.0)\nprint(9)\nreturn 4.0 }\n'
             'var x: Float = f()\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -116,7 +116,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_valid_return_after_incomplete_statement_keeps_root_history(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Int { failure DivideByZero }\n'
+            'sig f() -> Int { failure DivideByZero failure FloatOverflow }\n'
             'func f() { print(div(1.0,0.0))\nreturn 4 }\nvar x: Int = f()\nprint(x)')
         self.assertEqual(env['x'].value, 4)
         self.assertEqual(stdout, '4\n')

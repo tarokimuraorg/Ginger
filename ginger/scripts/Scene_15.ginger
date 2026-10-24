@@ -1,3 +1,22 @@
+// Purpose:
+// 通常代入で値は回復するが failure 履歴は未解決
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_resolve.py::test_later_assignment_before_resolve_does_not_resolve_history
+// tests/test_statement_continuation.py::test_uninitialized_later_recovery
+// tests/test_uninitialized_reads.py::test_recovery_and_subsequent_dependency
+// Expected stdout (ordered):
+// 10.0
+// 11.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {FloatOverflow} x 1
+// Expected normal failure:
+// DivideByZero: unresolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 var a: Float = div(1.0,0.0)
 a = 10
 var b: Float = add(a,1.0)

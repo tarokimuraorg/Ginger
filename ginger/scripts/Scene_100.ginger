@@ -1,0 +1,19 @@
+// Purpose:
+// func より前に sig が必要
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_parameter_order_structure_and_declaration_order
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// no corresponding sig
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+func f() {}
+sig f() -> Unit {}

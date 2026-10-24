@@ -1,0 +1,23 @@
+// Purpose:
+// parameterized register は result type identity を区別
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_parameterized_type_identity.py::test_register_isolation
+// tests/test_parameterized_type_identity.py::test_thunk_result_identity_and_existing_effect_independence
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// does not guarantee Mark
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee Mark {}
+register Thunk[Int]<Never> guarantees Mark
+sig keep(T) -> T { require T guarantees Mark }
+func keep(x: T) { return x }
+var bad: Thunk[Float]<Never> = keep(thunk(1.0))

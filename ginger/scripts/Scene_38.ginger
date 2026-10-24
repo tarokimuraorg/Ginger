@@ -1,0 +1,27 @@
+// Purpose:
+// 失敗した再代入は既存値を保存する（top-level/local）
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_no_value_not_published_or_passed_to_parent
+// tests/test_function_locals.py::test_failed_initializer_and_assignment_preserve_environment
+// tests/test_integer_overflow.py::test_failed_initialization_and_assignment_do_not_store_result
+// tests/test_statement_continuation.py::test_failed_assignment_preserves_previous_value
+// Expected stdout (ordered):
+// 5.0
+// 7
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {IntegerOverflow} x 1
+// Expected normal failure:
+// DivideByZero: unresolved x 1
+// IntegerOverflow: unresolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var x: Float = 5.0
+x = div(1.0,0.0)
+print(x)
+sig local() -> Int { failure IntegerOverflow }
+func local() { var y: Int = 7 y = add(9007199254740991,1) return y }
+print(local())

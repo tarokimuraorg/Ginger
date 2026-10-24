@@ -10,12 +10,15 @@ def report_result(result) -> int:
     if result.contract_violation is not None:
         print(result.contract_violation, file=sys.stderr)
         return 1
+    if result.value_contract_violation is not None:
+        print(result.value_contract_violation, file=sys.stderr)
+        return 1
     return 0
 
 
 def main() -> int:
     root = Path(__file__).parent
-    scene_id = 4
+    scene_id = 11
     src = (root / f"scripts/Scene_{scene_id}.ginger").read_text(encoding="utf-8")
     return report_result(run(src))
 

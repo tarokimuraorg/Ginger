@@ -1,6 +1,31 @@
+// Purpose:
+// generic Addable の条件付き Int/Float failure
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_generic_body_uses_declared_guarantee
+// tests/test_conditional_failures.py::test_explicit_and_infix_generic_add_specialize_int_and_float
+// tests/test_conditional_failures.py::test_int_resolve_allowed_and_recovers_overflow
+// tests/test_conditional_failures.py::test_unhandled_warnings_use_concrete_contract
+// tests/test_generic_guarantees.py::test_explicit_and_infix_add_int_and_float
+// tests/test_generic_guarantees.py::test_pipeline_run_uses_body_proofs_and_instantiates_contracts
+// Expected stdout (ordered):
+// 3
+// 3.0
+// 999
+// 3.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 1
+// UNHANDLED_FAILURES {FloatOverflow} x 2
+// Expected normal failure:
+// IntegerOverflow: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 sig addTwo(T, T) -> T {
     require T guarantees Addable
     failure IntegerOverflow when T guarantees BoundedArithmetic
+    failure FloatOverflow when T guarantees FiniteArithmetic
 }
 
 func addTwo(a:T, b:T) {
@@ -32,7 +57,7 @@ print(x)
 
 //print(bad(1.2))
 
-// 5. Floatではresolve資格そのものがない
+// 5. Float には IntegerOverflow の resolve 資格がない（FloatOverflow は対象）。
 var y: Float = addTwo(1.0, 2.0)
 
 //resolve y {

@@ -1,0 +1,8 @@
+// Handler completion without a target write does not recover.
+// Expected stdout: 999, 10.0; no static warnings; FloatOverflow unresolved.
+var result: Float = 10.0
+result = mul(1e308, 1e308)
+resolve result {
+    FloatOverflow { print(999) }
+}
+print(result)

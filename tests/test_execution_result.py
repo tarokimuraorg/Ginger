@@ -57,8 +57,8 @@ class ExecutionResultTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, (new,))
 
     def test_nested_frame_path(self):
-        result, _ = self.capture('sig a() -> Float { failure DivideByZero }\n'
-            'sig b() -> Float { failure DivideByZero }\nfunc a() { return b() }\n'
+        result, _ = self.capture('sig a() -> Float { failure DivideByZero failure FloatOverflow }\n'
+            'sig b() -> Float { failure DivideByZero failure FloatOverflow }\nfunc a() { return b() }\n'
             'func b() { return div(1.0,0.0) }\nvar x: Float = a()')
         event, = result.failure_history
         child = result.call_frames[event.call_id]
@@ -84,7 +84,7 @@ class ExecutionResultTests(unittest.TestCase):
             syms.sig_failures[name] = EMPTY_FAILURES
             return original(name, args, syms, env, resolved)
         with patch('ginger.eval.eval_user_func', side_effect=stale):
-            result, stdout = self.capture('sig f() -> Int { failure DivideByZero }\n'
+            result, stdout = self.capture('sig f() -> Int { failure DivideByZero failure FloatOverflow }\n'
                 'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
                 'var before: Int = 7\nvar x: Int = f()\nprint(99)')
         self.assertEqual(stdout, '')
@@ -117,6 +117,21 @@ class ExecutionResultTests(unittest.TestCase):
         self.assertEqual(snapshot.contract_violation.origin, 'custom')
         with self.assertRaises(FrozenInstanceError):
             snapshot.contract_violation.origin = 'changed'
+
+    def test_frozen_binding_records_do_not_deep_freeze_opaque_payload(self):
+        payload = []
+        with patch.dict(BUILTINS, {'test.make': lambda: payload}):
+            result, _ = self.capture('sig make() -> Box[Int] { builtin test.make }\n'
+                                     'var x: Box[Int] = make()')
+        cell = result.environment['x']
+        for field, value in [('value', []), ('typ', None), ('mutable', False)]:
+            with self.subTest(field=field), self.assertRaises(FrozenInstanceError):
+                setattr(cell, field, value)
+        with self.assertRaises(TypeError):
+            result.environment['x'] = evaluator.Cell([], True)
+        cell.value.append(1)
+        self.assertIs(cell.value, payload)
+        self.assertEqual(payload, [1])
 
     def test_python_and_compile_errors_still_raise(self):
         error = TypeError('implementation bug')
@@ -161,15 +176,15 @@ class ExecutionResultTests(unittest.TestCase):
                 elif code:
                     self.assertEqual(out.getvalue(), '')
                 else:
-                    self.assertEqual(err.getvalue(), '')
+                    self.assertEqual(err.getvalue(), 'warning[UNHANDLED_FAILURES]: unhandled failures: FloatOverflow\n' if 'div(' in source else '')
         out, err = io.StringIO(), io.StringIO()
         # Keep this regression independent of the demo selected by main.
         source = (Path(__file__).parents[1] / 'ginger/scripts/Scene_1.ginger').read_text(encoding='utf-8')
         with patch('ginger.main.run', side_effect=lambda _: run(source)), redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(main(), 0)
-        self.assertEqual(out.getvalue(), '9\n4.5\n-9\n')
+        self.assertEqual(out.getvalue(), '3\n9\n4.5\n-9\n')
         self.assertEqual(err.getvalue().splitlines(), [
             'warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow',
             'warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow',
-            'warning[UNHANDLED_FAILURES]: unhandled failures: DivideByZero',
+            'warning[UNHANDLED_FAILURES]: unhandled failures: DivideByZero, FloatOverflow',
         ])

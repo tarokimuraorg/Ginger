@@ -1,0 +1,30 @@
+// Purpose:
+// 算術 precedence・associativity・括弧 minus
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_unary_minus.py::test_arithmetic_precedence_and_associativity
+// tests/test_unary_minus.py::test_valid_expressions_and_values
+// Expected stdout (ordered):
+// 7
+// 9
+// 3
+// 2.0
+// -14
+// 0.5
+// 3
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 4
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 2
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+print(1 + 2 * 3)
+print((1 + 2) * 3)
+print(8 - 3 - 2)
+print(8.0 / 2.0 / 2.0)
+print((-(2 + 3 * 4)))
+print(1 / 2)
+print(neg(neg(3)))

@@ -1,0 +1,43 @@
+// Purpose:
+// Float の4演算 overflow と ±zero 除算の優先 failure
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_float_division_signals_declared_failure_at_implementation
+// tests/test_float_finite.py::test_division_signed_zero_has_priority
+// tests/test_float_finite.py::test_overflow_both_directions_has_event_no_value_and_continuation
+// tests/test_integer_overflow.py::test_float_runtime_effect_and_resolve_eligibility
+// Expected stdout (ordered):
+// 1.0
+// 2.0
+// 3.0
+// 4.0
+// 5.0
+// 6.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// FloatOverflow: resolved x 4
+// DivideByZero: resolved x 2
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var maximum: Float = 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0
+var a: Float = add(maximum,maximum)
+resolve a { FloatOverflow { a = 1 } }
+var b: Float = sub(neg(maximum),maximum)
+resolve b { FloatOverflow { b = 2 } }
+var c: Float = mul(maximum,2.0)
+resolve c { FloatOverflow { c = 3 } }
+var d: Float = div(maximum,0.5)
+resolve d { FloatOverflow { d = 4 } DivideByZero { d = 99 } }
+var z: Float = div(maximum,0.0)
+resolve z { DivideByZero { z = 5 } FloatOverflow { z = 99 } }
+var nz: Float = div(maximum,(-0.0))
+resolve nz { DivideByZero { nz = 6 } FloatOverflow { nz = 99 } }
+print(a)
+print(b)
+print(c)
+print(d)
+print(z)
+print(nz)

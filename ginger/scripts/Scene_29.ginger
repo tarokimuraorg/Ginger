@@ -1,0 +1,41 @@
+// Purpose:
+// 関数 local scope・fresh locals・early return
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_frames.py::test_root_and_normal_child
+// tests/test_execution_result.py::test_normal_public_entry_points
+// tests/test_function_locals.py::test_distinct_parameter_names_remain_valid
+// tests/test_function_locals.py::test_existing_ast_and_lowering
+// tests/test_function_locals.py::test_fresh_environment_per_call
+// tests/test_function_locals.py::test_parameters_locals_and_return
+// tests/test_function_locals.py::test_shadowing_is_local_and_globals_remain_inaccessible
+// Expected stdout (ordered):
+// 21
+// 21
+// 10
+// 1
+// 1
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var x: Int = 10
+sig local(Int) -> Int {}
+func local(seed: Int) {
+    let initial: Int = seed
+    var x: Int = initial
+    x = 21
+    return x
+    print(999)
+}
+print(local(1))
+print(local(2))
+print(x)
+sig fresh() -> Int {}
+func fresh() { var a: Int = 1 let before: Int = a a = 2 return before }
+print(fresh())
+print(fresh())

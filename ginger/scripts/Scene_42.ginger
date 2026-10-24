@@ -1,0 +1,30 @@
+// Purpose:
+// handler の新 failure と回復済み値、resolve の再実行
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_execution_result.py::test_resolved_and_caused_by
+// tests/test_resolve.py::test_handler_context_is_restored_before_following_failure
+// tests/test_resolve.py::test_handler_failure_then_recovery_resolves_only_original_event
+// tests/test_resolve.py::test_new_failure_after_recovery_does_not_undo_valid_binding
+// tests/test_resolve.py::test_second_resolve_after_recovery_is_no_op
+// Expected stdout (ordered):
+// 4
+// 5
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {IntegerOverflow} x 1
+// Expected normal failure:
+// IntegerOverflow: resolved x 2
+// DivideByZero: unresolved x 1
+// IntegerOverflow: unresolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+var x: Int = add(9007199254740991,1)
+resolve x { IntegerOverflow { print(div(1.0,0.0)) x = 4 } }
+print(x)
+resolve x { IntegerOverflow { print(999) x = 9 } }
+var y: Int = add(9007199254740991,1)
+resolve y { IntegerOverflow { y = 5 y = add(9007199254740991,1) } }
+print(y)

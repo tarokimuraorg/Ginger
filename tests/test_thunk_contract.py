@@ -8,7 +8,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.typecheck import typecheck_program, same_type
 
-SET = 'failureset CalculationFailure { DivideByZero IOErr }\n'
+SET = 'failureset CalculationFailure { DivideByZero FloatOverflow IOErr }\n'
 
 
 class ThunkContractTests(unittest.TestCase):
@@ -24,9 +24,9 @@ class ThunkContractTests(unittest.TestCase):
     def test_valid_contracts_and_normalization(self):
         for spec, names in [('Never', []), ('DivideByZero', ['DivideByZero']),
                             ('DivideByZero, IOErr', ['DivideByZero', 'IOErr']),
-                            ('CalculationFailure', ['DivideByZero', 'IOErr']),
-                            ('CalculationFailure, PrintErr', ['DivideByZero', 'IOErr', 'PrintErr']),
-                            ('CalculationFailure, DivideByZero', ['DivideByZero', 'IOErr'])]:
+                            ('CalculationFailure', ['DivideByZero', 'FloatOverflow', 'IOErr']),
+                            ('CalculationFailure, PrintErr', ['DivideByZero', 'FloatOverflow', 'IOErr', 'PrintErr']),
+                            ('CalculationFailure, DivideByZero', ['DivideByZero', 'FloatOverflow', 'IOErr'])]:
             with self.subTest(spec=spec):
                 program, _ = checked(SET + f'var t: Thunk[Int]<{spec}> = thunk(1)')
                 env = typecheck_program(program, Diagnostics())
@@ -44,7 +44,7 @@ class ThunkContractTests(unittest.TestCase):
                     checked(SET + declaration)
 
     def test_creation_and_force_effects_and_runtime(self):
-        prefix = 'var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
+        prefix = 'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
         program, diags = checked(prefix)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
@@ -54,34 +54,34 @@ class ThunkContractTests(unittest.TestCase):
                 recovery = 'x = print(7)' if typ == 'Unit' else 'x = 0\nprint(7)'
                 program, diags = checked(prefix + f'var x: {typ} = {expr}\n'
                     f'resolve x {{ DivideByZero {{ {recovery} }} }}')
-                self.assertEqual(diags.items, [])
+                self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
                 self.assertEqual(output(program), '7\n')
         _, diags = checked(prefix + 'var x: Float = force(t)')
-        self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero'])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero, FloatOverflow'])
 
     def test_assignment_bounds_and_declared_binding(self):
         prefix = SET + 'var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0,0.0))\n'
         checked(prefix + 't = thunk(1.0)\nvar x: Float = force(t)\n'
                 'resolve x { IOErr { x = 1 } }')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(prefix + 'var narrow: Thunk[Float]<DivideByZero> = t')
+            checked(prefix + 'var narrow: Thunk[Float]<DivideByZero, FloatOverflow> = t')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked('var t: Thunk[Float]<Never> = thunk(div(1.0,0.0))')
-        checked(SET + 'var narrow: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
+        checked(SET + 'var narrow: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
                 'var wide: Thunk[Float]<CalculationFailure> = narrow')
 
     def test_functions_and_transitive_validation(self):
         prefix = SET + '''
 sig execute(Thunk[Float]<CalculationFailure>) -> Float { failure CalculationFailure }
-func execute(t: Thunk[Float]<IOErr, DivideByZero>) { return force(t) }
-sig make() -> Thunk[Float]<DivideByZero> { failure Never }
+func execute(t: Thunk[Float]<IOErr, DivideByZero, FloatOverflow>) { return force(t) }
+sig make() -> Thunk[Float]<DivideByZero, FloatOverflow> { failure Never }
 func make() { return thunk(div(1.0,0.0)) }
 sig use() -> Float { failure CalculationFailure }
 func use() { return execute(make()) }
 '''
         program, diags = checked(prefix + 'var x: Float = use()\n'
             'resolve x { DivideByZero { x = 2\nprint(2) }\nIOErr { x = 3\nprint(3) } }')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '2\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
             checked(prefix.replace('sig use() -> Float { failure CalculationFailure }',
@@ -101,12 +101,12 @@ func use() { return execute(make()) }
             checked(prefix + 'var t: Thunk[Int]<CalculationFailure> = thunk(1)\nvar x: Int = f(t)')
 
     def test_nested_thunk_does_not_leak_inner_failures(self):
-        program, diags = checked('var t: Thunk[Thunk[Float]<DivideByZero>]<Never> = '
+        program, diags = checked('var t: Thunk[Thunk[Float]<DivideByZero, FloatOverflow>]<Never> = '
                                  'thunk(thunk(div(1.0,0.0)))\n'
-                                 'var inner: Thunk[Float]<DivideByZero> = force(t)\n'
+                                 'var inner: Thunk[Float]<DivideByZero, FloatOverflow> = force(t)\n'
                                  'var x: Float = force(inner)\n'
                                  'resolve x { DivideByZero { x = 5\nprint(5) } }')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '5\n')
 
     def test_force_argument_evaluation_effects(self):
@@ -116,11 +116,11 @@ func use() { return execute(make()) }
 
     def test_callee_and_argument_effects_are_preserved(self):
         prefix = 'sig h(Float) -> Unit { failure IOErr }\nfunc h(x: Float) {}\n'
-        program, diags = checked(prefix + 'var t: Thunk[Float]<DivideByZero> = thunk(div(1.0,0.0))\n'
+        program, diags = checked(prefix + 'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
                                  'var x: Unit = h(force(t))\n'
                                  'resolve x { DivideByZero { x = print(8) } }')
         self.assertEqual(output(program), '8\n')
-        self.assertEqual([d.message for d in diags], ['unhandled failures: IOErr'])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, IOErr'])
         with self.assertRaises(TypecheckError):
             checked(prefix + 'sig wrap() -> Thunk[Unit]<Never> {}\n'
                     'func wrap() { return thunk(h(1.0)) }')

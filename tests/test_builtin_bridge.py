@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 from unittest.mock import Mock, patch
 
 import ginger.eval as evaluator
+from ginger.ast import TypeRef
 from ginger.builtin import BUILTINS, builtin_failure_contract, call_builtin
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, failures
 from ginger.lower import lower_program
@@ -36,8 +37,8 @@ class BuiltinBridgeTests(unittest.TestCase):
 
     def test_success_goes_through_value_result(self):
         results = []
-        def observe(*args):
-            result = invoke_builtin(*args)
+        def observe(*args, **kwargs):
+            result = invoke_builtin(*args, **kwargs)
             results.append(result)
             return result
         stream = io.StringIO()
@@ -51,8 +52,8 @@ class BuiltinBridgeTests(unittest.TestCase):
 
     def test_declared_failure_records_once_and_continues(self):
         results = []
-        def observe(*args):
-            result = invoke_builtin(*args)
+        def observe(*args, **kwargs):
+            result = invoke_builtin(*args, **kwargs)
             results.append(result)
             return result
         stream = io.StringIO()
@@ -72,7 +73,7 @@ class BuiltinBridgeTests(unittest.TestCase):
     def test_two_independent_invocations_keep_two_events(self):
         frame = self.context.create_call('<program>')
         results = [invoke_builtin('core.float.div', [1.0, 0.0], failures(FailureId.DivideByZero),
-                                  self.context, frame.call_id) for _ in range(2)]
+                                  self.context, frame.call_id, return_type=TypeRef("Float")) for _ in range(2)]
         self.assertEqual([r.related_event_ids for r in results], [(1,), (2,)])
         for result in results:
             self.assertIsInstance(result.value_result, NoValue)
@@ -168,7 +169,7 @@ class BuiltinBridgeTests(unittest.TestCase):
         self.assertEqual([e.failure_id for e in self.context.failure_history], [FailureId.IOErr])
 
     def test_user_functions_have_child_frame_without_duplicate_registration(self):
-        self.run_source('sig f() -> Float { failure DivideByZero }\n'
+        self.run_source('sig f() -> Float { failure DivideByZero failure FloatOverflow }\n'
                         'func f() { return div(1.0,0.0) }\nprint(f())')
         self.assertEqual(len(self.context.call_frames), 2)
         self.assertEqual(len(self.context.failure_history), 1)

@@ -12,6 +12,7 @@ from .builtin import builtin_failure_contract
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.builtin_bridge import invoke_builtin
+from ginger.runtime.value_contract import ValueContractViolation, validate_runtime_value
 from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value as ProducedValue
 from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
@@ -38,10 +39,11 @@ from .ast import (
 # =====================
 Value = Any
 
-@dataclass
+@dataclass(frozen=True)
 class Cell:
+    """Immutable binding record; payload contents are not deep-frozen."""
     value: Value
-    mutable: bool   # let=False, var=True
+    mutable: bool   # Binding may be rebound to a new Cell: let=False, var=True
     typ: Optional[TypeRef] = None
 
 @dataclass(frozen=True)
@@ -92,12 +94,27 @@ _statement_scope: ContextVar[str] = ContextVar("ginger_statement_scope", default
 _active_runtime: ContextVar[RuntimeContext] = ContextVar("ginger_runtime")
 
 
+def prepare_typed_value(value, source_type, target_type, *, boundary, implementation):
+    """Validate before conversion and publication; types come from checked source."""
+    context = _active_runtime.get()
+    try:
+        validate_runtime_value(value, source_type, implementation=implementation,
+                               call_id=context.current_call_id, boundary_kind=boundary)
+        prepared = widen_value(value, source_type, target_type)
+        validate_runtime_value(prepared, target_type, implementation=implementation,
+                               call_id=context.current_call_id, boundary_kind=boundary)
+        return prepared
+    except ValueContractViolation as violation:
+        context.last_value_contract_violation = violation
+        raise
+
+
 def eval_program(prog) -> ExecutionResult:
     context = RuntimeContext()
     environment: Dict[str, Binding] = {}
     try:
         _eval_program_with_context(prog, context, environment)
-    except FailureContractViolation:
+    except (FailureContractViolation, ValueContractViolation):
         # Fatal to Ginger; preserve the stopped execution for the host API.
         pass
     return ExecutionResult.from_context(environment, context)
@@ -139,24 +156,22 @@ def _eval_program(prog, env) -> Dict[str, Binding]:
 
 
 def eval_resolve_statement(stmt: ResolveStmt, env, syms):
-    """Recover only the event that prevented this binding's initialization."""
+    """Recover the direct cause of the target's latest failed write."""
     if stmt.target not in env:
         raise EvalError(f"unknown identifier '{stmt.target}'")
-    binding = env[stmt.target]
-    if isinstance(binding, Cell):
-        return
-
-    event_id = binding.cause_event_id
     context = _active_runtime.get()
-    event = context.get_event(event_id)
-    handler = next((h for h in stmt.handlers
-                    if h.failure_name == event.failure_id.value), None)
-    if handler is None:
-        return
-
-    context.run_handler(event_id, lambda: eval_block(handler.body, env, syms))
-    if isinstance(env[stmt.target], Cell):
-        context.resolve(event_id)
+    write = context.binding_write(stmt.target)
+    for event_id in write.cause_event_ids:
+        event = context.get_event(event_id)
+        if event.status is FailureStatus.RESOLVED:
+            continue
+        handler = next((h for h in stmt.handlers
+                        if h.failure_name == event.failure_id.value), None)
+        if handler is None:
+            continue
+        context.run_handler(event_id, lambda: eval_block(handler.body, env, syms))
+        if context.binding_write(stmt.target).successful_writes > write.successful_writes:
+            context.resolve(event_id)
 
 
 def record_incomplete(stmt, index, result):
@@ -177,14 +192,21 @@ def eval_binding_statement(stmt, env, syms, outer=None):
         cell = env[stmt.name]
         if not cell.mutable:
             raise EvalError(f"cannot assign to immutable binding '{stmt.name}'")
-        typ, mutable = cell.typ, cell.mutable
+        typ = instantiated_type(syms.binding_types[id(stmt)], env, syms)
+        mutable = cell.mutable
     result = eval_expr(stmt.expr, env, syms, outer)
     if isinstance(result.value_result, NoValue):
+        # NoValue short-circuits arguments/returns: the newest related event is
+        # the direct cause, not earlier pending from successful subexpressions.
+        _active_runtime.get().record_binding_write(stmt.name, (max(result.related_event_ids),))
         if isinstance(stmt, VarDecl):
             env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
         return result
-    value = widen_value(result.value_result.value, expression_type(stmt.expr, env, syms, outer), typ)
+    value = prepare_typed_value(
+        result.value_result.value, expression_type(stmt.expr, env, syms, outer), typ,
+        boundary="binding_write", implementation=stmt.name)
     env[stmt.name] = Cell(value=value, mutable=mutable, typ=typ)
+    _active_runtime.get().record_binding_write(stmt.name)
     return EvalResult(ProducedValue(None), result.related_event_ids)
 
 def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None) -> EvalResult:
@@ -203,7 +225,13 @@ def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[st
             raise EvalError(f"cannot read uninitialized binding '{expr.name}' "
                             f"(cause event IDs: {binding.related_event_ids})")
         if binding is not None:
-            return EvalResult(ProducedValue(binding.value))
+            value = binding.value
+            # Host-constructed unchecked ASTs retain their low-level semantics.
+            if id(expr) in syms.expression_types:
+                typ = expression_type(expr, env, syms, outer)
+                value = prepare_typed_value(value, typ, typ, boundary="value_read",
+                                            implementation=expr.name)
+            return EvalResult(ProducedValue(value))
         raise EvalError(f"unknown identifier '{expr.name}'")
 
     if isinstance(expr, CallExpr):
@@ -212,13 +240,6 @@ def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[st
     raise EvalError(f"unsupported expr node: {expr!r}")
 
 def expression_type(expr, env, syms, outer=None):
-    # Generic parameters are instantiated in Cells at the call boundary.
-    if isinstance(expr, IdentExpr):
-        cell = env.get(expr.name)
-        if cell is None and outer is not None:
-            cell = outer.get(expr.name)
-        if cell is not None:
-            return cell.typ
     return instantiated_type(syms.expression_types[id(expr)], env, syms)
 
 
@@ -254,15 +275,16 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
         local.call_frame_id = frame.call_id
         token = _statement_scope.set(fname)
         try:
+            return_source = TypeRef("Unit")
             try:
                 result = eval_block(fdecl.body, env=local, syms=syms, outer=caller_env)
             except ReturnSignal as rs:
-                result = rs.result
-                if isinstance(result.value_result, ProducedValue):
-                    result = EvalResult(ProducedValue(widen_value(result.value_result.value, rs.typ,
-                                                                 resolved.return_type)),
-                                        result.related_event_ids)
+                result, return_source = rs.result, rs.typ
                 # Reaching return ends the function even when no value was produced.
+            if isinstance(result.value_result, ProducedValue):
+                result = EvalResult(ProducedValue(prepare_typed_value(
+                    result.value_result.value, return_source, resolved.return_type,
+                    boundary="function_return", implementation=fname)), result.related_event_ids)
             ids = tuple(dict.fromkeys((*result.related_event_ids,
                                        *context.unresolved_pending(frame.call_id))))
             context.validate_function_exit(frame.call_id)
@@ -293,8 +315,9 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         if isinstance(result.value_result, NoValue):
             return result
         v = result.value_result.value
-        if not isinstance(v, ThunkValue):
-            raise EvalError("force expects Thunk")
+        thunk_type = expression_type(expr.args[0].expr, env, syms, outer)
+        v = prepare_typed_value(v, thunk_type, thunk_type,
+                                boundary="force_argument", implementation="force")
         context = _active_runtime.get()
         first_event_id = context.next_event_id
         forced = eval_expr(v.expr, v.env, syms, v.outer)
@@ -314,6 +337,15 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                         violating_function_or_builtin="force",
                         declared_contract=contract, boundary_kind="thunk",
                         event_id=event_id)
+        if isinstance(forced.value_result, ProducedValue):
+            try:
+                validate_runtime_value(
+                    forced.value_result.value, expression_type(expr, env, syms, outer),
+                    implementation="force", call_id=context.current_call_id,
+                    boundary_kind="thunk")
+            except ValueContractViolation as violation:
+                context.last_value_contract_violation = violation
+                raise
         return EvalResult(forced.value_result, tuple(dict.fromkeys(
             (*result.related_event_ids, *forced.related_event_ids))))
 
@@ -343,7 +375,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         selected_type = resolved.type_bindings[requirement.type_var]
         resolved = replace(resolved, implementation=syms.impls.get(
             (type_identity_key(selected_type), resolved.deferred_guarantee, resolved.deferred_method)))
-    args = [widen_value(value, actual, parameter)
+    args = [prepare_typed_value(value, actual, parameter,
+                                boundary="call_argument", implementation=expr.callee)
             for value, actual, parameter in zip(args, actual_types, resolved.parameter_types)]
 
     if expr.callee in syms.funcs:
@@ -358,7 +391,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                                        resolved.implementation,
                                        direct_builtin=sig.builtin is not None)
     context = _active_runtime.get()
-    result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id)
+    result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id,
+                            return_type=resolved.return_type, parameter_types=resolved.parameter_types)
     return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
 
 

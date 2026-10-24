@@ -1,0 +1,19 @@
+// Purpose:
+// signature identity に widening を適用しない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_guarantee_method_signature.py::test_widening_is_not_signature_identity
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// parameter type mismatch
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+guarantee G { op(self: Self, other: Float) -> Self }
+sig op(T,Int) -> T { require T guarantees G }

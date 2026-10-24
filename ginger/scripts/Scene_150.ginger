@@ -1,0 +1,24 @@
+// Purpose:
+// Thunk 内 builtin alias の契約違反も fatal
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_execution_result.py::test_builtin_violation_preserves_environment_and_stops
+// tests/test_execution_result.py::test_cli_diagnostics_and_exit_codes
+// tests/test_failure_contract.py::test_custom_builtin_declarations_are_still_trusted
+// tests/test_float_finite.py::test_direct_alias_does_not_inherit_implementation_contract
+// tests/test_return_force_runtime.py::test_force_builtin_violation_and_python_error
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// FailureContractViolation
+// Failure contract violation
+// Expected completion: stops at FailureContractViolation
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig raw(Float,Float) -> Float { builtin core.float.div }
+var t: Thunk[Float]<Never> = thunk(raw(1.0,0.0))
+print(force(t))
+print(99)

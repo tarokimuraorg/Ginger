@@ -69,13 +69,15 @@ def tokenize(src: str) -> List[Token]:
         # number: Int, Int64, or Float
         # rule:
         #   - default Int; integer suffix 'i64' selects Int64
-        #   - if '.' appears, it must be followed by at least one digit => Float
+        #   - digits exponent or digits '.' digits exponent? => Float
+        #   - exponent: ('e' | 'E') ('+' | '-')? digits
         #   - disallow "1." (enforce "1.0" style)
         if c.isdigit():
             start = i
             while peek().isdigit():
                 i += 1
 
+            kind = "INT"
             if peek() == ".":
                 # enforce at least one digit after '.'
                 if not peek(1).isdigit():
@@ -87,12 +89,24 @@ def tokenize(src: str) -> List[Token]:
                 i += 1  # consume '.'
                 while peek().isdigit():
                     i += 1
+                kind = "FLOAT"
+
+            if peek() in ("e", "E"):
+                i += 1
+                if peek() in ("+", "-"):
+                    i += 1
+                if not peek().isdigit():
+                    raise SyntaxError(f"Float exponent requires digits at {start}")
+                while peek().isdigit():
+                    i += 1
+                kind = "FLOAT"
+
+            if kind == "FLOAT":
                 if src.startswith("i64", i):
                     raise SyntaxError(f"i64 suffix requires an integer literal at {start}")
                 toks.append(Token("FLOAT", src[start:i], start))
                 continue
 
-            kind = "INT"
             if src.startswith("i64", i):
                 i += 3
                 kind = "INT64"

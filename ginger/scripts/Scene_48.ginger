@@ -1,0 +1,39 @@
+// Purpose:
+// generic dispatch を捕捉する Thunk と transitive conditional failure
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_generic_force_thunk_preserves_symbolic_and_runtime_contracts
+// tests/test_conditional_failures.py::test_nested_generic_condition_substitutes_u_to_t
+// tests/test_float_finite.py::test_nested_generic_thunk_overflow_keeps_concrete_frame_contracts
+// tests/test_function_locals.py::test_local_thunk_latent_failure_and_function_contract
+// tests/test_generic_guarantees.py::test_nested_generic_substitution_and_frame_bindings
+// tests/test_generic_guarantees.py::test_thunk_captures_generic_dispatch_binding
+// tests/test_thunk_contract.py::test_functions_and_transitive_validation
+// Expected stdout (ordered):
+// 3
+// 3.0
+// 7
+// 8.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {FloatOverflow, IntegerOverflow} x 2
+// Expected normal failure:
+// IntegerOverflow: resolved x 1
+// FloatOverflow: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow> { require T guarantees Addable }
+func delayed(a: T,b: T) { return thunk(a + b) }
+print(force(delayed(1,2)))
+print(force(delayed(1.0,2.0)))
+sig inner(U,U) -> U { require U guarantees Addable failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic }
+func inner(a: U,b: U) { return force(thunk(add(a,b))) }
+sig outer(T,T) -> T { require T guarantees Addable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic }
+func outer(a: T,b: T) { return inner(a,b) }
+var i: Int = outer(9007199254740991,1)
+resolve i { IntegerOverflow { i = 7 } }
+var f: Float = outer(179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0,179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0)
+resolve f { FloatOverflow { f = 8 } }
+print(i)
+print(f)

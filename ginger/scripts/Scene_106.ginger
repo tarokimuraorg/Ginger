@@ -1,0 +1,19 @@
+// Purpose:
+// 無条件 effect を条件付き宣言だけで覆わない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_conditional_declaration_cannot_cover_unconditional_inferred_failure
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// undeclared failures
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig risky(T) -> Float { failure DivideByZero when T guarantees BoundedArithmetic failure FloatOverflow }
+func risky(x: T) { return div(1.0,0.0) }

@@ -84,7 +84,7 @@ class UninitializedReadTests(unittest.TestCase):
         add = Mock(return_value=2.0)
         with patch('ginger.eval.eval_block', side_effect=observe), patch.dict(BUILTINS, {'core.float.add': add}):
             env, context = self.stopped(
-                'sig f(Float) -> Float { failure DivideByZero }\n'
+                'sig f(Float) -> Float { failure DivideByZero failure FloatOverflow }\n'
                 'func f(x: Float) { var a: Float = div(x,0.0)\n'
                 'var b: Float = add(a,1.0)\nreturn b }\n'
                 'var result: Float = f(1.0)\nprint(999)')

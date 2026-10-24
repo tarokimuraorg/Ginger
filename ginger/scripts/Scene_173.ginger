@@ -1,0 +1,20 @@
+// Callee failure, then argument failure: both binding writes recover.
+// Expected stdout: 0.0, 1.0; no warnings; both events resolved.
+failureset CalculationFailure { DivideByZero FloatOverflow IOErr }
+sig calculate(Float, Float) -> Float { failure CalculationFailure }
+func calculate(a: Float, b: Float) { return div(a, b) }
+var result: Float = calculate(1, 0)
+resolve result {
+    DivideByZero { result = 0 }
+    FloatOverflow { result = 1 }
+    IOErr { result = 2 }
+}
+print(result)
+let x: Float = 1e308
+result = calculate(mul(x, x), 1)
+resolve result {
+    DivideByZero { result = 0 }
+    FloatOverflow { result = 1 }
+    IOErr { result = 2 }
+}
+print(result)

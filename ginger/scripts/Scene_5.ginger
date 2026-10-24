@@ -1,25 +1,71 @@
+// Purpose:
+// failureset を使った関数契約と resolve
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_resolve_preserves_builtin_event_history
+// tests/test_failureset.py::test_function_and_thunk_contract_equivalence
+// tests/test_failureset.py::test_parser_and_lowering
+// tests/test_failureset.py::test_resolve_only_individual_ids
+// tests/test_failureset.py::test_upper_bound_and_call_propagation
+// tests/test_unary_minus.py::test_all_sample_baselines
+// Expected stdout (ordered):
+// 0.0
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// DivideByZero: resolved x 1
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
 failureset CalculationFailure {
     DivideByZero
+    FloatOverflow
     IOErr
 }
 
-sig calculate() -> Float {
+sig calculate(Float, Float) -> Float {
     failure CalculationFailure
 }
 
-func calculate() {
-    return div(1.0, 0.0)
+func calculate(a:Float,b:Float) {
+    return div(a, b)
 }
 
-var result: Float = calculate()
+// 引数を指定していないためエラー
+//var result: Float = calculate()
+
+var result: Float = calculate(1,0)
 
 resolve result {
-    
+
     DivideByZero {
         result = 0
     }
-    IOErr {
+    FloatOverflow {
         result = 1
+    }
+    IOErr {
+        result = 2
+    }
+}
+
+print(result)
+
+let x: Float = 1e308
+
+result = calculate(mul(x,x),1)
+
+resolve result {
+
+    DivideByZero {
+        result = 0
+    }
+    FloatOverflow {
+        result = 1
+    }
+    IOErr {
+        result = 2
     }
 }
 

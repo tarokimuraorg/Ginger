@@ -1,0 +1,19 @@
+// Purpose:
+// failure condition に typegroup membership は使えない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_conditional_failures.py::test_only_guarantee_condition_syntax_allowed
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// Expected KW('guarantees') but got KW('in')
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+typegroup Numeric = Int | Float
+sig f(T) -> T { failure IntegerOverflow when T in Numeric }

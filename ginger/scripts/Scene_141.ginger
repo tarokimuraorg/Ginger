@@ -1,0 +1,22 @@
+// Purpose:
+// Thunk の result 型は invariant
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_bounded_integers.py::test_rejected_boundaries
+// tests/test_failure_contract.py::test_parameter_and_return_typerefs
+// tests/test_failure_contract.py::test_thunk_force_arity_and_expected_type
+// tests/test_numeric_widening.py::test_declarations_thunks_and_generics_remain_strict
+// tests/test_thunk_contract.py::test_result_types_remain_invariant
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// type mismatch
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+var t: Thunk[Float]<Never> = thunk(1)

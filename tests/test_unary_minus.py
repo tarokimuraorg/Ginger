@@ -120,38 +120,38 @@ class UnaryMinusTests(unittest.TestCase):
             with self.subTest(expr=expr):
                 program, diags = checked(FLOAT_IDENTITY + f'print(identity({expr}))')
                 self.assertEqual([d.message for d in diags],
-                                 ['unhandled failures: DivideByZero'])
+                                 ['unhandled failures: DivideByZero, FloatOverflow'])
                 _, context, stdout = recorded(program)
                 self.assertEqual(stdout, '')
                 self.assertEqual(context.failure_history[0].failure_id, FailureId.DivideByZero)
                 program, diags = checked(FLOAT_IDENTITY + f'var x: Float = identity({expr})\n'
                                          'resolve x { DivideByZero { x = 0\nprint(7) } }')
-                self.assertEqual(diags.items, [])
+                self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
                 self.assertEqual(output(program), '7\n')
 
     def test_function_failure_contract(self):
-        source = FLOAT_IDENTITY + ('sig risky() -> Float { failure DivideByZero }\n'
+        source = FLOAT_IDENTITY + ('sig risky() -> Float { failure DivideByZero failure FloatOverflow }\n'
                   'func risky() { return div(1.0, 0.0) }\n'
                   'sig f() -> Float { %s }\nfunc f() { return identity((-(risky()))) }\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
             checked(source % '')
-        program, diags = checked((source % 'failure DivideByZero') +
+        program, diags = checked((source % 'failure DivideByZero failure FloatOverflow') +
                                  'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint(8) } }')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '8\n')
 
     def test_thunk_preserves_latent_and_force_failures(self):
-        prefix = FLOAT_IDENTITY + 'var t: Thunk[Float]<DivideByZero> = thunk((-(div(1.0, 0.0))))\n'
+        prefix = FLOAT_IDENTITY + 'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk((-(div(1.0, 0.0))))\n'
         program, diags = checked(prefix)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
         program, diags = checked(prefix +
                                  'var x: Float = identity((-force(t)))\n'
                                  'resolve x { DivideByZero { x = 0\nprint(9) } }')
-        self.assertEqual(diags.items, [])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '9\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(prefix.replace('Thunk[Float]<DivideByZero>', 'Thunk[Float]<Never>'))
+            checked(prefix.replace('Thunk[Float]<DivideByZero, FloatOverflow>', 'Thunk[Float]<Never>'))
 
     def test_arithmetic_precedence_and_associativity(self):
         for expr, expected in [('(1 + 2 * 3)', '7'), ('((1 + 2) * 3)', '9'),
@@ -167,13 +167,13 @@ class UnaryMinusTests(unittest.TestCase):
 
     def test_all_sample_baselines(self):
         expected = {
-            'Scene_1': ('9\n4.5\n-9\n', ['unhandled failures: IntegerOverflow'] * 2
-                         + ['unhandled failures: DivideByZero']),
-            'Scene_2': ('2.0\n', []), 'Scene_3': ('-1\n0.0\n', []),
+            'Scene_1': ('3\n9\n4.5\n-9\n', ['unhandled failures: IntegerOverflow'] * 2
+                         + ['unhandled failures: DivideByZero, FloatOverflow']),
+            'Scene_2': ('2.0\n', []), 'Scene_3': ('-1\n0.0\n', ['unhandled failures: FloatOverflow']),
             'Scene_4': ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
-            'Scene_5': ('0.0\n', []),
+            'Scene_5': ('0.0\n1.0\n', []),
             'Scene_6': ('0.0\n5.0\n', []),
-            'Scene_7': ('-2\n-2\n3\n', ['unhandled failures: IntegerOverflow']),
+            'Scene_7': ('-2\n-2\n3\n3\n', ['unhandled failures: IntegerOverflow', 'unhandled failures: IntegerOverflow']),
         }
         root = Path(__file__).resolve().parents[1] / 'ginger' / 'scripts'
         for name, (stdout, warnings) in expected.items():

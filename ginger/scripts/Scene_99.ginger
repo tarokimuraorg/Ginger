@@ -1,0 +1,23 @@
+// Purpose:
+// sig/func の位置引数型は厳密一致
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_bounded_integers.py::test_rejected_boundaries
+// tests/test_call_inference.py::test_structural_matching_and_body_are_not_inference_sources
+// tests/test_failure_contract.py::test_parameter_order_structure_and_declaration_order
+// tests/test_numeric_widening.py::test_declarations_thunks_and_generics_remain_strict
+// tests/test_thunk_contract.py::test_parameter_bounds_and_exact_declarations
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// positional types
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f(Float) -> Unit {}
+func f(x: Int) {}

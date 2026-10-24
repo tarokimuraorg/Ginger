@@ -1,0 +1,36 @@
+// Purpose:
+// Int add/sub/mul の成功境界と両方向 overflow の回復
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_builtin_bridge.py::test_managed_arithmetic_shares_contract_but_alias_does_not_inherit_it
+// tests/test_builtin_bridge.py::test_success_goes_through_value_result
+// tests/test_conditional_failures.py::test_runtime_int_overflow_preserves_event_and_continuation
+// tests/test_integer_overflow.py::test_runtime_overflow_in_both_directions
+// tests/test_integer_overflow.py::test_success_boundaries_and_result_types
+// Expected stdout (ordered):
+// 9007199254740991
+// -9007199254740991
+// -9007199254740991
+// 10
+// 20
+// 30
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// UNHANDLED_FAILURES {IntegerOverflow} x 3
+// Expected normal failure:
+// IntegerOverflow: resolved x 3
+// Expected fatal:
+// none
+// Expected completion: normal; report_result returns 0
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+
+print(add(9007199254740991,0))
+print(sub((-9007199254740991),0))
+print(mul((-9007199254740991),1))
+var a: Int = add(9007199254740991,1)
+resolve a { IntegerOverflow { a = 10 } }
+var b: Int = sub((-9007199254740991),1)
+resolve b { IntegerOverflow { b = 20 } }
+var c: Int = mul(9007199254740991,(-2))
+resolve c { IntegerOverflow { c = 30 } }
+print(a)
+print(b)
+print(c)

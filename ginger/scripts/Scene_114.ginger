@@ -1,0 +1,19 @@
+// Purpose:
+// sig の Never と通常 failure の混在を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_failure_contract.py::test_source_declarations
+// tests/test_failureset.py::test_sig_never_and_duplicate_rules
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// cannot combine 'Never' with other failures
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f() -> Unit { failure Never failure IOErr }

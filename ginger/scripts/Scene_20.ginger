@@ -1,3 +1,21 @@
+// Purpose:
+// Thunk の Never と failure の混在を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_thunk_contract.py::test_invalid_contracts_in_all_positions
+// tests/test_thunk_syntax.py::test_never_mixing_duplicates_and_unknown_names
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// cannot combine 'Never' with other failures in Thunk
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
 sig bad(Thunk[Int]<Never, IntegerOverflow>) -> Int {
 }
 

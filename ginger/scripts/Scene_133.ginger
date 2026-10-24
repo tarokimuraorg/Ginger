@@ -1,0 +1,21 @@
+// Purpose:
+// resolve は関数 local 内では使えない
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_function_locals.py::test_required_annotations_and_unsupported_local_constructs
+// tests/test_resolve.py::test_function_resolve_is_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// SyntaxError
+// resolve is only allowed at top level
+// Expected completion: stops at SyntaxError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+sig f() -> Unit { failure IntegerOverflow }
+func f() { var x: Int = add(9007199254740991,1)
+resolve x { IntegerOverflow { x = 0 } } }

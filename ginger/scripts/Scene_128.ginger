@@ -1,0 +1,24 @@
+// Purpose:
+// Float arithmetic の IntegerOverflow handler を拒否
+// Based on tests (source-visible behavior; host/internal assertions remain unit tests):
+// tests/test_call_inference.py::test_integer_overflow_effect_and_resolve_eligibility
+// tests/test_conditional_failures.py::test_float_resolve_rejected_for_absent_conditional_effect
+// tests/test_failureset.py::test_resolve_only_individual_ids
+// tests/test_integer_overflow.py::test_direct_float_resolve_rejected_but_argument_effect_preserved
+// tests/test_integer_overflow.py::test_float_runtime_effect_and_resolve_eligibility
+// tests/test_resolve.py::test_ineligible_known_failure_is_rejected
+// Expected stdout (ordered):
+// (empty)
+// Expected warnings (static diagnostic count; braces are one diagnostic):
+// none
+// Expected normal failure:
+// none
+// Expected fatal:
+// TypecheckError
+// has no declared or inferred IntegerOverflow failure
+// Expected completion: stops at TypecheckError
+// Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// The public API raises this expected exception; subsequent source is not executed.
+
+var x: Float = add(1.0,2.0)
+resolve x { IntegerOverflow { x = 0 } }
