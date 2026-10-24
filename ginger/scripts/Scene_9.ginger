@@ -13,13 +13,28 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+//sig f(Float) -> Float {
+//    failure Never
+//}
+
 sig f(Float) -> Float {
-    failure Never
+    failure FloatOverflow
 }
 
 func f(x:Float) {
-    return x
+    return x*x
 }
 
-let x: Float = f(1)
+var x: Float = f(2)
+print(x)
+
+let a: Float = 1e308
+x = f(a)
+
+resolve x {
+    FloatOverflow {
+        x = 999
+    }
+}
+
 print(x)

@@ -46,5 +46,6 @@ print(overflow)
 var d: Int64 = 9007199254740992i64
 print(d)
 
+// Int64の四則演算は未実装
 //var e: Int64 = add(1i64,2i64)
 //print(e)
