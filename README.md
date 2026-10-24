@@ -55,7 +55,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
-| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
+| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
 
@@ -301,7 +301,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 関数本体全体がひとつのローカルスコープです。引数とローカル変数は同じ名前空間に属し、引数名や宣言済みローカル名の再宣言は禁止します。宣言は順番に処理し、型検査では initializer の検査後に binding を追加します。実行時は initializer が正常値を生成すれば Cell、宣言済み failure により NoValue になれば UninitializedBinding を追加します。宣言前参照や `var x: Int = x` は拒否します。呼び出しごとにローカル環境を作り、関数外や次の呼び出しへ binding は漏れません。
 
-同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 resolve・nested function・一般的な closure は追加していません。
+同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・nested function・一般的な closure は追加していません。
 
 ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は overflow による初期化失敗後、`return y` で未初期化値を要求するため EvalError で停止し、トップレベルの resolve には到達しません。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
 
@@ -426,7 +426,7 @@ integer の resolve は許可され、実際の overflow を回復できます�
 
 conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・typegroup 条件・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve は未対応です。handled による上限検証の保留は廃止しました。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で確実に回復する failure は合算から除外します。handled による上限検証の保留は廃止しました。
 
 標準 `div` は `DivideByZero` と `FloatOverflow` を無条件に宣言しています。`div(1.0,2.0)` も両方を持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -447,7 +447,7 @@ print(x)
 
 resolve の静的資格は対象 binding に対する最新の write（initializer または assignment）から宣言・推論した failure 集合で検査します。通常の再代入はこの集合を置き換え、他 binding への write や式文は変更しません。handler は条件付き実行なので、後続 resolve では未実行経路と各 handler の最後の write の集合を合算します。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、最新 write が failure を持たない var は拒否します。
 
-- resolve はトップレベルの statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。return、関数内 resolve、handler 内 resolve は許可しません。新しい block scope は作らず、実行された handler の宣言はトップレベル環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
+- resolve はトップレベルと関数内の statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。handler 内の return と resolve は許可しません。新しい block scope は作らず、実行された handler の宣言は実行中の binding 環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
 - latest write が success なら no-op です。過去の正常値が残っていても latest write が failed なら handler を実行できます。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
 - handler が `print(1)` などを正常に終えても、target への write が成功しなければ元 event は unresolved のままです。過去の正常値は保持され、その値を読む処理も継続できます。成功値が一度もなければ UninitializedBinding のままで、後続 read は fatal です。
 - handler の target への代入が新しい宣言済み failure で失敗し、回復できなければ元 event と新 event は両方 unresolved です。既存値は保持し、新しい失敗代入が latest write になります。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
@@ -521,6 +521,44 @@ incomplete statementには実際のユーザー関数call IDが記録されま�
 
 同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、returnの終了規則とThunk契約の統合はPhase 9で確定しました。
 
+## function local resolve
+
+`resolve <binding>` は top-level var と、同じ関数内で宣言済みの local var に使えます。
+let・parameter・未宣言 binding は対象にできず、関数から global binding を操作することもできません。
+handler 内の return と nested resolve は引き続き未対応です。
+
+```ginger
+sig safeAddOne(Int) -> Int {
+    failure Never
+}
+func safeAddOne(x: Int) {
+    var result: Int = add(x, 1)
+    resolve result {
+        IntegerOverflow {
+            result = 888
+        }
+    }
+    return result
+}
+```
+
+`safeAddOne(1)` は 2、`safeAddOne(9007199254740991)` は 888 です。
+内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure Never` にできます。
+local resolve は既存の BindingWrite と `(call ID, binding name)` を使い、top-level と同じ evaluator を通ります。
+初期化失敗は UninitializedBinding、再代入失敗は以前の値を保持し、最新 write の直接原因 event だけを回復します。
+反復呼び出し・caller/callee の同名 local は独立します。
+
+関数の outward contract は各 statement の failure 履歴を合算し、確実に回復する最新 write の
+matching FailureId だけを除去します。handler の最後の target write が failure-free と証明できることが必要です。
+handler が存在するだけ、print だけ、target write が失敗し得る場合は元 failure が残ります。
+handler 自身が生む failure、古い write の failure、無関係な pending event も残ります。
+conditional failure は既存の条件節を保持し、回復する FailureId の節だけを除去します。
+複数 handler 後に合流した write 履歴や、正常値と pending が共存し得る複数文の callee・由来不明の Thunk は
+保守的に契約へ残します。top-level の既存 warning coverage は変更していません。
+
+`tests/test_local_resolve.py` に local recovery・契約・call isolation・direct cause・Thunk・generic の回帰テストがあります。
+Scene 174 は initializer と Never、175 は再代入前の値保持、176 は最新 event のみの回復、177 は反復 call isolation を確認します。
+
 ## binding に基づく resolve runtime
 
 `resolve <binding>` が対象とするのは current value ではなく **latest write attempt** です。initializer と assignment を同じ write として扱います。
@@ -554,7 +592,7 @@ metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な Bin
 
 handler の新 event には `caused_by = 元 event ID` を設定します。target への代入が失敗した場合も latest write はその新しい失敗で置き換え、元の write には戻しません。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
 
-Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery と local resolve は未実装です。
+Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery は未実装です。
 
 手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler と既存値保持、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。Scene 38 の top-level / local の既存値保持も維持します。
 
@@ -638,13 +676,13 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 明示した require を generic 本体の能力証明に使用。型・guarantee・method による既存 impl dispatch を維持し、継承・associated types・overload は未対応 |
 | failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
-| resolve | トップレベルの var のみ。let・関数内・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
+| resolve | トップレベル／関数 local の var に対応。let・parameter・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |
 | 名前付き引数 | 構文解析は対応するが、通常の型検査・実行では拒否 |
 | スコープ | 関数外変数への参照は通常の型検査で拒否。評価器には外側環境を参照する処理が残る |
-| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。型注釈省略・nested block scope・関数内 resolve は未対応 |
+| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。local resolve に対応。型注釈省略・nested block scope は未対応 |
 | CLI | main がサンプル固定。入力パス指定の CLI は未実装 |
 | String・制御構文など | 文字列リテラル、条件分岐、ループ、ユーザー定義データ構造は未実装。String の実行時処理や builtin は一部存在する |
 

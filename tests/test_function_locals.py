@@ -107,7 +107,6 @@ class FunctionLocalTests(unittest.TestCase):
 
     def test_required_annotations_and_unsupported_local_constructs(self):
         for body in ['let x = 1', 'var x = 2.0',
-                     'var x: Int = add(1,2)\nresolve x { IntegerOverflow { x = 0 } }',
                      '{ let x: Int = 1 }',
                      'func nested() {}']:
             with self.subTest(body=body), self.assertRaises(SyntaxError):

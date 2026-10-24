@@ -242,10 +242,9 @@ class ResolveTests(unittest.TestCase):
             checked(OVERFLOW + 'resolve x { IntegerOverflow { print(div(1.0,0.0)) }\n'
                     'DivideByZero { x = 0 } }')
 
-    def test_function_resolve_is_rejected(self):
-        with self.assertRaises((SyntaxError, TypecheckError)):
-            checked('sig f() -> Unit { failure IntegerOverflow }\nfunc f() {\n' +
-                    OVERFLOW + 'resolve x { IntegerOverflow { x = 0 } }\n}')
+    def test_function_resolve_is_supported(self):
+        checked('sig f() -> Unit { failure Never }\nfunc f() {\n' +
+                OVERFLOW + 'resolve x { IntegerOverflow { x = 0 } }\n}')
 
     def test_handler_assignment_type_and_mutability_rules_still_apply(self):
         for body in ('x = 1.0', 'let y: Int = 1\ny = 2'):

@@ -58,6 +58,8 @@ def lower_block(b: BlockStmt) -> BlockStmt:
     
         if isinstance(st, ReturnStmt):
             out.append(ReturnStmt(expr=lower_expr(st.expr)))
+        elif isinstance(st, ResolveStmt):
+            out.append(lower_toplevel(st))
         elif isinstance(st, ExprStmt):
             out.append(ExprStmt(expr=lower_expr(st.expr)))
         elif isinstance(st, VarDecl):

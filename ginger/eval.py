@@ -400,6 +400,9 @@ def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[
     for index, st in enumerate(block.stmts):
         if isinstance(st, (VarDecl, AssignStmt)):
             result = eval_binding_statement(st, env, syms, outer)
+        elif isinstance(st, ResolveStmt):
+            eval_resolve_statement(st, env, syms)
+            continue
         elif isinstance(st, ReturnStmt):
             result = eval_expr(st.expr, env=env, syms=syms, outer=outer)
             record_incomplete(st, index, result)

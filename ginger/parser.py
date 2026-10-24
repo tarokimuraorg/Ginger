@@ -496,7 +496,10 @@ class Parser:
                 break
 
             if self.match("KW", "resolve"):
-                raise SyntaxError("resolve is only allowed at top level")
+                if not allow_return:
+                    raise SyntaxError("resolve is not allowed in resolve handler")
+                stmts.append(self.parse_resolve())
+                continue
 
             # return <expr>
             if self.match("KW", "return"):

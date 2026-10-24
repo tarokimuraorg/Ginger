@@ -1,0 +1,11 @@
+// Local initializer recovery; failure Never. Expected: 2, 888.
+sig safeAddOne(Int) -> Int { failure Never }
+func safeAddOne(x: Int) {
+    var result: Int = add(x, 1)
+    resolve result {
+        IntegerOverflow { result = 888 }
+    }
+    return result
+}
+print(safeAddOne(1))
+print(safeAddOne(9007199254740991))

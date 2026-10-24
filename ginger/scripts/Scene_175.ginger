@@ -1,0 +1,14 @@
+// Failed reassignment preserves 123, then recovers to 888. Expected: 123, 888.
+sig f(Int) -> Int { failure Never }
+func f(x: Int) {
+    var y: Int = 123
+    y = add(x, 1)
+    resolve y {
+        IntegerOverflow {
+            print(y)
+            y = 888
+        }
+    }
+    return y
+}
+print(f(9007199254740991))
