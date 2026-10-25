@@ -639,22 +639,29 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
     implementation = None
     deferred_guarantee = None
     deferred_method = None
+    comparison_projection = None
     if call.callee not in syms.funcs:
         implementation = sig.builtin
         if implementation is None:
             requirements = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
             if len(requirements) == 1:
                 requirement = requirements[0]
+                # Derived comparison APIs select the existing Ord.cmp impl;
+                # retain the projection for the same runtime builtin boundary.
+                method = sig.name
+                if requirement.guarantee_name == "Ord" and sig.name in {"balance", "slope", "gt"}:
+                    method = "cmp"
+                    comparison_projection = sig.name
                 selected_type = tmap[requirement.type_var]
                 if is_typevar(selected_type.name):
                     deferred_guarantee = requirement.guarantee_name
-                    deferred_method = sig.name
+                    deferred_method = method
                 else:
-                    implementation = syms.impls.get((type_identity_key(selected_type), requirement.guarantee_name, sig.name))
+                    implementation = syms.impls.get((type_identity_key(selected_type), requirement.guarantee_name, method))
         # Symbolic guarantee dispatch selects its implementation in the runtime
         # frame; every other non-user call needs a selected implementation now.
         if implementation is None and deferred_guarantee is None:
             raise TypecheckError(f"no implementation for function '{sig.name}'")
     syms.resolved_calls[id(call)] = ResolvedCall(
-        tmap, parameter_types, return_type, implementation, deferred_guarantee, deferred_method)
+        tmap, parameter_types, return_type, implementation, deferred_guarantee, deferred_method, comparison_projection)
     return return_type

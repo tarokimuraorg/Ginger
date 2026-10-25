@@ -37,6 +37,7 @@ class ResolvedCall:
     implementation: str | None
     deferred_guarantee: str | None = None
     deferred_method: str | None = None
+    comparison_projection: str | None = None
 
 
 @dataclass(frozen=True)

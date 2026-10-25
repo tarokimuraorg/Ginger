@@ -1,0 +1,15 @@
+// Comparison interpretations: raw ordering, balance, and left-to-right slope.
+print(cmp(2, 1))
+print(balance(2, 1))
+print(slope(2, 1))
+print(eq(2, 1))
+print(lt(2, 1))
+print(gt(2, 1))
+
+print(cmp(1, 1))
+print(balance(1, 1))
+print(slope(1, 1))
+
+print(cmp(1, 2))
+print(balance(1, 2))
+print(slope(1, 2))

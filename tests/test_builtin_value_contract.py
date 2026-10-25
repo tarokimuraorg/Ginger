@@ -110,6 +110,16 @@ class BuiltinValueContractTests(unittest.TestCase):
         self.rejects('Ordering', [['Ordering', 'Left'], None,
                                  TupleSubclass(('Ordering', 'Left'))], 'wrong_python_type')
 
+    def test_slope(self):
+        self.accepts('Slope', [('Slope', v) for v in ('Rising', 'Flat', 'Falling')])
+        self.rejects('Slope', [('Slope', v) for v in ('Left', 'Right', 'Unknown')], 'invalid_variant')
+        self.rejects('Slope', [('Ordering', 'Flat'), ('Slope',), ('Slope', 1),
+                              (StrSubclass('Slope'), 'Flat'),
+                              ('Slope', StrSubclass('Flat'))], 'invalid_shape')
+        self.rejects('Slope', [['Slope', 'Flat'], None, True,
+                              TupleSubclass(('Slope', 'Flat'))], 'wrong_python_type')
+        self.rejects('Ordering', [('Slope', 'Flat')], 'invalid_shape')
+
     def evaluate(self, source):
         return evaluator.eval_program(lower_program(parse(source)))
 

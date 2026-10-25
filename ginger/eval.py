@@ -392,7 +392,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                                        direct_builtin=sig.builtin is not None)
     context = _active_runtime.get()
     result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id,
-                            return_type=resolved.return_type, parameter_types=resolved.parameter_types)
+                            return_type=resolved.return_type, parameter_types=resolved.parameter_types,
+                            comparison_projection=resolved.comparison_projection)
     return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
 
 

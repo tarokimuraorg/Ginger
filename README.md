@@ -50,7 +50,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 |---|---|
 | `let` / `var` | 型注釈付きの変数宣言。再代入は `var` のみ |
 | Int / Float | 数値リテラル、加減乗算、Float 除算、`neg`、`toFloat` |
-| Bool / Ordering / Unit | 比較結果、出力、値を返さない処理 |
+| Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
@@ -82,7 +82,7 @@ Int は、すべての有効な値を binary64 Float へ整数精度を失わず
 
 3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[Int]<Never> → Thunk[Int64]<Never>` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
 
-Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / eq / lt）のみです。add / sub / mul / div は未対応です。
+Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / balance / slope / eq / lt / gt）のみです。add / sub / mul / div は未対応です。
 
 標準 Int の **add / sub / mul は結果を範囲検査**し、Int 範囲外なら `RaisedFailure(FailureId.IntegerOverflow)` を送出します。範囲外の結果を変数や関数の戻り値へ渡しません。Int64 への自動昇格・wraparound・clamp・saturation は行いません。戻り値型は常に Int です。neg は対称範囲内に収まるため IntegerOverflow を持ちません。
 
@@ -122,14 +122,14 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | Int / Int64 literal | 静的範囲検査 |
 | 標準 Int add / sub / mul | 範囲内の Int を返すか IntegerOverflow を送出 |
 | Int / Int64 neg | 有効入力では対称範囲内。failure なし |
-| その他の標準 builtin | div / toFloat は Float、cmp は Ordering、eq / lt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
+| その他の標準 builtin | div / toFloat は Float、cmp / balance は Ordering、slope は Slope、eq / lt / gt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
 | 変数・引数・return・Thunk | 具体的な静的 TypeRef により、read / argument / write / return / force の consumer 境界でも検証 |
 | 独自 builtin sig / impl | argument / return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
 | Python API の直接呼び出し | Cell / 外部 environment の注入などは全面検証しない |
 
 独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装を直接参照する alias も同様に、自身の FloatOverflow 宣言が必要です。
 
-builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
+builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
 Phase 3C では custom builtin の `Thunk[T]<F>` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
 
@@ -168,8 +168,43 @@ print(negative)
 - `neg(expr)` と `(-expr)` は実引数から型を推論します。`print(neg(1))` と `print((-1))` はどちらも `-1` を出力します。裸の単項マイナスは引き続き禁止です。
 - 除算は標準では Float 引数を要求します。`div(1, 2)` は両引数を Float に変換して実行します。
 - Bool 値は現在 `eq`・`lt` などから得ます。`true` / `false` のリテラルはありません。
-- `cmp(a, b)` は `a > b` で `Left`、等しければ `Flat`、`a < b` で `Right` を返します。
 - Unit の実行値は Python の `None` です。トップレベルの式文は Unit を要求しますが、関数本体では非 Unit の式文も通るという不一致が残っています。
+
+### Comparison API
+
+| API | 意味 | 戻り値 |
+| --- | --- | --- |
+| `cmp(a, b)` | raw comparison（低レベルの比較結果） | Ordering |
+| `balance(a, b)` | larger side（天秤上で大きい値がある側） | Ordering |
+| `slope(a, b)` | left-to-right change（左から右への値の変化） | Slope |
+| `eq(a, b)` | equality（等しいか） | Bool |
+| `lt(a, b)` | less-than（左辺が小さいか） | Bool |
+| `gt(a, b)` | greater-than（左辺が大きいか） | Bool |
+
+| API | a > b | a = b | a < b |
+| --- | --- | --- | --- |
+| cmp | Left | Flat | Right |
+| balance | Left | Flat | Right |
+| slope | Falling | Flat | Rising |
+| eq | false | true | false |
+| lt | false | false | true |
+| gt | true | false | false |
+
+`balance(2,1)` の `Left` は左が重いこと、`slope(2,1)` の `Falling` は左から右へ値が減ることを示します。
+同じ大小関係を異なる意味で表した結果です。`cmp` は既存 semantics を保ち、低レベルで中立的な comparison primitive として引き続き利用できます。
+
+`balance` / `slope` / `gt` は既存 `Ord.cmp` impl を共有し、追加 capability や method を要求しません。
+Int / Int64 / finite Float、および custom `Ord.cmp` impl と generic dispatch に対応します。
+既存の Int → Int64 / Float widening を維持し、Int64 ↔ Float 変換は追加しません。
+比較に subtraction は使わず、標準比較は `failure Never` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
+
+`Slope` は `Ordering` と別の nominal type で、相互の暗黙変換はありません。
+内部表現は `("Slope", "Rising" / "Flat" / "Falling")`。`("Ordering", "Flat")` とは型タグで区別します。
+variant の global constructor や namespace 構文はなく、print は両型の等値 variant を `Flat` と表示します。
+標準・custom builtin の Slope 戻り値は共通 Runtime Value Contract で exact tuple・型タグ・variant を検証し、不正値は fatal な `ValueContractViolation` になります。
+
+手動確認: `Scene_178.ginger` は基本 semantics、`Scene_179.ginger` は整数境界と Float / signed zero を示します。
+
 
 内部の型情報は、型名と再帰的な型引数を持つ `TypeRef` で表します。型引数の list / tuple 表現が混在していますが、構造比較はそのコンテナの違いを無視します。
 
@@ -210,6 +245,7 @@ ExecutionResult の環境は従来の mapping proxy に加え binding record の
 | Float | finite `float` |
 | Bool | exact `bool` |
 | Ordering | canonical tuple `("Ordering", "Left" / "Flat" / "Right")` |
+| Slope | canonical tuple `("Slope", "Rising" / "Flat" / "Falling")` |
 | Unit | `None` |
 | open-world type | raw opaque Python payload |
 | Thunk[T]<F> | opaque `ginger.extension.ThunkHandle` |
