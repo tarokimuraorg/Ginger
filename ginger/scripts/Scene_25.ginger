@@ -43,5 +43,53 @@ print(f)
 print(wide(i))
 print(real())
 print(toFloat(9007199254740991))
-//print(toFloat(-9007199254740991))
+print(toFloat(-9007199254740991))
 print(toFloat((-9007199254740991)))
+
+sig f(Float) -> Float {
+    failure DivideByZero
+    failure FloatOverflow
+}
+
+func f(x: Float) {
+    return -x
+}
+
+var a: Float = 1.0
+var b: Float = -1.0
+print(1-f(a))
+print(1-f(-a))
+
+print(-(a+b))
+
+//print(--a)
+//print(- -a)
+print(-(-a))
+
+//print(a + -b)
+print(a + (-b))
+
+//print(a - -b)
+print(a - (-b))
+
+//print(a * -b)
+print(a * (-b))
+
+//print(a / -b)
+print(a / (-b))
+
+print(cmp(0.0,-0.0))
+print(balance(-0.0,0.0))
+print(slope(0.0,-0.0))
+print(eq(0.0,-0.0))
+print(gt(-0.0,0.0))
+print(gt(0.0,-0.0))
+print(lt(-0.0,0.0))
+print(lt(0.0,-0.0))
+
+print(1e-3)
+print(-1e-3)
+//print(1e)
+//print(1e + (-3))
+//print(1e - 3)
+//print(1e * (-3))
