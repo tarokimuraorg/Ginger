@@ -31,7 +31,7 @@ class BoundedIntegerTests(unittest.TestCase):
 
     def test_syntax(self):
         self.assertEqual([t.kind for t in tokenize('123 123i64')], ['INT', 'INT64', 'EOF'])
-        for source in ['1.0i64', '1i64foo', '1i64_', '1 i64', '-1', '-1i64']:
+        for source in ['1.0i64', '1i64foo', '1i64_', '1 i64']:
             with self.subTest(source=source), self.assertRaises(SyntaxError):
                 checked(f'var x: Int64 = {source}')
         self.assertEqual(self.values('var x: Int64 = 001i64')['x'].value, 1)

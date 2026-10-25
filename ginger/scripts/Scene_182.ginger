@@ -1,0 +1,2 @@
+// Intentional SyntaxError: binary RHS requires parentheses around -1.
+var x: Int = (1 + -1)

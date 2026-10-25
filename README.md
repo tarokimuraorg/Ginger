@@ -36,7 +36,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 ```
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
-2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、括弧付き単項マイナスを `neg` の呼び出しへ変換します。
+2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、単項マイナスを `neg` の呼び出しへ変換します。
 3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding の latest write に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
@@ -69,7 +69,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Int64 | `-(2^63 - 1)` ～ `+(2^63 - 1)`（±9,223,372,036,854,775,807） |
 | Float | finite-only binary64。exact Python float かつ `math.isfinite(value)` |
 
-Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `(-1)` / `(-1i64)` と書き、裸の `-1` は引き続き無効です。
+Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `-1` / `-1i64` と書けます。既存の `(-1)` / `(-1i64)` も有効です。
 
 | 暗黙変換 | 許可 |
 |---|---|
@@ -88,7 +88,7 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 
 範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。`toFloat` にも FloatOverflow はありません。
 
-Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は既存どおり `(-1e3)` と書きます。`1e` / `1e+` / `1e-` は指数の数字が不足する syntax error です。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
+Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は `-1e3` と書けます。`1e-3` 内の `-` は unary minus ではなく exponent sign です。`-1e-3` は unary minus と FLOAT token `1e-3` に分かれます。`1e` / `1e+` / `1e-`（大文字 E も同様）は `Float exponent requires digits` で拒否します。`1e + (-3)` / `1e - 3` / `1e -3` / `1e + 3` も `1e` が不完全なので無効です。空白を除去したり identifier として再解釈したりしません。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
 
 `1e308` や `5e-324` は有限値として有効で、`1e-400` のように underflow で `0.0` になる literal も有効です。`1e400` は literal 自体が非有限になるため、実行前に `TypecheckError: Float literal must be finite` で拒否します。一方 `mul(1e308, 1e308)` は有限な入力の演算結果が overflow するため、runtime の FloatOverflow となり resolve で回復できます。
 
@@ -162,10 +162,13 @@ print(negative)
 
 - 中置演算は `a + b` のように使用できます。`*`・`/` は `+`・`-` より優先され、同じ優先順位では左から結合します。括弧で評価順序を指定できます。
 - `(x)` や `(f())` は通常の括弧式として使用できます。
-- 単項マイナスは `(-expr)` の形式で使用できます。括弧なしの `-expr` は使用できません。`1 - (-2)` は有効ですが、`1--2` や `1 - -2` は無効です。
-- 単項マイナスのオペランドに別の単項マイナスを直接指定する構文は提供しません。`(-(-x))` や `(-((-x)))` は無効です。二重否定には `neg(neg(x))` を使用してください。
-- 既存の `neg(expr)` も引き続き使用できます。`(-expr)` と型・評価・failure の扱いは同じです。標準では Int / Int64 / Float に対応します。
-- `neg(expr)` と `(-expr)` は実引数から型を推論します。`print(neg(1))` と `print((-1))` はどちらも `-1` を出力します。裸の単項マイナスは引き続き禁止です。
+- 単項マイナスは `-x`、`-f(x)`、`-(a + b)`、`-toFloat(x)` のように一般の operand に使用できます。initializer、assignment、return、関数引数 `f(-x)`、括弧式、式文の先頭から開始できます（式文の型制約は従来どおりです）。
+- `-x` は `neg(x)` と同じ call に lower され、型・Negatable guarantee・dispatch・failure contract・argument / return validation を共有します。`neg` は引き続き使用可能です。標準では Int / Int64 / Float に対応し、新しい数値型や算術処理はありません。operand の failure はそのまま伝播し、neg を実行しません。signed zero も既存 neg のままです。
+- unary minus は binary arithmetic より強く結合します。`-x * y` は `(-x) * y`、`-x + y` は `(-x) + y` です。
+- binary operator の RHS を bare unary minus で開始できません。`1 + -1` / `1 - -1` / `1 * -1` / `1 / -1` は無効です。`1 + (-1)` / `1 - (-1)` / `1 * (-1)` / `1 / (-1)` を使い、負値の expression boundary を括弧で明示します。変数でも同様で、`a+-b` / `a--b` / `a*-b` / `a/-b` は空白の有無にかかわらず無効です。`8.0 / (-2.0)` は `-4.0` になります。
+- `--x` / `- -x` は無効です。二重否定には `-(-x)` または `neg(neg(x))` を使います。
+- `print(-1)` と `print(neg(1))` はどちらも `-1` を出力し、`print(toFloat(-9007199254740991))` も有効です。
+- 手動確認: `Scene_180.ginger` は基本式と数値境界、`Scene_181.ginger` は neg 等価性・優先順位、`Scene_182.ginger` は意図的な binary RHS SyntaxError、`Scene_183.ginger` は exponent sign を確認します。
 - 除算は標準では Float 引数を要求します。`div(1, 2)` は両引数を Float に変換して実行します。
 - Bool 値は現在 `eq`・`lt` などから得ます。`true` / `false` のリテラルはありません。
 - Unit の実行値は Python の `None` です。トップレベルの式文は Unit を要求しますが、関数本体では非 Unit の式文も通るという不一致が残っています。

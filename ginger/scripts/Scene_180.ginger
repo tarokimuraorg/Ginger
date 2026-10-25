@@ -1,0 +1,8 @@
+var x: Int = 3
+print(-x)
+print(-1)
+print(-1i64)
+print(-1.5)
+print(-1e3)
+print(-(x + 2))
+print(toFloat(-9007199254740991))
