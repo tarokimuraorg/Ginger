@@ -157,7 +157,9 @@ class Parser:
             return self.parse_assign_stmt()
         
         # --- ExprStmt ---
-        if self.match("IDENT") and self.toks[self.i + 1].kind == "SYM" and self.toks[self.i + 1].text == "(":
+        if (self.match("SYM", "-") or self.match("SYM", "(")
+                or (self.match("IDENT") and self.toks[self.i + 1].kind == "SYM"
+                    and self.toks[self.i + 1].text == "(")):
             expr = self.parse_expr()
             return ExprStmt(expr=expr)
         
@@ -496,7 +498,10 @@ class Parser:
                 break
 
             if self.match("KW", "resolve"):
-                raise SyntaxError("resolve is only allowed at top level")
+                if not allow_return:
+                    raise SyntaxError("resolve is not allowed in resolve handler")
+                stmts.append(self.parse_resolve())
+                continue
 
             # return <expr>
             if self.match("KW", "return"):
@@ -537,18 +542,6 @@ class Parser:
 
     def parse_paren_expr(self) -> Expr:
         self.eat("SYM", "(")
-        if self.match("SYM", "-"):
-            minus = self.eat("SYM", "-")
-            operand = self.parse_expr()
-            self.eat("SYM", ")")
-            # Ordinary grouping returns its inner AST, so extra parentheses
-            # cannot hide a directly nested unary minus. Explicit neg is a call.
-            if isinstance(operand, UnaryMinusExpr):
-                raise SyntaxError(
-                    f"nested unary '-' is forbidden; use neg(neg(x)) at {minus.pos}"
-                )
-            return UnaryMinusExpr(operand)
-
         expr = self.parse_expr()
         self.eat("SYM", ")")
         return expr
@@ -561,6 +554,13 @@ class Parser:
             if prec < min_prec:
                 break
             self.eat("SYM", op)
+            # Every infix RHS shares this source boundary rule. Grouping
+            # and call arguments start fresh expressions inside parse_operand.
+            if self.match("SYM", "-"):
+                raise SyntaxError(
+                    f"bare unary '-' after binary operator is forbidden; "
+                    f"use (-expr) at {self.cur().pos}"
+                )
             right = self.parse_infix(min_prec=prec + 1)
             left = BinaryExpr(op=op, left=left, right=right)
         return left
@@ -569,12 +569,16 @@ class Parser:
 
         self.reject_removed_syntax()
         
-        # 裸の単項 '-' は operand にならない
+        # Prefix minus binds to one operand, tighter than every infix operator.
+        # Check tokens before grouping erases the explicit expression boundary.
         if self.match("SYM", "-"):
-            t = self.cur()
-            raise SyntaxError(f"bare unary '-' is forbidden; use (-expr) or neg(expr) at {t.pos}")
+            self.eat("SYM", "-")
+            if self.match("SYM", "-"):
+                raise SyntaxError(
+                    f"repeated bare unary '-' is forbidden; use -(-expr) at {self.cur().pos}"
+                )
+            return UnaryMinusExpr(self.parse_operand())
 
-        # 括弧式・括弧付き単項マイナスは operand として扱う
         if self.match("SYM", "("):
             return self.parse_paren_expr()
 

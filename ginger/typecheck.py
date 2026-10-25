@@ -138,6 +138,41 @@ def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], type_guarantees=None) 
 # Typechecking
 # =====================
 
+def resolve_failure_ids(item, env):
+    if item.target not in env:
+        raise TypecheckError(f"unknown identifier '{item.target}' in resolve")
+    binding = env[item.target]
+    if not binding.mutable:
+        raise TypecheckError(f"cannot resolve immutable binding '{item.target}'; target must be var")
+    if not binding.latest_write_failures:
+        raise TypecheckError(f"cannot resolve '{item.target}': latest write has no declared or inferred failures")
+    resolve_failures = set()
+    for handler in item.handlers:
+        try:
+            fid = FailureId(handler.failure_name)
+        except ValueError:
+            raise TypecheckError(f"unknown failure '{handler.failure_name}' in resolve") from None
+        if fid in resolve_failures:
+            raise TypecheckError(f"duplicate failure '{handler.failure_name}' in resolve")
+        if fid not in binding.latest_write_failures:
+            raise TypecheckError(
+                f"cannot resolve '{handler.failure_name}': latest write of '{item.target}' "
+                f"has no declared or inferred {handler.failure_name} failure"
+            )
+        resolve_failures.add(fid)
+    return resolve_failures
+
+
+def merge_latest_writes(env, latest, incoming_env, incoming_latest, branches):
+    """Join the unexecuted path and each handler's final write."""
+    for name, original in incoming_env.items():
+        env[name] = Binding(original.ty, original.mutable, union_failures(
+            original.latest_write_failures,
+            *(branch[name].latest_write_failures for branch, _ in branches)))
+        latest[name] = set(incoming_latest[name]).union(
+            *(writes[name] for _, writes in branches))
+
+
 def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Binding]:
 
     if syms is None:
@@ -158,27 +193,7 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
 
     for item in prog.items:
         if isinstance(item, ResolveStmt):
-            if item.target not in env:
-                raise TypecheckError(f"unknown identifier '{item.target}' in resolve")
-            binding = env[item.target]
-            if not binding.mutable:
-                raise TypecheckError(f"cannot resolve immutable binding '{item.target}'; target must be var")
-            if not binding.latest_write_failures:
-                raise TypecheckError(f"cannot resolve '{item.target}': latest write has no declared or inferred failures")
-            resolve_failures = set()
-            for handler in item.handlers:
-                try:
-                    fid = FailureId(handler.failure_name)
-                except ValueError:
-                    raise TypecheckError(f"unknown failure '{handler.failure_name}' in resolve") from None
-                if fid in resolve_failures:
-                    raise TypecheckError(f"duplicate failure '{handler.failure_name}' in resolve")
-                if fid not in binding.latest_write_failures:
-                    raise TypecheckError(
-                        f"cannot resolve '{handler.failure_name}': latest write of '{item.target}' "
-                        f"has no declared or inferred {handler.failure_name} failure"
-                    )
-                resolve_failures.add(fid)
+            resolve_failures = resolve_failure_ids(item, env)
             for index in latest_warnings[item.target]:
                 warning_effects[index] = warning_effects[index] - resolve_failures
             # Handlers are alternatives and may not execute. Retain the incoming
@@ -192,12 +207,7 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
                 for stmt in handler.body.stmts:
                     check_statement(stmt)
                 branches.append((env.copy(), latest_warnings.copy()))
-            for name, original in incoming_env.items():
-                env[name] = Binding(original.ty, original.mutable, union_failures(
-                    original.latest_write_failures,
-                    *(branch[name].latest_write_failures for branch, _ in branches)))
-                latest_warnings[name] = set(incoming_warnings[name]).union(
-                    *(warnings[name] for _, warnings in branches))
+            merge_latest_writes(env, latest_warnings, incoming_env, incoming_warnings, branches)
         elif isinstance(item, (VarDecl, AssignStmt, ExprStmt)):
             check_statement(item)
 
@@ -208,12 +218,12 @@ def typecheck_program(prog, diags: Diagnostics, *, syms=None) -> Dict[str, Bindi
     return env
 
 
-def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
+def typecheck_binding_or_expression(stmt, env, syms, tv_guars=None) -> FailureSet:
     """Check the existing statements shared by top level and resolve blocks."""
     if isinstance(stmt, VarDecl):
         if stmt.name in env:
             raise TypecheckError(f"variable '{stmt.name}' already defined")
-        type_expr(stmt.expr, expected=stmt.typ, env=env, syms=syms)
+        type_expr(stmt.expr, expected=stmt.typ, env=env, syms=syms, tv_guars=tv_guars)
         eff = effect_expr(stmt.expr, env=env, syms=syms)
         env[stmt.name] = Binding(stmt.typ, stmt.mutable, eff)
         return eff
@@ -224,12 +234,12 @@ def typecheck_binding_or_expression(stmt, env, syms) -> FailureSet:
         if not binding.mutable:
             raise TypecheckError(f"cannot assign to immutable binding '{stmt.name}'")
         syms.binding_types[id(stmt)] = binding.ty
-        type_expr(stmt.expr, expected=binding.ty, env=env, syms=syms)
+        type_expr(stmt.expr, expected=binding.ty, env=env, syms=syms, tv_guars=tv_guars)
         eff = effect_expr(stmt.expr, env=env, syms=syms)
         env[stmt.name] = Binding(binding.ty, binding.mutable, eff)
         return eff
     if isinstance(stmt, ExprStmt):
-        typ = type_expr(stmt.expr, expected=None, env=env, syms=syms)
+        typ = type_expr(stmt.expr, expected=None, env=env, syms=syms, tv_guars=tv_guars)
         if not same_type(typ, TypeRef("Unit")):
             raise TypecheckError(f"only Unit expression are allowed as statements, got '{typ}'")
         return effect_expr(stmt.expr, env=env, syms=syms)
@@ -265,32 +275,17 @@ def typecheck_func_bodies(syms) -> None:
         # ブロックを走査して return 型を集める
         ret_types: list[TypeRef] = []
 
-        for st in item.body.stmts:
-            if isinstance(st, VarDecl):
-                if st.name in fenv:
-                    raise TypecheckError(f"variable '{st.name}' already defined")
-                type_expr(st.expr, expected=st.typ, env=fenv, syms=syms, tv_guars=tv_guars)
-                # A declaration enters scope only after its initializer is checked.
-                fenv[st.name] = Binding(ty=st.typ, mutable=st.mutable)
-            elif isinstance(st, AssignStmt):
-                if st.name not in fenv:
-                    raise TypecheckError(f"unknown identifier '{st.name}'")
-                binding = fenv[st.name]
-                if not binding.mutable:
-                    raise TypecheckError(f"cannot assign to immutable binding '{st.name}'")
-                syms.binding_types[id(st)] = binding.ty
-                type_expr(st.expr, expected=binding.ty, env=fenv, syms=syms, tv_guars=tv_guars)
-            elif isinstance(st, ReturnStmt):
-                rt = type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
-                # Compare returns after boundary widening while retaining each
-                # expression's actual type annotation for runtime coercion.
+        def check_local(st, env):
+            if isinstance(st, ReturnStmt):
+                rt = type_expr(st.expr, expected=None, env=env, syms=syms, tv_guars=tv_guars)
                 ret_types.append(sig.ret if can_widen(rt, sig.ret) else rt)
             elif isinstance(st, ExprStmt):
-                type_expr(st.expr, expected=None, env=fenv, syms=syms, tv_guars=tv_guars)
+                type_expr(st.expr, expected=None, env=env, syms=syms, tv_guars=tv_guars)
             else:
-                # 他のstmtはまだfunc内で未対応
-                raise TypecheckError(f"unsupported statement in func '{item.name}': {st!r}")
-        
+                typecheck_binding_or_expression(st, env, syms, tv_guars=tv_guars)
+
+        analyze_local_statements(item.body.stmts, fenv, syms, check_local)
+
         # returnがない場合は Unit に相当するものを返す
         if not ret_types:
             if sig.ret.name != "Unit":
@@ -313,18 +308,110 @@ def typecheck_func_bodies(syms) -> None:
     typecheck_func_failures(syms)
 
 
+def may_leave_independent_pending(expr, syms, sources, visiting=frozenset()):
+    """A successful value can carry pending events unrelated to its write.
+
+    Return-only callees preserve direct causes. Without a path proof for a
+    multi-statement callee (or an opaque thunk), keep its contract conservative.
+    """
+    if not isinstance(expr, CallExpr) or expr.callee == "thunk":
+        return False
+    if expr.callee == "force":
+        arg = expr.args[0].expr
+        source = sources.get(arg.name) if isinstance(arg, IdentExpr) else arg
+        if not isinstance(source, CallExpr) or source.callee != "thunk":
+            return True
+        return may_leave_independent_pending(source.args[0].expr, syms, {}, visiting)
+    if any(may_leave_independent_pending(a.expr, syms, sources, visiting) for a in expr.args):
+        return True
+    if expr.callee in syms.funcs:
+        if expr.callee in visiting:
+            return True
+        body = syms.funcs[expr.callee].body.stmts
+        return (len(body) != 1 or not isinstance(body[0], ReturnStmt)
+                or may_leave_independent_pending(body[0].expr, syms, {}, visiting | {expr.callee}))
+    return False
+
+
+def analyze_local_statements(statements, env, syms, check=None):
+    """Retain statement history and merge incoming/handler latest-write paths.
+
+    Effects keep their symbolic clauses. Only a failure-free final target write
+    discharges its matching cause; handler effects and older writes survive.
+    The checking pass also visits unreachable statements for existing diagnostics.
+    """
+    effects = []
+    independent = []
+    sources = {}
+    latest = {name: set() for name in env}
+
+    def statement(st):
+        if check:
+            check(st, env)
+        contract = symbolic_effect_expr(st.expr, env, syms)
+        if isinstance(st, (VarDecl, AssignStmt)):
+            binding = env.get(st.name)
+            typ = st.typ if isinstance(st, VarDecl) else binding.ty
+            mutable = st.mutable if isinstance(st, VarDecl) else binding.mutable
+            env[st.name] = Binding(typ, mutable, contract.potential_failures())
+            latest[st.name] = {len(effects)}
+        independent.append(may_leave_independent_pending(st.expr, syms, sources))
+        if isinstance(st, (VarDecl, AssignStmt)):
+            sources[st.name] = st.expr
+        effects.append(contract)
+
+    for st in statements:
+        if not isinstance(st, ResolveStmt):
+            statement(st)
+            if isinstance(st, ReturnStmt) and not check:
+                break
+            continue
+        resolve_failure_ids(st, env)
+        incoming_env, incoming_latest = env.copy(), latest.copy()
+        incoming_sources = sources.copy()
+        branches = []
+        for handler in st.handlers:
+            sources.clear()
+            sources.update(incoming_sources)
+            env.clear()
+            env.update(incoming_env)
+            latest.clear()
+            latest.update(incoming_latest)
+            for child in handler.body.stmts:
+                statement(child)
+                if check and isinstance(child, ExprStmt):
+                    typ = syms.expression_types[id(child.expr)]
+                    if not same_type(typ, TypeRef("Unit")):
+                        raise TypecheckError(f"only Unit expression are allowed as statements, got '{typ}'")
+            # No target write is not recovery, even when the incoming path
+            # could have succeeded. Require a new, failure-free final write.
+            if (latest[st.target] != incoming_latest[st.target]
+                    and not env[st.target].latest_write_failures):
+                fid = FailureId(handler.failure_name)
+                # A merged latest write may be an older event on another path.
+                # Keep such histories conservatively until all paths prove it.
+                if len(incoming_latest[st.target]) == 1:
+                    for index in incoming_latest[st.target]:
+                        if independent[index]:
+                            continue
+                        old = effects[index]
+                        effects[index] = FailureContract(
+                            old.unconditional - {fid},
+                            frozenset(c for c in old.conditional if c.failure_id != fid))
+            branches.append((env.copy(), latest.copy()))
+        env.clear()
+        latest.clear()
+        merge_latest_writes(env, latest, incoming_env, incoming_latest, branches)
+        sources.clear()
+        sources.update({name: source for name, source in incoming_sources.items()
+                        if latest[name] == incoming_latest[name]})
+    return union_contracts(*effects)
+
+
 def typecheck_func_failures(syms) -> None:
     for fname, func in syms.funcs.items():
         env = {p.name: Binding(ty=p.typ, mutable=False) for p in func.params}
-        inferred_failures = FailureContract()
-        for stmt in func.body.stmts:
-            inferred_failures = union_contracts(
-                inferred_failures, symbolic_effect_expr(stmt.expr, env, syms)
-            )
-            if isinstance(stmt, VarDecl):
-                env[stmt.name] = Binding(ty=stmt.typ, mutable=stmt.mutable)
-            if isinstance(stmt, ReturnStmt):
-                break
+        inferred_failures = analyze_local_statements(func.body.stmts, env, syms)
         declared_failures = signature_contract(syms, fname)
         missing = uncovered_contract(inferred_failures, declared_failures)
         if missing.potential_failures():
@@ -552,22 +639,29 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
     implementation = None
     deferred_guarantee = None
     deferred_method = None
+    comparison_projection = None
     if call.callee not in syms.funcs:
         implementation = sig.builtin
         if implementation is None:
             requirements = [r for r in sig.requires if isinstance(r, RequireGuarantees)]
             if len(requirements) == 1:
                 requirement = requirements[0]
+                # Derived comparison APIs select the existing Ord.cmp impl;
+                # retain the projection for the same runtime builtin boundary.
+                method = sig.name
+                if requirement.guarantee_name == "Ord" and sig.name in {"balance", "slope", "gt"}:
+                    method = "cmp"
+                    comparison_projection = sig.name
                 selected_type = tmap[requirement.type_var]
                 if is_typevar(selected_type.name):
                     deferred_guarantee = requirement.guarantee_name
-                    deferred_method = sig.name
+                    deferred_method = method
                 else:
-                    implementation = syms.impls.get((type_identity_key(selected_type), requirement.guarantee_name, sig.name))
+                    implementation = syms.impls.get((type_identity_key(selected_type), requirement.guarantee_name, method))
         # Symbolic guarantee dispatch selects its implementation in the runtime
         # frame; every other non-user call needs a selected implementation now.
         if implementation is None and deferred_guarantee is None:
             raise TypecheckError(f"no implementation for function '{sig.name}'")
     syms.resolved_calls[id(call)] = ResolvedCall(
-        tmap, parameter_types, return_type, implementation, deferred_guarantee, deferred_method)
+        tmap, parameter_types, return_type, implementation, deferred_guarantee, deferred_method, comparison_projection)
     return return_type

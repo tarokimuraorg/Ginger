@@ -53,13 +53,15 @@ resolve c {
     }
 }
 
+// c が resolve されず、正常な値を持たないためエラー
+//print(c)
+
 resolve c {
     IntegerOverflow {
         c = 0
     }
 }
 
-//print(b)
 print(c)
 
 // 4. 同種failureを取り違えない
@@ -74,6 +76,7 @@ resolve x {
 
 print(x)
 
+// y でなく x に値を再代入
 resolve y {
     IntegerOverflow {
         x = 999
@@ -82,4 +85,5 @@ resolve y {
 
 print(x)
 
+//y は resolve されず、正常な値を持たないためエラー
 //print(y)

@@ -142,7 +142,7 @@ class GenericGuaranteeTests(unittest.TestCase):
             self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, IntegerOverflow'])
 
     def test_negatable_capability_and_unary_sugar(self):
-        for body in ['neg(x)', '(-x)']:
+        for body in ['neg(x)', '(-x)', '-x']:
             source = ('sig opposite(T) -> T { require T guarantees Negatable }\n'
                         f'func opposite(x: T) {{ return {body} }}\n')
             for typ, arg, expected in [('Int', '1', '-1\n'),
@@ -160,7 +160,7 @@ class GenericGuaranteeTests(unittest.TestCase):
                     self.assertEqual(output(program), expected)
 
     def test_missing_negatable_rejects_explicit_and_lowered_unary(self):
-        for body in ['neg(x)', '(-x)']:
+        for body in ['neg(x)', '(-x)', '-x']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'does not guarantee Negatable'):
                 checked('sig opposite(T) -> T {}\n'

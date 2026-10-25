@@ -58,7 +58,7 @@ print(x)
 //print(bad(1.2))
 
 // 5. Float には IntegerOverflow の resolve 資格がない（FloatOverflow は対象）。
-var y: Float = addTwo(1.0, 2.0)
+//var y: Float = addTwo(1.0, 2.0)
 
 //resolve y {
 //    IntegerOverflow {
@@ -66,4 +66,4 @@ var y: Float = addTwo(1.0, 2.0)
 //    }
 //}
 
-print(y)
+//print(y)

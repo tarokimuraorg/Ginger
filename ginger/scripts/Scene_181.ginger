@@ -1,0 +1,6 @@
+var x: Int = 2
+print(-x)
+print(neg(x))
+print(-x * 3)
+print(-(-x))
+print(8.0 / (-2.0))

@@ -392,7 +392,8 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                                        direct_builtin=sig.builtin is not None)
     context = _active_runtime.get()
     result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id,
-                            return_type=resolved.return_type, parameter_types=resolved.parameter_types)
+                            return_type=resolved.return_type, parameter_types=resolved.parameter_types,
+                            comparison_projection=resolved.comparison_projection)
     return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
 
 
@@ -400,6 +401,9 @@ def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[
     for index, st in enumerate(block.stmts):
         if isinstance(st, (VarDecl, AssignStmt)):
             result = eval_binding_statement(st, env, syms, outer)
+        elif isinstance(st, ResolveStmt):
+            eval_resolve_statement(st, env, syms)
+            continue
         elif isinstance(st, ReturnStmt):
             result = eval_expr(st.expr, env=env, syms=syms, outer=outer)
             record_incomplete(st, index, result)

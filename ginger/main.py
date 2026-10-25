@@ -18,7 +18,7 @@ def report_result(result) -> int:
 
 def main() -> int:
     root = Path(__file__).parent
-    scene_id = 11
+    scene_id = 25
     src = (root / f"scripts/Scene_{scene_id}.ginger").read_text(encoding="utf-8")
     return report_result(run(src))
 

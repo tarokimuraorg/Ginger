@@ -61,6 +61,11 @@ OrderingValue = Tuple[str, OrderingTag]     # ("Ordering", tag)
 def ordering(tag: OrderingTag) -> OrderingValue:
     return ("Ordering", tag)
 
+def _cmp_result(a, b):
+    # Numeric implementations share value comparison, not Ginger type inference.
+    return ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right")
+
+
 BUILTINS: Dict[str, BuiltinFn] = {
 
     "core.int.add":   lambda a, b: checked_int_result(a + b),
@@ -82,12 +87,13 @@ BUILTINS: Dict[str, BuiltinFn] = {
     "core.int.print":     lambda x: (print(x), None)[1],  # Unit は None 表現
     "core.float.print": lambda x: (print(x), None)[1],
     "core.string.print": lambda x: (print(x), None)[1],
+    "core.slope.print": lambda s: (print(s[1]), None)[1],
     "core.ordering.print": lambda o: (print(o[1]), None)[1],
     "core.bool.print": lambda x: (print(str(x).lower()), None)[1],
 
     # --- cmp (Ordering) ---
-    "core.int.cmp": lambda a, b: ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right"),
-    "core.float.cmp": lambda a, b: ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right"),
+    "core.int.cmp": _cmp_result,
+    "core.float.cmp": _cmp_result,
 
     # --- eq (via cmp) ---
     "core.int.eq":   lambda a, b: (_cmp_result(a, b)[1] == "Flat"),
@@ -106,6 +112,13 @@ def call_builtin(builtin_id: str, *args: Value) -> Value:
         raise KeyError(f"unknown builtin '{builtin_id}'") from e
     return fn(*args)
 
-def _cmp_result(a, b):
-    # Numeric implementations share value comparison, not Ginger type inference.
-    return ordering("Left") if a > b else ordering("Flat") if a == b else ordering("Right")
+
+def project_comparison(value: OrderingValue, projection: str) -> Value:
+    """Interpret a validated canonical Ord.cmp result without another call."""
+    if projection == "balance":
+        return value
+    if projection == "gt":
+        return value[1] == "Left"
+    if projection == "slope":
+        return ("Slope", {"Left": "Falling", "Flat": "Flat", "Right": "Rising"}[value[1]])
+    raise ValueError(f"unknown comparison projection: {projection}")

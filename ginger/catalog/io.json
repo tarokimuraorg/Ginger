@@ -37,6 +37,11 @@
             "methods": [{ "name": "print", "builtin": "core.float.print" }]
         },
         {
+            "type": { "ref": "Slope" },
+            "guarantee": "Printable",
+            "methods": [{ "name": "print", "builtin": "core.slope.print" }]
+        },
+        {
             "type": { "ref": "Ordering" },
             "guarantee": "Printable",
             "methods": [{ "name": "print", "builtin": "core.ordering.print" }]

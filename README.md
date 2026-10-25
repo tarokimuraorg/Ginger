@@ -36,7 +36,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 ```
 
 1. `parse`: 字句解析・構文解析を行い、AST（構文木）を生成します。
-2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、括弧付き単項マイナスを `neg` の呼び出しへ変換します。
+2. `lower`: 中置演算子式を `add`・`sub`・`mul`・`div`、単項マイナスを `neg` の呼び出しへ変換します。
 3. `typecheck`: 標準 JSON catalog とソースの宣言を基に、型・宣言の対応・制約、通常ユーザー関数の failure 上限契約、binding の latest write に基づく resolve 資格を検査し、後続 resolve を反映したトップレベルの未処理 failure を警告します。builtin の実装契約には後述の検証境界があります。
 4. `eval`: ユーザー定義関数や Python の builtin 実装で評価します。
 
@@ -50,12 +50,12 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 |---|---|
 | `let` / `var` | 型注釈付きの変数宣言。再代入は `var` のみ |
 | Int / Float | 数値リテラル、加減乗算、Float 除算、`neg`、`toFloat` |
-| Bool / Ordering / Unit | 比較結果、出力、値を返さない処理 |
+| Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
 | `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
-| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルの var のみ |
+| `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
 
@@ -69,7 +69,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Int64 | `-(2^63 - 1)` ～ `+(2^63 - 1)`（±9,223,372,036,854,775,807） |
 | Float | finite-only binary64。exact Python float かつ `math.isfinite(value)` |
 
-Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `(-1)` / `(-1i64)` と書き、裸の `-1` は引き続き無効です。
+Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `-1` / `-1i64` と書けます。既存の `(-1)` / `(-1i64)` も有効です。
 
 | 暗黙変換 | 許可 |
 |---|---|
@@ -82,13 +82,13 @@ Int は、すべての有効な値を binary64 Float へ整数精度を失わず
 
 3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[Int]<Never> → Thunk[Int64]<Never>` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
 
-Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / eq / lt）のみです。add / sub / mul / div は未対応です。
+Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / balance / slope / eq / lt / gt）のみです。add / sub / mul / div は未対応です。
 
 標準 Int の **add / sub / mul は結果を範囲検査**し、Int 範囲外なら `RaisedFailure(FailureId.IntegerOverflow)` を送出します。範囲外の結果を変数や関数の戻り値へ渡しません。Int64 への自動昇格・wraparound・clamp・saturation は行いません。戻り値型は常に Int です。neg は対称範囲内に収まるため IntegerOverflow を持ちません。
 
 範囲外リテラル（例: `9007199254740992`、`9223372036854775808i64`）は従来どおり静的エラーです。有効な入力から演算した結果の超過だけが runtime の IntegerOverflow になります。Int → Float / Int64 widening 自体に failure は追加しません。`toFloat` にも FloatOverflow はありません。
 
-Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は既存どおり `(-1e3)` と書きます。`1e` / `1e+` / `1e-` は指数の数字が不足する syntax error です。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
+Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は `-1e3` と書けます。`1e-3` 内の `-` は unary minus ではなく exponent sign です。`-1e-3` は unary minus と FLOAT token `1e-3` に分かれます。`1e` / `1e+` / `1e-`（大文字 E も同様）は `Float exponent requires digits` で拒否します。`1e + (-3)` / `1e - 3` / `1e -3` / `1e + 3` も `1e` が不完全なので無効です。空白を除去したり identifier として再解釈したりしません。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
 
 `1e308` や `5e-324` は有限値として有効で、`1e-400` のように underflow で `0.0` になる literal も有効です。`1e400` は literal 自体が非有限になるため、実行前に `TypecheckError: Float literal must be finite` で拒否します。一方 `mul(1e308, 1e308)` は有限な入力の演算結果が overflow するため、runtime の FloatOverflow となり resolve で回復できます。
 
@@ -122,14 +122,14 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | Int / Int64 literal | 静的範囲検査 |
 | 標準 Int add / sub / mul | 範囲内の Int を返すか IntegerOverflow を送出 |
 | Int / Int64 neg | 有効入力では対称範囲内。failure なし |
-| その他の標準 builtin | div / toFloat は Float、cmp は Ordering、eq / lt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
+| その他の標準 builtin | div / toFloat は Float、cmp / balance は Ordering、slope は Slope、eq / lt / gt は Bool、print は Unit。整数を新規生成する他の標準 builtin はない |
 | 変数・引数・return・Thunk | 具体的な静的 TypeRef により、read / argument / write / return / force の consumer 境界でも検証 |
 | 独自 builtin sig / impl | argument / return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
 | Python API の直接呼び出し | Cell / 外部 environment の注入などは全面検証しない |
 
 独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装を直接参照する alias も同様に、自身の FloatOverflow 宣言が必要です。
 
-builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
+builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
 Phase 3C では custom builtin の `Thunk[T]<F>` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
 
@@ -162,14 +162,52 @@ print(negative)
 
 - 中置演算は `a + b` のように使用できます。`*`・`/` は `+`・`-` より優先され、同じ優先順位では左から結合します。括弧で評価順序を指定できます。
 - `(x)` や `(f())` は通常の括弧式として使用できます。
-- 単項マイナスは `(-expr)` の形式で使用できます。括弧なしの `-expr` は使用できません。`1 - (-2)` は有効ですが、`1--2` や `1 - -2` は無効です。
-- 単項マイナスのオペランドに別の単項マイナスを直接指定する構文は提供しません。`(-(-x))` や `(-((-x)))` は無効です。二重否定には `neg(neg(x))` を使用してください。
-- 既存の `neg(expr)` も引き続き使用できます。`(-expr)` と型・評価・failure の扱いは同じです。標準では Int / Int64 / Float に対応します。
-- `neg(expr)` と `(-expr)` は実引数から型を推論します。`print(neg(1))` と `print((-1))` はどちらも `-1` を出力します。裸の単項マイナスは引き続き禁止です。
+- 単項マイナスは `-x`、`-f(x)`、`-(a + b)`、`-toFloat(x)` のように一般の operand に使用できます。initializer、assignment、return、関数引数 `f(-x)`、括弧式、式文の先頭から開始できます（式文の型制約は従来どおりです）。
+- `-x` は `neg(x)` と同じ call に lower され、型・Negatable guarantee・dispatch・failure contract・argument / return validation を共有します。`neg` は引き続き使用可能です。標準では Int / Int64 / Float に対応し、新しい数値型や算術処理はありません。operand の failure はそのまま伝播し、neg を実行しません。signed zero も既存 neg のままです。
+- unary minus は binary arithmetic より強く結合します。`-x * y` は `(-x) * y`、`-x + y` は `(-x) + y` です。
+- binary operator の RHS を bare unary minus で開始できません。`1 + -1` / `1 - -1` / `1 * -1` / `1 / -1` は無効です。`1 + (-1)` / `1 - (-1)` / `1 * (-1)` / `1 / (-1)` を使い、負値の expression boundary を括弧で明示します。変数でも同様で、`a+-b` / `a--b` / `a*-b` / `a/-b` は空白の有無にかかわらず無効です。`8.0 / (-2.0)` は `-4.0` になります。
+- `--x` / `- -x` は無効です。二重否定には `-(-x)` または `neg(neg(x))` を使います。
+- `print(-1)` と `print(neg(1))` はどちらも `-1` を出力し、`print(toFloat(-9007199254740991))` も有効です。
+- 手動確認: `Scene_180.ginger` は基本式と数値境界、`Scene_181.ginger` は neg 等価性・優先順位、`Scene_182.ginger` は意図的な binary RHS SyntaxError、`Scene_183.ginger` は exponent sign を確認します。
 - 除算は標準では Float 引数を要求します。`div(1, 2)` は両引数を Float に変換して実行します。
 - Bool 値は現在 `eq`・`lt` などから得ます。`true` / `false` のリテラルはありません。
-- `cmp(a, b)` は `a > b` で `Left`、等しければ `Flat`、`a < b` で `Right` を返します。
 - Unit の実行値は Python の `None` です。トップレベルの式文は Unit を要求しますが、関数本体では非 Unit の式文も通るという不一致が残っています。
+
+### Comparison API
+
+| API | 意味 | 戻り値 |
+| --- | --- | --- |
+| `cmp(a, b)` | raw comparison（低レベルの比較結果） | Ordering |
+| `balance(a, b)` | larger side（天秤上で大きい値がある側） | Ordering |
+| `slope(a, b)` | left-to-right change（左から右への値の変化） | Slope |
+| `eq(a, b)` | equality（等しいか） | Bool |
+| `lt(a, b)` | less-than（左辺が小さいか） | Bool |
+| `gt(a, b)` | greater-than（左辺が大きいか） | Bool |
+
+| API | a > b | a = b | a < b |
+| --- | --- | --- | --- |
+| cmp | Left | Flat | Right |
+| balance | Left | Flat | Right |
+| slope | Falling | Flat | Rising |
+| eq | false | true | false |
+| lt | false | false | true |
+| gt | true | false | false |
+
+`balance(2,1)` の `Left` は左が重いこと、`slope(2,1)` の `Falling` は左から右へ値が減ることを示します。
+同じ大小関係を異なる意味で表した結果です。`cmp` は既存 semantics を保ち、低レベルで中立的な comparison primitive として引き続き利用できます。
+
+`balance` / `slope` / `gt` は既存 `Ord.cmp` impl を共有し、追加 capability や method を要求しません。
+Int / Int64 / finite Float、および custom `Ord.cmp` impl と generic dispatch に対応します。
+既存の Int → Int64 / Float widening を維持し、Int64 ↔ Float 変換は追加しません。
+比較に subtraction は使わず、標準比較は `failure Never` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
+
+`Slope` は `Ordering` と別の nominal type で、相互の暗黙変換はありません。
+内部表現は `("Slope", "Rising" / "Flat" / "Falling")`。`("Ordering", "Flat")` とは型タグで区別します。
+variant の global constructor や namespace 構文はなく、print は両型の等値 variant を `Flat` と表示します。
+標準・custom builtin の Slope 戻り値は共通 Runtime Value Contract で exact tuple・型タグ・variant を検証し、不正値は fatal な `ValueContractViolation` になります。
+
+手動確認: `Scene_178.ginger` は基本 semantics、`Scene_179.ginger` は整数境界と Float / signed zero を示します。
+
 
 内部の型情報は、型名と再帰的な型引数を持つ `TypeRef` で表します。型引数の list / tuple 表現が混在していますが、構造比較はそのコンテナの違いを無視します。
 
@@ -210,6 +248,7 @@ ExecutionResult の環境は従来の mapping proxy に加え binding record の
 | Float | finite `float` |
 | Bool | exact `bool` |
 | Ordering | canonical tuple `("Ordering", "Left" / "Flat" / "Right")` |
+| Slope | canonical tuple `("Slope", "Rising" / "Flat" / "Falling")` |
 | Unit | `None` |
 | open-world type | raw opaque Python payload |
 | Thunk[T]<F> | opaque `ginger.extension.ThunkHandle` |
@@ -301,7 +340,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 関数本体全体がひとつのローカルスコープです。引数とローカル変数は同じ名前空間に属し、引数名や宣言済みローカル名の再宣言は禁止します。宣言は順番に処理し、型検査では initializer の検査後に binding を追加します。実行時は initializer が正常値を生成すれば Cell、宣言済み failure により NoValue になれば UninitializedBinding を追加します。宣言前参照や `var x: Int = x` は拒否します。呼び出しごとにローカル環境を作り、関数外や次の呼び出しへ binding は漏れません。
 
-同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・関数内 resolve・nested function・一般的な closure は追加していません。
+同名のグローバル変数をローカル変数で shadow できますが、グローバル binding 自体は変更しません。既存の名前解決に従い、関数からのグローバル変数の読み取り・代入は型検査で拒否します。そのため同名グローバルがあっても `var x: Int = x` は拒否します。nested block scope・nested function・一般的な closure は追加していません。
 
 ローカル宣言では initializer の call を実引数から推論した後、宣言型との compatibility を検査します。次の例は overflow による初期化失敗後、`return y` で未初期化値を要求するため EvalError で停止し、トップレベルの resolve には到達しません。initializer / assignment の failure は既存の関数 failure 上限検査へ合算します。initializer が宣言済み failure で失敗した変数は値を持たない未初期化 binding とし、再代入が失敗した場合は以前の値を維持します。
 
@@ -426,7 +465,7 @@ integer の resolve は許可され、実際の overflow を回復できます�
 
 conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・typegroup 条件・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve は未対応です。handled による上限検証の保留は廃止しました。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で確実に回復する failure は合算から除外します。handled による上限検証の保留は廃止しました。
 
 標準 `div` は `DivideByZero` と `FloatOverflow` を無条件に宣言しています。`div(1.0,2.0)` も両方を持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -447,7 +486,7 @@ print(x)
 
 resolve の静的資格は対象 binding に対する最新の write（initializer または assignment）から宣言・推論した failure 集合で検査します。通常の再代入はこの集合を置き換え、他 binding への write や式文は変更しません。handler は条件付き実行なので、後続 resolve では未実行経路と各 handler の最後の write の集合を合算します。同一 resolve 内の重複 FailureId、集合外の既知 FailureId、未知名、Never、failureset 名は拒否します。対象は resolve より前に宣言された var に限り、let、未宣言 binding、最新 write が failure を持たない var は拒否します。
 
-- resolve はトップレベルの statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。return、関数内 resolve、handler 内 resolve は許可しません。新しい block scope は作らず、実行された handler の宣言はトップレベル環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
+- resolve はトップレベルと関数内の statement です。handler body は既存の statement block を使い、宣言・var 再代入・Unit の式文を書けます。handler 内の return と resolve は許可しません。新しい block scope は作らず、実行された handler の宣言は実行中の binding 環境に追加されます。handler が選択されなければ宣言も実行されず、その binding は作られません。handler 宣言の実行有無を追跡する静的な初期化解析は導入していません。
 - latest write が success なら no-op です。過去の正常値が残っていても latest write が failed なら handler を実行できます。他の unresolved event を検索しません。原因 FailureId に一致する handler がない場合も何もしません。
 - handler が `print(1)` などを正常に終えても、target への write が成功しなければ元 event は unresolved のままです。過去の正常値は保持され、その値を読む処理も継続できます。成功値が一度もなければ UninitializedBinding のままで、後続 read は fatal です。
 - handler の target への代入が新しい宣言済み failure で失敗し、回復できなければ元 event と新 event は両方 unresolved です。既存値は保持し、新しい失敗代入が latest write になります。新 event の `caused_by` は元 event ID になります。元 event を handler の実行だけで resolved にはしません。
@@ -521,6 +560,44 @@ incomplete statementには実際のユーザー関数call IDが記録されま�
 
 同関数の反復呼び出し・再帰も呼び出し単位で区別します。テストの再帰は条件分岐のない現構文に合わせ、host builtinが3回目でfatalエラーを出す有限の実行でframe分離とcleanupを検証しています。FailureContractViolation導入はPhase 7、公開ExecutionResultはPhase 8、returnの終了規則とThunk契約の統合はPhase 9で確定しました。
 
+## function local resolve
+
+`resolve <binding>` は top-level var と、同じ関数内で宣言済みの local var に使えます。
+let・parameter・未宣言 binding は対象にできず、関数から global binding を操作することもできません。
+handler 内の return と nested resolve は引き続き未対応です。
+
+```ginger
+sig safeAddOne(Int) -> Int {
+    failure Never
+}
+func safeAddOne(x: Int) {
+    var result: Int = add(x, 1)
+    resolve result {
+        IntegerOverflow {
+            result = 888
+        }
+    }
+    return result
+}
+```
+
+`safeAddOne(1)` は 2、`safeAddOne(9007199254740991)` は 888 です。
+内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure Never` にできます。
+local resolve は既存の BindingWrite と `(call ID, binding name)` を使い、top-level と同じ evaluator を通ります。
+初期化失敗は UninitializedBinding、再代入失敗は以前の値を保持し、最新 write の直接原因 event だけを回復します。
+反復呼び出し・caller/callee の同名 local は独立します。
+
+関数の outward contract は各 statement の failure 履歴を合算し、確実に回復する最新 write の
+matching FailureId だけを除去します。handler の最後の target write が failure-free と証明できることが必要です。
+handler が存在するだけ、print だけ、target write が失敗し得る場合は元 failure が残ります。
+handler 自身が生む failure、古い write の failure、無関係な pending event も残ります。
+conditional failure は既存の条件節を保持し、回復する FailureId の節だけを除去します。
+複数 handler 後に合流した write 履歴や、正常値と pending が共存し得る複数文の callee・由来不明の Thunk は
+保守的に契約へ残します。top-level の既存 warning coverage は変更していません。
+
+`tests/test_local_resolve.py` に local recovery・契約・call isolation・direct cause・Thunk・generic の回帰テストがあります。
+Scene 174 は initializer と Never、175 は再代入前の値保持、176 は最新 event のみの回復、177 は反復 call isolation を確認します。
+
 ## binding に基づく resolve runtime
 
 `resolve <binding>` が対象とするのは current value ではなく **latest write attempt** です。initializer と assignment を同じ write として扱います。
@@ -554,7 +631,7 @@ metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な Bin
 
 handler の新 event には `caused_by = 元 event ID` を設定します。target への代入が失敗した場合も latest write はその新しい失敗で置き換え、元の write には戻しません。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
 
-Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery と local resolve は未実装です。
+Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery は未実装です。
 
 手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler と既存値保持、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。Scene 38 の top-level / local の既存値保持も維持します。
 
@@ -638,13 +715,13 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 明示した require を generic 本体の能力証明に使用。型・guarantee・method による既存 impl dispatch を維持し、継承・associated types・overload は未対応 |
 | failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
-| resolve | トップレベルの var のみ。let・関数内・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
+| resolve | トップレベル／関数 local の var に対応。let・parameter・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
 | Catalog とソース | 役割の強制や複数ファイルの読み込みはない |
 | 名前付き引数 | 構文解析は対応するが、通常の型検査・実行では拒否 |
 | スコープ | 関数外変数への参照は通常の型検査で拒否。評価器には外側環境を参照する処理が残る |
-| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。型注釈省略・nested block scope・関数内 resolve は未対応 |
+| 関数内ローカル変数 | 型注釈付き let / var と var 再代入に対応。local resolve に対応。型注釈省略・nested block scope は未対応 |
 | CLI | main がサンプル固定。入力パス指定の CLI は未実装 |
 | String・制御構文など | 文字列リテラル、条件分岐、ループ、ユーザー定義データ構造は未実装。String の実行時処理や builtin は一部存在する |
 

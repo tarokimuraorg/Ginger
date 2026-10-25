@@ -16,9 +16,20 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig bad(Thunk[Int]<Never, IntegerOverflow>) -> Int {
+//sig bad(Thunk[Int]<Never, IntegerOverflow>) -> Int {
+//}
+
+//func bad(t: Thunk[Int]<Never, IntegerOverflow>) {
+//    return force(t)
+//}
+
+sig f(Thunk[Int]<IntegerOverflow>) -> Int {
+    failure IntegerOverflow
 }
 
-func bad(t: Thunk[Int]<Never, IntegerOverflow>) {
+func f(t: Thunk[Int]<IntegerOverflow>) {
     return force(t)
 }
+
+var a: Thunk[Int]<IntegerOverflow> = thunk(3)
+print(f(a))

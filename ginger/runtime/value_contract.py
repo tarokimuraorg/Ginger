@@ -84,13 +84,14 @@ def validate_runtime_value(value, return_type: TypeRef, *, implementation, call_
             reason = 'wrong_python_type'
         elif return_type == TypeRef('Float') and not math.isfinite(value):
             reason = 'non_finite'
-    elif return_type == TypeRef('Ordering'):
+    elif return_type in (TypeRef('Ordering'), TypeRef('Slope')):
         if type(value) is not tuple:
             reason = 'wrong_python_type'
         elif (len(value) != 2 or type(value[0]) is not str or
-              type(value[1]) is not str or value[0] != 'Ordering'):
+              type(value[1]) is not str or value[0] != return_type.name):
             reason = 'invalid_shape'
-        elif value[1] not in {'Left', 'Flat', 'Right'}:
+        elif value[1] not in ({'Left', 'Flat', 'Right'} if return_type.name == 'Ordering'
+                              else {'Rising', 'Flat', 'Falling'}):
             reason = 'invalid_variant'
     if reason is not None:
         raise ValueContractViolation(expected_type=return_type, value=value,

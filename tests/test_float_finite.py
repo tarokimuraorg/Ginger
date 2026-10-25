@@ -113,7 +113,7 @@ class FloatFiniteTests(unittest.TestCase):
                          [('SYM', '-'), ('FLOAT', '1e-3')])
         self.assertEqual([(t.kind, t.text) for t in tokenize('+1e+3')[:-1]],
                          [('SYM', '+'), ('FLOAT', '1e+3')])
-        for expression in ['-1e3', '+1e3', '1e3 * -1e3', '(-(-1e3))']:
+        for expression in ['+1e3', '1e3 * -1e3', '--1e3']:
             with self.subTest(expression=expression), self.assertRaises(SyntaxError):
                 parse(f'print({expression})')
         for spelling in ['1e3', '1e-3', '0e0', '1e-400']:

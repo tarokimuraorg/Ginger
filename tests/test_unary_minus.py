@@ -41,11 +41,8 @@ class UnaryMinusTests(unittest.TestCase):
                 self.assertEqual(output(program), expected + '\n')
 
     def test_invalid_syntax_in_expression_contexts(self):
-        expressions = ['-1', '-x', '-a + b', '1--2', '1 - -2',
-                       'x * -2', 'f(-2)', '-(x)', '-2 * 3',
-                       '(-(-x))', '(-((-x)))', '(-((((-x)))))',
-                       '( - ( - x ) )', '(1--2)', '(1 - -2)',
-                       '(- -x)', '(-)', '+x', '++x']
+        expressions = ['1--2', '1 - -2', 'x * -2', '(1--2)',
+                       '--x', '- -x', '(- -x)', '(-)', '+x', '++x']
         for expr in expressions:
             for template in ['var result: Int = {}', 'print({})',
                              'sig f() -> Int {{}}\nfunc f() {{ return {} }}']:
@@ -54,7 +51,7 @@ class UnaryMinusTests(unittest.TestCase):
                         parse(template.format(expr))
 
     def test_bare_minus_diagnostic_position_and_tokenization(self):
-        for expr in ['1--2', '1 - -2', 'x * -2', 'f(-2)', '-(x)']:
+        for expr in ['1--2', '1 - -2', 'x * -2', '1+-2', '1/-2']:
             source = 'var result: Int = ' + expr
             with self.subTest(expr=expr), self.assertRaisesRegex(
                     SyntaxError, rf"bare unary '-'.* at {source.rindex('-')}$"):
@@ -71,10 +68,10 @@ class UnaryMinusTests(unittest.TestCase):
                          lower_program(parse('print(neg(1))')))
 
     def test_types_and_neg_results_match(self):
-        for typ, literal in [('Int', '2'), ('Float', '2.5')]:
+        for typ, literal in [('Int', '2'), ('Int64', '2i64'), ('Float', '2.5')]:
             with self.subTest(typ=typ):
                 program, diags = checked(
-                    f'var x: {typ} = {literal}\nvar a: {typ} = (-x)\n'
+                    f'var x: {typ} = {literal}\nvar a: {typ} = -x\n'
                     f'var b: {typ} = neg(x)\nprint(a)\nprint(b)')
                 env = typecheck_program(program, Diagnostics())
                 self.assertEqual(env['a'].ty, TypeRef(typ))
@@ -89,7 +86,7 @@ class UnaryMinusTests(unittest.TestCase):
                           ('Unit', 'print(1)'), ('Thunk[Int]<Never>', 'thunk(1)'),
                           ('Int', 'true')]:
             messages = []
-            for form in [f'(-{expr})', f'neg({expr})']:
+            for form in [f'-{expr}', f'neg({expr})']:
                 with self.subTest(form=form):
                     with self.assertRaises(TypecheckError) as raised:
                         checked(f'var result: {typ} = {form}')

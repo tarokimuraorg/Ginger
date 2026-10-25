@@ -53,13 +53,12 @@ class CallInferenceTests(unittest.TestCase):
                                         ('add(1.0,2)', '3.0\n', FLOAT_OVERFLOW),
                                         ('neg(1)', '-1\n', EMPTY_FAILURES),
                                         ('neg(1.0)', '-1.0\n', EMPTY_FAILURES),
+                                        ('-1', '-1\n', EMPTY_FAILURES),
                                         ('(-1)', '-1\n', EMPTY_FAILURES)]:
             with self.subTest(expr=expr):
                 program, syms, bindings, _ = self.annotated(f'print({expr})')
                 self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), effects)
                 self.assertEqual(output(program), expected)
-        with self.assertRaises(SyntaxError):
-            checked('print(-1)')
 
     def test_mixed_arguments_share_static_runtime_and_effect_resolution(self):
         for op in ['add', 'sub', 'mul']:

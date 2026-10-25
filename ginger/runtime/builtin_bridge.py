@@ -5,7 +5,7 @@ from typing import Any
 from ginger.ast import TypeRef
 from ginger.extension import ThunkHandle
 from ginger.typecheck import compatible
-from ginger.builtin import call_builtin
+from ginger.builtin import call_builtin, project_comparison
 from ginger.core.failure_spec import FailureSet
 from .context import RuntimeContext
 from .failures import RaisedFailure
@@ -15,7 +15,8 @@ from .value_contract import ValueContractViolation, validate_builtin_return
 
 def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
                    context: RuntimeContext, call_id: int, *, return_type: TypeRef,
-                   parameter_types: tuple[TypeRef, ...] | None = None) -> EvalResult:
+                   parameter_types: tuple[TypeRef, ...] | None = None,
+                   comparison_projection: str | None = None) -> EvalResult:
     """Invoke prepared values and register failures from this invocation only.
 
     Supplying concrete parameter_types selects the formal extension boundary.
@@ -37,6 +38,9 @@ def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
         event = context.register_failure(failure.fid, origin=implementation, call_id=call_id)
         return EvalResult(NoValue(), (event.event_id,))
     try:
+        if comparison_projection is not None:
+            validate_builtin_return(value, TypeRef("Ordering"), implementation=implementation, call_id=call_id)
+            value = project_comparison(value, comparison_projection)
         if parameter_types is not None and return_type.name == 'Thunk':
             reason = None
             if not isinstance(value, ThunkHandle):
