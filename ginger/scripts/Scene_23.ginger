@@ -32,8 +32,15 @@ var low: Int64 = (-9223372036854775807i64)
 print(low)
 print(neg(low))
 print(001i64)
+
 print(eq(low,neg(low)))
 print(lt(low,neg(low)))
+
+// cmp(a,b)の時、 a < b => Right
 print(cmp(low,neg(low)))
+
+// cmp(a,b)の時、 a = b => Flat
 print(cmp(1,1))
+
+// cmp(a,b)の時、 a > b => Left
 print(cmp(2.0,1.0))
