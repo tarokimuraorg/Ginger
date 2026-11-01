@@ -146,7 +146,7 @@ class LocalResolveTests(unittest.TestCase):
     def test_generic_conditional_failures_recovered(self):
         source = ('sig safe(T,T) -> T { require T guarantees Addable failure Never }\n'
                   'func safe(a: T,b: T) { var y: T = a + b\n'
-                  'resolve y { IntegerOverflow { y = a }\nFloatOverflow { y = b } FloatUnderflow { y = a } }\nreturn y }\n')
+                  'resolve y { IntegerOverflow { y = a }\nFloatOverflow { y = b } }\nreturn y }\n')
         result, stdout = self.public_result(source + 'print(safe(9007199254740991,1))\nprint(safe(1e308,1e308))')
         self.assertEqual(stdout, '9007199254740991\n1e+308\n')
         self.assertFalse(result.unresolved_events)

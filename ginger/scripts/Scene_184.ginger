@@ -1,14 +1,20 @@
-// FloatUnderflow: resolved x 2; normal zeros and binary64 rounding unchanged.
-// stdout: 0.0, 0.0, 0.0, -0.0, 0.30000000000000004, -0.0
-// warnings: {FloatOverflow} x 2, {FloatOverflow, FloatUnderflow} x 3.
-var x: Float = mul(1e-307,0.01)
-resolve x { FloatUnderflow { x = 0.0 } }
-print(x)
-print(mul(0.0,0.5))
-print(sub(1.0,1.0))
-print(neg(0.0))
-print(add(0.1,0.2))
-var t: Thunk[Float]<FloatOverflow, FloatUnderflow> = thunk(mul(-1e-307,1e-307))
-x = force(t)
-resolve x { FloatUnderflow { x = -0.0 } }
-print(x)
+// Subnormal is a normal Float value; only nonzero results rounded to zero fail.
+// Runtime history: FloatUnderflow x 2, both resolved explicitly.
+// Static warnings: FloatOverflow x 4; FloatOverflow, FloatUnderflow x 1;
+// DivideByZero, FloatOverflow x 1. Warnings are not runtime events.
+print(5e-324)
+print(-5e-324)
+print(mul(5e-324, 1.0))
+print(add(5e-324, 5e-324))
+var a: Float = mul(5e-324, 0.5)
+resolve a {
+    FloatUnderflow { a = 0.0 }
+}
+print(a)
+var b: Float = div(-5e-324, 2.0)
+resolve b {
+    FloatUnderflow { b = -0.0 }
+}
+print(b)
+print(sub(5e-324, 5e-324))
+print(add(0.1, 0.2))

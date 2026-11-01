@@ -12,7 +12,8 @@ INT_ARITHMETIC_FAILURES = {
 
 
 FLOAT_ARITHMETIC_FAILURES = {
-    f"core.float.{name}": failures(FailureId.FloatOverflow, FailureId.FloatUnderflow)
+    f"core.float.{name}": (failures(FailureId.FloatOverflow, FailureId.FloatUnderflow)
+                            if name in ("mul", "div") else failures(FailureId.FloatOverflow))
     for name in ("add", "sub", "mul", "div")
 }
 
@@ -35,13 +36,13 @@ def checked_int_result(result: int) -> int:
         raise RaisedFailure(FailureId.IntegerOverflow)
     return result
 
-def checked_float_result(result: float, *, exact_zero: bool) -> float:
+def checked_float_result(result: float, *, exact_zero: bool = True) -> float:
     # Operands have passed the value boundary. Each operation supplies its
-    # exact zero condition; rounding to either signed zero is otherwise loss.
+    # exact zero condition for mul/div; add/sub cannot lose nonzero to zero.
     error = float_value_error(result)
     if error == "non_finite":
         raise RaisedFailure(FailureId.FloatOverflow)
-    if error == "subnormal" or (result == 0.0 and not exact_zero):
+    if result == 0.0 and not exact_zero:
         raise RaisedFailure(FailureId.FloatUnderflow)
     return result
 
@@ -72,10 +73,10 @@ def _cmp_result(a, b):
 BUILTINS: Dict[str, BuiltinFn] = {
 
     "core.int.add":   lambda a, b: checked_int_result(a + b),
-    "core.float.add": lambda a, b: checked_float_result(a + b, exact_zero=a == -b),
+    "core.float.add": lambda a, b: checked_float_result(a + b),
 
     "core.int.sub":   lambda a, b: checked_int_result(a - b),
-    "core.float.sub": lambda a, b: checked_float_result(a - b, exact_zero=a == b),
+    "core.float.sub": lambda a, b: checked_float_result(a - b),
 
     "core.int.mul":   lambda a, b: checked_int_result(a * b),
     "core.float.mul": lambda a, b: checked_float_result(a * b, exact_zero=a == 0.0 or b == 0.0),

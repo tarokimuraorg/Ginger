@@ -1,17 +1,12 @@
 """Concrete numeric ranges and directional widening (constructors are invariant)."""
 import math
-import sys
 
 from .ast import TypeRef
-
-FLOAT_MIN_NORMAL = sys.float_info.min
 
 
 def float_value_error(value: float) -> str | None:
     if not math.isfinite(value):
         return "non_finite"
-    if value != 0.0 and abs(value) < FLOAT_MIN_NORMAL:
-        return "subnormal"
     return None
 
 

@@ -88,8 +88,8 @@ class BuiltinValueContractTests(unittest.TestCase):
     def test_int64_exact_type(self):
         self.rejects('Int64', [True, 1.0, None, IntSubclass(1)], 'wrong_python_type')
 
-    def test_float_normal_or_zero(self):
-        self.rejects('Float', [5e-324, -5e-324], 'subnormal')
+    def test_float_finite(self):
+        self.accepts('Float', [5e-324, -5e-324])
         self.accepts('Float', [1.5, 0.0, -0.0, 2.2250738585072014e-308, 1.7976931348623157e308])
         self.rejects('Float', [float('inf'), float('-inf'), float('nan')], 'non_finite')
         self.rejects('Float', [1, True, None, FloatSubclass(1.5)], 'wrong_python_type')

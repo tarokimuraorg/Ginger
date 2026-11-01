@@ -60,7 +60,7 @@ class ConsumerValueContractTests(unittest.TestCase):
         self.assertNotIn('later', result.environment)
 
     def test_nonfinite_consumers_and_no_side_effects(self):
-        for payload in [float('nan'), float('inf'), float('-inf'), 5e-324, -5e-324]:
+        for payload in [float('nan'), float('inf'), float('-inf')]:
             for tail in ['var y: Bool = eq(x,1.0)', 'var y: Bool = lt(x,1.0)',
                          'var y: Ordering = cmp(x,1.0)', 'print(x)',
                          'var y: Float = neg(x)', 'var y: Float = add(x,1.0)',

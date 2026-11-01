@@ -140,10 +140,6 @@
         {
           "failure": "FloatOverflow",
           "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
-        },
-        {
-          "failure": "FloatUnderflow",
-          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -163,10 +159,6 @@
         },
         {
           "failure": "FloatOverflow",
-          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
-        },
-        {
-          "failure": "FloatUnderflow",
           "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
         }
       ],
