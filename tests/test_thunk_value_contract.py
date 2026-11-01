@@ -129,8 +129,8 @@ class ThunkValueContractTests(unittest.TestCase):
                    'func use(t: Thunk[T]<Never>) { return force(t) }\n')
         for typ, value, valid in [('Int', 1, True), ('Float', 1.0, True),
                                    ('Int', 1.0, False), ('Float', 1, False),
-                                   ('Float', float('nan'), False), ('Float', 5e-324, False),
-                                   ('Float', -5e-324, False)]:
+                                   ('Float', float('nan'), False), ('Float', 5e-324, True),
+                                   ('Float', -5e-324, True)]:
             with self.subTest(typ=typ, value=value):
                 result = self.run_source(generic + self.source(typ, tail=f'var x: {typ} = use(make())'),
                                          self.thunk(value))

@@ -19,7 +19,7 @@ from ginger.typecheck import effect_expr, reconcile_type_evidence, typecheck_pro
 IDENTITY = 'sig identity(T) -> T {}\nfunc identity(x: T) { return x }\n'
 FIRST = 'sig first(T,T) -> T {}\nfunc first(a: T,b: T) { return a }\n'
 OVERFLOW = failures(FailureId.IntegerOverflow)
-FLOAT_OVERFLOW = failures(FailureId.FloatOverflow, FailureId.FloatUnderflow)
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
 
 
 class CallInferenceTests(unittest.TestCase):
@@ -70,8 +70,8 @@ class CallInferenceTests(unittest.TestCase):
                     self.assertEqual(resolution.type_bindings, {'T': TypeRef('Float')})
                     self.assertEqual(resolution.parameter_types, (TypeRef('Float'),) * 2)
                     self.assertEqual(resolution.implementation, f'core.float.{op}')
-                    self.assertEqual(effect_expr(call, bindings, syms), FLOAT_OVERFLOW)
-                    self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
+                    self.assertEqual(effect_expr(call, bindings, syms), FLOAT_OVERFLOW | (failures(FailureId.FloatUnderflow) if op == "mul" else EMPTY_FAILURES))
+                    self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow' + (', FloatUnderflow' if op == 'mul' else '')])
                     seen = []
                     original = BUILTINS[f'core.float.{op}']
                     def inspect(a, b):
@@ -224,7 +224,7 @@ class CallInferenceTests(unittest.TestCase):
 
     def test_thunk_latent_effect_uses_selected_implementation(self):
         source = ('let a: Thunk[Int]<IntegerOverflow> = thunk(add(1,2))\n'
-                  'let b: Thunk[Float]<FloatOverflow, FloatUnderflow> = thunk(add(1,2.0))\n')
+                  'let b: Thunk[Float]<FloatOverflow> = thunk(add(1,2.0))\n')
         program, _, bindings, diags = self.annotated(source)
         self.assertEqual(bindings['a'].ty.latent_failures, OVERFLOW)
         self.assertEqual(bindings['b'].ty.latent_failures, FLOAT_OVERFLOW)

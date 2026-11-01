@@ -229,7 +229,7 @@ class FloatFiniteTests(unittest.TestCase):
 
     def test_invalid_external_operands_are_not_numeric_overflow(self):
         for operation in ['add', 'sub', 'mul', 'div']:
-            for value in [float('nan'), float('inf'), float('-inf'), 5e-324, -5e-324]:
+            for value in [float('nan'), float('inf'), float('-inf')]:
                 for operands in [(value, 1.0), (1.0, value)] if operation != 'div' else [(value, 1.0)]:
                     with self.subTest(operation=operation, operands=operands):
                         context = RuntimeContext()
@@ -329,7 +329,7 @@ class FloatFiniteTests(unittest.TestCase):
                                  [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
                 self.assertIsInstance(result.environment['y'], UninitializedBinding)
                 if delayed:
-                    expected = FLOAT_OVERFLOW | (failures(FailureId.DivideByZero) if operation == 'div' else EMPTY_FAILURES)
+                    expected = (failures(FailureId.FloatOverflow) if operation in ('add', 'sub') else FLOAT_OVERFLOW) | (failures(FailureId.DivideByZero) if operation == 'div' else EMPTY_FAILURES)
                     self.assertEqual(result.environment['t'].value.potential_failure_contract, expected)
 
 

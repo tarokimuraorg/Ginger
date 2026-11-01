@@ -460,8 +460,8 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         # Inspect the significand before conversion: nonzero may round to zero.
         nonzero_source = (expr.source_text is not None and
                           any(c in "123456789" for c in re.split("[eE]", expr.source_text)[0]))
-        if value_error or (expr.value == 0.0 and nonzero_source):
-            raise TypecheckError("Float literal must be normal or zero")
+        if expr.value == 0.0 and nonzero_source:
+            raise TypecheckError("Nonzero Float literal must not round to zero")
         
         t = TypeRef("Float")
 

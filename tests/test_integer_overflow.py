@@ -86,7 +86,7 @@ class IntegerOverflowTests(unittest.TestCase):
 
     def test_static_effect_specializes_on_int_impl(self):
         for op in ['add', 'sub', 'mul']:
-            for typ, args, expected in [('Int', '1,2', OVERFLOW), ('Float', '1.0,2.0', FLOAT_OVERFLOW)]:
+            for typ, args, expected in [('Int', '1,2', OVERFLOW), ('Float', '1.0,2.0', FLOAT_OVERFLOW if op == 'mul' else failures(FailureId.FloatOverflow))]:
                 program, syms, bindings, _ = self.annotated(f'var x: {typ} = {op}({args})')
                 self.assertEqual(effect_expr(program.items[0].expr, bindings, syms), expected)
                 self.assertEqual(syms.sig_failures[op], EMPTY_FAILURES)
@@ -192,7 +192,7 @@ class IntegerOverflowTests(unittest.TestCase):
         program, diags = checked(identity + prefix +
                                  'var x: Float = identity(add(toFloat(force(t)),2.0))\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(8) } }')
-        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
         self.assertEqual(output(program), '8\n')
 
     def test_failed_initialization_and_assignment_do_not_store_result(self):
