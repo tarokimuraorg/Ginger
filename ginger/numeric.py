@@ -1,5 +1,14 @@
 """Concrete numeric ranges and directional widening (constructors are invariant)."""
+import math
+
 from .ast import TypeRef
+
+
+def float_value_error(value: float) -> str | None:
+    if not math.isfinite(value):
+        return "non_finite"
+    return None
+
 
 INT_MAX = (1 << 53) - 1
 INT_MIN = -INT_MAX

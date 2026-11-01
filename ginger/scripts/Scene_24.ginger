@@ -13,7 +13,7 @@
 // 3
 // Expected warnings (static diagnostic count; braces are one diagnostic):
 // UNHANDLED_FAILURES {IntegerOverflow} x 4
-// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 2
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, FloatUnderflow} x 2
 // Expected normal failure:
 // none
 // Expected fatal:

@@ -1,6 +1,5 @@
-import math
 from typing import Callable, Dict, Any, Literal, Tuple
-from .numeric import INT_MIN, INT_MAX
+from .numeric import float_value_error, INT_MIN, INT_MAX
 from .core.failure_spec import FailureId, FailureSet, EMPTY_FAILURES, failures, union_failures
 from .runtime.failures import RaisedFailure
 
@@ -13,7 +12,8 @@ INT_ARITHMETIC_FAILURES = {
 
 
 FLOAT_ARITHMETIC_FAILURES = {
-    f"core.float.{name}": failures(FailureId.FloatOverflow)
+    f"core.float.{name}": (failures(FailureId.FloatOverflow, FailureId.FloatUnderflow)
+                            if name in ("mul", "div") else failures(FailureId.FloatOverflow))
     for name in ("add", "sub", "mul", "div")
 }
 
@@ -36,10 +36,14 @@ def checked_int_result(result: int) -> int:
         raise RaisedFailure(FailureId.IntegerOverflow)
     return result
 
-def checked_float_result(result: float, *operands: float) -> float:
-    # Invalid external inputs must not masquerade as finite arithmetic overflow.
-    if all(math.isfinite(value) for value in operands) and not math.isfinite(result):
+def checked_float_result(result: float, *, exact_zero: bool = True) -> float:
+    # Operands have passed the value boundary. Each operation supplies its
+    # exact zero condition for mul/div; add/sub cannot lose nonzero to zero.
+    error = float_value_error(result)
+    if error == "non_finite":
         raise RaisedFailure(FailureId.FloatOverflow)
+    if result == 0.0 and not exact_zero:
+        raise RaisedFailure(FailureId.FloatUnderflow)
     return result
 
 
@@ -47,7 +51,7 @@ def float_div(a: float, b: float) -> float:
     # This is the builtin's declared failure, not a host-exception translation.
     if b == 0.0:
         raise RaisedFailure(FailureId.DivideByZero)
-    return checked_float_result(a / b, a, b)
+    return checked_float_result(a / b, exact_zero=a == 0.0)
 
 
 # いまのランタイム値（必要なら ginger/eval.py 側の Value と合わせる）
@@ -69,13 +73,13 @@ def _cmp_result(a, b):
 BUILTINS: Dict[str, BuiltinFn] = {
 
     "core.int.add":   lambda a, b: checked_int_result(a + b),
-    "core.float.add": lambda a, b: checked_float_result(a + b, a, b),
+    "core.float.add": lambda a, b: checked_float_result(a + b),
 
     "core.int.sub":   lambda a, b: checked_int_result(a - b),
-    "core.float.sub": lambda a, b: checked_float_result(a - b, a, b),
+    "core.float.sub": lambda a, b: checked_float_result(a - b),
 
     "core.int.mul":   lambda a, b: checked_int_result(a * b),
-    "core.float.mul": lambda a, b: checked_float_result(a * b, a, b),
+    "core.float.mul": lambda a, b: checked_float_result(a * b, exact_zero=a == 0.0 or b == 0.0),
 
     "core.float.div": float_div,
 

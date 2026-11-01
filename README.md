@@ -25,7 +25,7 @@ run(Path("ginger/scripts/Scene_7.ginger").read_text(encoding="utf-8"))
 PY
 ```
 
-Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero / FloatOverflow の警告が1件、Scene 3 は FloatOverflow が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2・5・6 には未処理警告はありません。Scene 4 は現在 `1`、`2`、`123` を出力し、IntegerOverflow の静的警告が2件、実行時の未解決イベントが1件あります。上の Scene 7 の例は、標準出力へ `-2`、`-2`、`3` の順に出力します。警告は標準エラー出力へ `warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow` と表示され、実際の failure は発生しません。
+Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero / FloatOverflow / FloatUnderflow の警告が1件、Scene 3 は FloatOverflow / FloatUnderflow が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2・5・6 には未処理警告はありません。Scene 4 は現在 `1`、`2`、`123` を出力し、IntegerOverflow の静的警告が2件、実行時の未解決イベントが1件あります。上の Scene 7 の例は、標準出力へ `-2`、`-2`、`3` の順に出力します。警告は標準エラー出力へ `warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow` と表示され、実際の failure は発生しません。
 
 ## 処理フロー
 
@@ -67,7 +67,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 |---|---|
 | Int | `-(2^53 - 1)` ～ `+(2^53 - 1)`（±9,007,199,254,740,991） |
 | Int64 | `-(2^63 - 1)` ～ `+(2^63 - 1)`（±9,223,372,036,854,775,807） |
-| Float | finite-only binary64。exact Python float かつ `math.isfinite(value)` |
+| Float | 有限の IEEE 754 binary64（正規化数・非正規化数・±0.0） |
 
 Int は、すべての有効な値を binary64 Float へ整数精度を失わず変換できる安全整数型です。Int64 は通常の signed 64-bit と異なり `-2^63` を含まない対称範囲で、最小値の negation も最大値に収まります。負数は `-1` / `-1i64` と書けます。既存の `(-1)` / `(-1i64)` も有効です。
 
@@ -90,13 +90,27 @@ Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、p
 
 Float literal は `digits exponent` または `digits "." digits exponent?`、exponent は `("e" | "E") ("+" | "-")? digits` です。`1e3`、`1E3`、`1e+3`、`1e-3`、`1.5e-3` はすべて Float で、`1e3` は `1000.0` と同じ値です。`1` は引き続き Int、`1i64` は Int64 です。`var x: Float = 1` は widening、`var x: Float = 1e0` は最初から Float です。先頭の符号は token に含めず、負数は `-1e3` と書けます。`1e-3` 内の `-` は unary minus ではなく exponent sign です。`-1e-3` は unary minus と FLOAT token `1e-3` に分かれます。`1e` / `1e+` / `1e-`（大文字 E も同様）は `Float exponent requires digits` で拒否します。`1e + (-3)` / `1e - 3` / `1e -3` / `1e + 3` も `1e` が不完全なので無効です。空白を除去したり identifier として再解釈したりしません。`.5` / `1.` / `.5e3` / `1.e3` / `1e3i64`、hex float、Float suffix は受理しません。
 
-`1e308` や `5e-324` は有限値として有効で、`1e-400` のように underflow で `0.0` になる literal も有効です。`1e400` は literal 自体が非有限になるため、実行前に `TypecheckError: Float literal must be finite` で拒否します。一方 `mul(1e308, 1e308)` は有限な入力の演算結果が overflow するため、runtime の FloatOverflow となり resolve で回復できます。
+**表現できることと、その型で許容することは別である。** Int と Float は、表現可能な値をすべて受け入れる型ではなく、精度特性と演算結果を予測しやすい通常の数値領域に限定した実用数値型です。Int は安全整数範囲、Float は有限の正規化 binary64 と符号付きゼロに限定します。
 
-Float の正常値は `type(value) is float and math.isfinite(value)` です。NaN / +inf / -inf は正常な Float ではありません。±0.0、subnormal、丸められた有限値、underflow による ±0.0 は有効です。decimal / exponent literal を parser が Python float に変換して inf になった場合は、typecheck の FloatLit 検査で静的に拒否します。負方向の `(-literal)` も同様です。nan / inf / infinity の literal 構文は追加していません。
+Float の正常値は exact Python float の有限値です。正負の非正規化数（subnormal）と ±0.0 も許容し、NaN と ±Infinity は拒否します。通常の binary64 の丸め誤差は有限精度の演算として許容し、暗黙の補正はしません。`add(0.1,0.2)` は `0.30000000000000004`、これと `0.3` の eq は false、cmp は Left のままです。
 
-標準 Float の add / sub / mul / div は、全 operand が finite で結果が non-finite の場合に `RaisedFailure(FailureId.FloatOverflow)` を送出します。FloatOverflow は finite Float domain の overflow を表す通常 failure で、FailureEvent → NoValue を経て resolve で回復できます。div は divisor が ±0.0 なら DivideByZero を優先し、nonzero finite の除算結果が non-finite なら FloatOverflow です。finite 値の neg は常に finite なので failure を持ちません。cmp / eq / lt のアルゴリズムは変更せず、通常 source と builtin return 境界で NaN の流入を防ぎます。
+リテラル `5e-324`、`-5e-324`、`1e-308`、`0.0`、`-0.0`、`0e-400` は有効です。元の十進数が非ゼロなのにゼロへ丸められる `1e-400` と `-1e-400` は `Nonzero Float literal must not round to zero` の静的エラーです。parser が保持する FloatLit の元表記から仮数部の非ゼロ桁を検査するので、正確なゼロである `0e-400` は拒否しません。`1e400` は `Float literal must be finite` で拒否します。不正なリテラルは runtime failure ではなく resolve 対象外です。exponent 構文と不正形式の拒否規則は従来どおりです。
 
-**generic 演算の failure 契約:** math catalog の `add(T,T) -> T` / sub / mul は、呼び出し側へ `failure IntegerOverflow when T guarantees BoundedArithmetic` と `failure FloatOverflow when T guarantees FiniteArithmetic` を公開します。call-site で T = Int なら `{IntegerOverflow}`、T = Float なら `{FloatOverflow}` になります。両 guarantee はメソッドを持たない独立した marker です。標準登録は BoundedArithmetic が Int のみ、FiniteArithmetic が Float のみで、Int64 はどちらにも登録しません。FiniteArithmetic は標準 Float 算術が finite domain の overflow を FloatOverflow として公開する能力を示します。Addable・Subtractable・Multipliable とは独立し、marker の登録だけで算術を使用できるようにはなりません。Int64 算術は未対応のままです。
+標準 Float の add / sub / mul / div は非有限な演算結果に FloatOverflow を送出します。**FloatUnderflow** は mul / div の数学的に非ゼロの結果が binary64 への丸めで ±0.0 になる場合だけです。数学的な結果とは、保持済みの binary64 オペランドを正確な実数として演算した結果であり、元の十進数表記の無限精度値ではありません。非ゼロの subnormal 結果は正常値です。通常の丸め誤差とは異なり、非ゼロからゼロへの消失を failure として明示します。
+
+mul は両入力が非ゼロで結果がゼロ、div は分子・分母が非ゼロで結果がゼロの場合に Underflow を検出します。ゼロの乗算とゼロ分子の除算は正常で、div は除数が ±0.0 なら DivideByZero を優先します。有限 binary64 は最小正非正規化数の整数倍なので、add / sub の正確な非ゼロ結果はゼロに丸められません。add / sub / neg に Underflow の宣言はありません。
+
+failure は既存の FailureEvent と NoValue を経て処理され、失敗 write は既存値または未初期化状態を保持します。resolve で明示的に回復でき、回復済みイベントも履歴に残ります。
+
+```ginger
+var x: Float = mul(5e-324,0.5)
+resolve x {
+    FloatUnderflow { x = 0.0 }
+}
+print(x) // 0.0（静的には未処理 FloatOverflow の警告が残る）
+```
+
+**generic 演算の failure 契約:** add / sub / mul は `failure IntegerOverflow when T guarantees BoundedArithmetic` と `failure FloatOverflow when T guarantees FiniteArithmetic` を公開し、mul だけが `failure FloatUnderflow when T guarantees FiniteArithmetic` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。既存の FiniteArithmetic / BoundedArithmetic marker と conditional failure の仕組みを維持します。marker はメソッドを持たず、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
 
 `ginger/builtin.py` の `INT_ARITHMETIC_FAILURES`・`FLOAT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` と `core.float.add/sub/mul/div` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
@@ -127,9 +141,9 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | 独自 builtin sig / impl | argument / return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
 | Python API の直接呼び出し | Cell / 外部 environment の注入などは全面検証しない |
 
-独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装を直接参照する alias も同様に、自身の FloatOverflow 宣言が必要です。
+独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装の alias も、add / sub は FloatOverflow、mul / div は FloatOverflow / FloatUnderflow、div はさらに DivideByZero の宣言を自身で持つ必要があります。
 
-builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限性、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。これは fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
+builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限であること、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。subnormal は builtin / custom builtin 戻り値、初期化・再代入・読み出し、関数引数・戻り値、Thunk / force、外部実行 API の各境界で正常値です。ValueContractViolation は fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
 Phase 3C では custom builtin の `Thunk[T]<F>` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
 
@@ -158,7 +172,7 @@ var negative: Int = neg(x)
 print(negative)
 ```
 
-この例の評価結果は `9`、`4.5`、`-9` です。実行前に、Int 算術の IntegerOverflow 警告が2件と、未処理の `div` 呼び出しに対する DivideByZero / FloatOverflow 警告が1件表示されます。
+この例の評価結果は `9`、`4.5`、`-9` です。実行前に、Int 算術の IntegerOverflow 警告が2件と、未処理の `div` 呼び出しに対する DivideByZero / FloatOverflow / FloatUnderflow 警告が1件表示されます。
 
 - 中置演算は `a + b` のように使用できます。`*`・`/` は `+`・`-` より優先され、同じ優先順位では左から結合します。括弧で評価順序を指定できます。
 - `(x)` や `(f())` は通常の括弧式として使用できます。
@@ -197,7 +211,7 @@ print(negative)
 同じ大小関係を異なる意味で表した結果です。`cmp` は既存 semantics を保ち、低レベルで中立的な comparison primitive として引き続き利用できます。
 
 `balance` / `slope` / `gt` は既存 `Ord.cmp` impl を共有し、追加 capability や method を要求しません。
-Int / Int64 / finite Float、および custom `Ord.cmp` impl と generic dispatch に対応します。
+Int / Int64 / 非正規化数を含む有限 Float、および custom `Ord.cmp` impl と generic dispatch に対応します。
 既存の Int → Int64 / Float widening を維持し、Int64 ↔ Float 変換は追加しません。
 比較に subtraction は使わず、標準比較は `failure Never` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
 
@@ -245,7 +259,7 @@ ExecutionResult の環境は従来の mapping proxy に加え binding record の
 | Ginger type | Python implementation の値 |
 |---|---|
 | Int / Int64 | exact `int`（各範囲内） |
-| Float | finite `float` |
+| Float | 非正規化数・符号付きゼロを含む有限 `float` |
 | Bool | exact `bool` |
 | Ordering | canonical tuple `("Ordering", "Left" / "Flat" / "Right")` |
 | Slope | canonical tuple `("Slope", "Rising" / "Flat" / "Falling")` |
@@ -467,7 +481,7 @@ conditional Never、conditional failureset、同一 conditional clause の重複
 
 通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で確実に回復する failure は合算から除外します。handled による上限検証の保留は廃止しました。
 
-標準 `div` は `DivideByZero` と `FloatOverflow` を無条件に宣言しています。`div(1.0,2.0)` も両方を持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
+標準 `div` は `DivideByZero`・`FloatOverflow`・`FloatUnderflow` を無条件に宣言しています。`div(1.0,2.0)` も3つすべてを持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
 ```ginger
 var x: Float = div(1.0, 0.0)
@@ -476,6 +490,9 @@ resolve x {
         x = 0
     }
     FloatOverflow {
+        x = 0
+    }
+    FloatUnderflow {
         x = 0
     }
 }
@@ -613,7 +630,7 @@ resolve x {
 print(x)
 ```
 
-出力は `0.0` です（静的には未指定の FloatOverflow の警告が残ります）。失敗した再代入の直後は current value が 5.0、latest write が failed です。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
+出力は `0.0` です（静的には未指定の FloatOverflow / FloatUnderflow の警告が残ります）。失敗した再代入の直後は current value が 5.0、latest write が failed です。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
 
 ```text
 initializer / assignment が NoValue
@@ -671,7 +688,7 @@ sig use(Thunk[T]<Never>) -> T {
 ```
 
 ```ginger
-failureset CalculationFailure { DivideByZero FloatOverflow IOErr }
+failureset CalculationFailure { DivideByZero FloatOverflow FloatUnderflow IOErr }
 // 型の例: Thunk[Int]<Never>, Thunk[Int]<DivideByZero>, Thunk[Int]<CalculationFailure>
 var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0, 0.0))
 var x: Float = force(t)
@@ -680,6 +697,9 @@ resolve x {
         x = 0
     }
     FloatOverflow {
+        x = 0
+    }
+    FloatUnderflow {
         x = 0
     }
     IOErr {
@@ -701,7 +721,7 @@ failure指定には個別FailureId、failureset、単独のNeverを使えます�
 sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
 
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
-`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow> { failure Never }` は有効です。
+`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure Never }` は有効です。
 静的に解決されたThunkは本体上限検証の対象です。
 ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
@@ -731,7 +751,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 
 `tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・open-world・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
 
-failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_float_finite.py` は finite literal、正負の Float overflow、ゼロ除算優先順位、不正な外部入力、alias、resolve / Thunk を確認します。`tests/test_builtin_value_contract.py` は non-finite return の拒否と他型・opaque 型の回帰を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
+failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_float_underflow.py` は静的リテラル検証、正確なゼロ、正負の underflow、generic / Thunk / 関数内 resolve、外部 subnormal の受理とゼロ消失の検出を確認します。`tests/test_float_finite.py` は有限値と符号付きゼロの literal、正負の Float overflow、ゼロ除算優先順位、不正な外部入力、alias、resolve / Thunk を確認します。`tests/test_builtin_value_contract.py` は non-finite return の拒否と他型・opaque 型の回帰を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
 
 ```sh
 python3 -B -m unittest discover -s tests -v
@@ -768,6 +788,7 @@ python3 -B -m unittest discover -s tests -v
 failureset CalculationFailure {
     DivideByZero
     FloatOverflow
+    FloatUnderflow
     IOErr
 }
 sig calculate() -> Float {
@@ -857,3 +878,25 @@ Thunkが未初期化bindingをcaptureすること自体は許可します。forc
 force専用CallFrameは追加していません。builtin failureはforce実行中のcurrent callへ帰属し、Thunk内のユーザー関数呼び出しは通常のchild frameを作ります。lexical environmentを作成元から取得してもcall identityを作成元へ戻しません。
 
 force中に生成されたeventがbindingのwrite失敗の原因になれば、resolveでそのbindingを回復できます。handler内forceの新eventには通常どおりcaused_byが付き、対象が回復しなければ元eventもunresolvedのままです。Python内部例外は通常の例外として表面化し、Violationは既存のExecutionResult.contract_violationへ、その他の履歴・frame・未完遂記録も既存フィールドへ公開します。公開結果フィールドは変更していません。
+
+### 数値型の名称に関する調査（今回の実装変更なし）
+
+現在の Int64 は `-(2^63-1)..+(2^63-1)` です。一般的な signed 64-bit integer は `-2^63` も含みます（例: [Rust i64 の公式仕様](https://doc.rust-lang.org/std/primitive.i64.html)）。Ginger の対称範囲は、最小値にも neg を failure なしで適用できる設計を支えます。Ord や Int → Int64 widening 自体に対称性は必要ありません。標準の範囲へ拡張すると neg の最小値ケースに failure または別の処理規則が必要になるため、今回は範囲を維持します。
+
+| 候補 | 利点 | 欠点 |
+|---|---|---|
+| Int64 | 短く既存コードと互換、64ビット相当の大きさが伝わる | 標準 signed 64-bit の全域と誤解しやすく、`-2^63` の除外を明記する必要がある |
+| WideInt | Int より広い実用整数型だと伝わる | ビット数・対称性・具体的な範囲が名前から分からない |
+| SymmetricInt64 | 対称範囲とビット数が最も明確 | 長く、一般的な数値型名としては馴染みが薄い |
+
+提案は、互換性を優先して現時点では Int64 を維持し、型表と相互運用境界で範囲を明示することです。将来の破壊的変更で契約の明確さを優先するなら SymmetricInt64 が候補です。改名だけなら neg・Ord・widening の意味を変える必要はありませんが、型注釈・catalog・外部APIの移行は必要です。Ginger Int64 から通常の signed 64-bit への値変換は全域で可能で、逆方向は `-2^63` を明示的に拒否する必要があります。Python int 表現からメモリレイアウトやABI互換性は保証されません。
+
+将来の全 binary64 型は、Float と同じ精度でも、許容値と演算・比較契約が異なるため別型として妥当です。正規化数、±0、±subnormal、±Infinity、NaN を許容する想定です。NaN は通常の数値比較で順序付けできません。既存の3値 Ordering を返す cmp にそのまま流すと誤分類するため、未順序を表す比較API、または明示的な total-order 比較を設計する必要があります。[Rust f64 の total_cmp](https://doc.rust-lang.org/std/primitive.f64.html#method.total_cmp) は IEEE 754 の totalOrder に従い、NaN と符号付きゼロも順序付けますが、通常の等値比較とは一致しません。既存の Ord / eq とこの違いをどう整合させるかは新型の設計時に決めます。
+
+| 候補 | 利点 | 欠点 |
+|---|---|---|
+| Float64 | 短く、一般的で精度が分かる | 現在の Float も binary64 のため、違いが精度ではなく値契約だと伝わりにくい |
+| IEEEFloat64 | IEEE の特殊値を扱う意図が比較的明確 | 長く、名前だけで丸めモードや例外まで全面準拠する印象を与えうる |
+| Binary64 | 表現形式を正確に示し、Float の実用値域と区別できる | IEEE 用語の知識が必要で、比較・failure の方針までは伝わらない |
+
+提案は Binary64 を第一候補、使い慣れた命名を重視するなら Float64 とし、どちらも値契約を明示することです。Float → 新型は全域で値を保存でき、逆方向は NaN / Infinity を拒否する明示変換が必要です。変換失敗の契約、NaN payload・signaling NaN の保持、演算時の特殊値の伝播、比較APIは未決定です。今回、Int64 の改名も新型・変換APIの追加も行っていません。

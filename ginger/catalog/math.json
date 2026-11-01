@@ -180,6 +180,10 @@
         {
           "failure": "FloatOverflow",
           "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
+        },
+        {
+          "failure": "FloatUnderflow",
+          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -190,7 +194,7 @@
       "params": [{ "ref": "Float" }, { "ref": "Float" }],
       "ret": { "ref": "Float" },
       "requires": [],
-      "failures": ["DivideByZero", "FloatOverflow"],
+      "failures": ["DivideByZero", "FloatOverflow", "FloatUnderflow"],
       "attrs": [],
       "builtin": "core.float.div"
     },

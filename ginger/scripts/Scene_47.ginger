@@ -8,7 +8,7 @@
 // 1.0
 // 2
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, FloatUnderflow} x 1
 // UNHANDLED_FAILURES {DivideByZero, IOErr} x 1
 // Expected normal failure:
 // none
@@ -17,8 +17,8 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-failureset Calculation { DivideByZero FloatOverflow IOErr }
-var narrow: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))
+failureset Calculation { DivideByZero FloatOverflow FloatUnderflow IOErr }
+var narrow: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
 var wide: Thunk[Float]<Calculation> = narrow
 wide = thunk(1.0)
 var x: Float = force(wide)

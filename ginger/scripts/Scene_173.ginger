@@ -1,6 +1,6 @@
 // Callee failure, then argument failure: both binding writes recover.
 // Expected stdout: 0.0, 1.0; no warnings; both events resolved.
-failureset CalculationFailure { DivideByZero FloatOverflow IOErr }
+failureset CalculationFailure { DivideByZero FloatOverflow FloatUnderflow IOErr }
 sig calculate(Float, Float) -> Float { failure CalculationFailure }
 func calculate(a: Float, b: Float) { return div(a, b) }
 var result: Float = calculate(1, 0)

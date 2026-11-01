@@ -11,7 +11,7 @@
 // 2.0
 // 3
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, FloatUnderflow} x 1
 // Expected normal failure:
 // DivideByZero: resolved x 1
 // DivideByZero: unresolved x 1
@@ -20,8 +20,8 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig a() -> Float { failure DivideByZero failure FloatOverflow }
-sig b() -> Float { failure DivideByZero failure FloatOverflow }
+sig a() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig b() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
 func a() { return b() }
 func b() { return div(1.0,0.0) }
 var x: Float = a()

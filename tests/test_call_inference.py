@@ -70,8 +70,8 @@ class CallInferenceTests(unittest.TestCase):
                     self.assertEqual(resolution.type_bindings, {'T': TypeRef('Float')})
                     self.assertEqual(resolution.parameter_types, (TypeRef('Float'),) * 2)
                     self.assertEqual(resolution.implementation, f'core.float.{op}')
-                    self.assertEqual(effect_expr(call, bindings, syms), FLOAT_OVERFLOW)
-                    self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
+                    self.assertEqual(effect_expr(call, bindings, syms), FLOAT_OVERFLOW | (failures(FailureId.FloatUnderflow) if op == "mul" else EMPTY_FAILURES))
+                    self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow' + (', FloatUnderflow' if op == 'mul' else '')])
                     seen = []
                     original = BUILTINS[f'core.float.{op}']
                     def inspect(a, b):
@@ -210,11 +210,11 @@ class CallInferenceTests(unittest.TestCase):
         self.assertEqual(output(checked(source + 'print(f())')[0]), '3.0\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
             checked('sig f() -> Float {}\n' + body)
-        source = 'sig f() -> Float { failure FloatOverflow }\nfunc f() { return add(1,2.0) }\nprint(f())'
+        source = 'sig f() -> Float { failure FloatOverflow failure FloatUnderflow }\nfunc f() { return add(1,2.0) }\nprint(f())'
         self.assertEqual(output(checked(source)[0]), '3.0\n')
 
     def test_local_initializer_preserves_call_type_before_widening(self):
-        source = ('sig f() -> Float { failure IntegerOverflow failure FloatOverflow }\n'
+        source = ('sig f() -> Float { failure IntegerOverflow failure FloatOverflow failure FloatUnderflow }\n'
                   'func f() { var y: Float = add(1,2)\ny = add(1,2.0)\nreturn y }\nprint(f())')
         program, syms, _, _ = self.annotated(source)
         body = syms.funcs['f'].body.stmts
@@ -248,6 +248,6 @@ class CallInferenceTests(unittest.TestCase):
             checked(source.replace('choose(1i64,2.0)', 'choose(1.0,2i64)'))
 
     def test_generic_body_uses_declared_guarantee(self):
-        program, _ = checked('sig twice(T) -> T { require T guarantees Addable failure IntegerOverflow failure FloatOverflow }\n'
+        program, _ = checked('sig twice(T) -> T { require T guarantees Addable failure IntegerOverflow failure FloatOverflow failure FloatUnderflow }\n'
                              'func twice(x: T) { return add(x,x) }\nprint(twice(2))')
         self.assertEqual(output(program), '4\n')

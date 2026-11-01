@@ -1,9 +1,9 @@
-import math
+import re
 from dataclasses import dataclass
 from typing import Dict, Optional
 from .errors import TypecheckError
 from .type_identity import type_identity_key
-from .numeric import can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
+from .numeric import float_value_error, can_widen, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
 from .builtin import builtin_failure_contract
 from .symbols_builder import build_symbols, normalize_types, ResolvedCall, _same_type, signature_contract
 from ginger.core.failure_spec import FailureId, FailureSet, EMPTY_FAILURES, union_failures
@@ -454,8 +454,14 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         return t
 
     if isinstance(expr, FloatLit):
-        if not math.isfinite(expr.value):
+        value_error = float_value_error(expr.value)
+        if value_error == "non_finite":
             raise TypecheckError("Float literal must be finite")
+        # Inspect the significand before conversion: nonzero may round to zero.
+        nonzero_source = (expr.source_text is not None and
+                          any(c in "123456789" for c in re.split("[eE]", expr.source_text)[0]))
+        if expr.value == 0.0 and nonzero_source:
+            raise TypecheckError("Nonzero Float literal must not round to zero")
         
         t = TypeRef("Float")
 

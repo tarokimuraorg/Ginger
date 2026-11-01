@@ -1,0 +1,20 @@
+// Subnormal is a normal Float value; only nonzero results rounded to zero fail.
+// Runtime history: FloatUnderflow x 2, both resolved explicitly.
+// Static warnings: FloatOverflow x 4; FloatOverflow, FloatUnderflow x 1;
+// DivideByZero, FloatOverflow x 1. Warnings are not runtime events.
+print(5e-324)
+print(-5e-324)
+print(mul(5e-324, 1.0))
+print(add(5e-324, 5e-324))
+var a: Float = mul(5e-324, 0.5)
+resolve a {
+    FloatUnderflow { a = 0.0 }
+}
+print(a)
+var b: Float = div(-5e-324, 2.0)
+resolve b {
+    FloatUnderflow { b = -0.0 }
+}
+print(b)
+print(sub(5e-324, 5e-324))
+print(add(0.1, 0.2))

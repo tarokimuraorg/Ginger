@@ -10,7 +10,7 @@ from ginger.core.failure_spec import FailureSet
 from .context import RuntimeContext
 from .failures import RaisedFailure
 from .results import EvalResult, NoValue, Value
-from .value_contract import ValueContractViolation, validate_builtin_return
+from .value_contract import ValueContractViolation, validate_builtin_return, validate_runtime_value
 
 
 def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
@@ -21,8 +21,14 @@ def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
 
     Supplying concrete parameter_types selects the formal extension boundary.
     The evaluator has already validated every argument; omitted metadata keeps
-    the low-level bridge's raw representation for internal callers.
+    the low-level bridge's raw representation for internal callers. Standard
+    Float implementations also reject invalid operands at this raw boundary.
     """
+    if implementation in {f"core.float.{name}" for name in
+                          ("add", "sub", "mul", "div", "neg", "print", "cmp", "eq", "lt")}:
+        for operand in args:
+            validate_runtime_value(operand, TypeRef("Float"), implementation=implementation,
+                                   call_id=call_id, boundary_kind="argument")
     if parameter_types is not None:
         args = [context._issue_thunk_handle(value, typ) if typ.name == 'Thunk' else value
                 for value, typ in zip(args, parameter_types)]

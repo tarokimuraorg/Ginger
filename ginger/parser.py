@@ -596,7 +596,8 @@ class Parser:
         if self.match("INT64"):
             return Int64Lit(int(self.eat("INT64").text[:-3]))
         if self.match("FLOAT"):
-            return FloatLit(float(self.eat("FLOAT").text))
+            text = self.eat("FLOAT").text
+            return FloatLit(float(text), source_text=text)
 
         t = self.cur()
         raise SyntaxError(f"Unexpected token {t.kind}('{t.text}') at {t.pos} in expression")

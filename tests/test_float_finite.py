@@ -25,7 +25,7 @@ from ginger.runtime.value_contract import ValueContractViolation
 from ginger.symbols_builder import build_symbols
 
 
-FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow, FailureId.FloatUnderflow)
 MAX = sys.float_info.max
 
 
@@ -80,7 +80,7 @@ class FloatFiniteTests(unittest.TestCase):
                 checked(f'var x: {typ} = 1e3')
 
     def test_exponent_finite_boundaries_and_underflow(self):
-        for spelling in ['1e308', '1.7976931348623157e308', '1e-3', '1e-10', '5e-324', '1e-400']:
+        for spelling in ['1e308', '1.7976931348623157e308', '1e-3', '1e-10', '2.2250738585072014e-308', '0e-400']:
             with self.subTest(spelling=spelling):
                 self.assertTrue(math.isfinite(float(spelling)))
                 result, _, _ = self.execute(f'var x: Float = {spelling}')
@@ -116,7 +116,7 @@ class FloatFiniteTests(unittest.TestCase):
         for expression in ['+1e3', '1e3 * -1e3', '--1e3']:
             with self.subTest(expression=expression), self.assertRaises(SyntaxError):
                 parse(f'print({expression})')
-        for spelling in ['1e3', '1e-3', '0e0', '1e-400']:
+        for spelling in ['1e3', '1e-3', '0e0', '0e-400']:
             result, _, _ = self.execute(f'var x: Float = (-{spelling})')
             self.assertEqual(result.environment['x'].value, -float(spelling))
             self.assertEqual(math.copysign(1, result.environment['x'].value), -1)
@@ -140,14 +140,14 @@ class FloatFiniteTests(unittest.TestCase):
             'var a: Float = 1e308\nvar x: Float = mul(a,a)\n'
             'resolve x { FloatOverflow { x = 999.0 } }\nprint(x)')
         self.assertEqual(stdout, '999.0\n')
-        self.assertEqual(diagnostics.items, [])
+        self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatUnderflow'])
         event, = result.failure_history
         self.assertEqual(event.failure_id, FailureId.FloatOverflow)
         self.assertEqual(event.status, FailureStatus.RESOLVED)
         self.assertIsNone(result.value_contract_violation)
 
-    def test_finite_literals_include_max_subnormal_and_signed_zero(self):
-        for value in [MAX, -MAX, 5e-324, -5e-324, 0.0, -0.0]:
+    def test_finite_literals_include_max_min_normal_and_signed_zero(self):
+        for value in [MAX, -MAX, sys.float_info.min, -sys.float_info.min, 0.0, -0.0]:
             with self.subTest(value=value):
                 result, diagnostics, _ = self.execute(f'var x: Float = {literal(value)}')
                 actual = result.environment['x'].value
@@ -171,7 +171,7 @@ class FloatFiniteTests(unittest.TestCase):
             self.assertEqual(result.environment['x'].value, 1.0)
 
     def test_custom_nonfinite_return_is_fatal_and_cannot_reach_comparison_or_resolve(self):
-        source = ('sig bad() -> Float { failure FloatOverflow builtin test.bad }\n'
+        source = ('sig bad() -> Float { failure FloatOverflow failure FloatUnderflow builtin test.bad }\n'
                   'var before: Int = 7\nvar x: Float = bad()\n'
                   'resolve x { FloatOverflow { x = 0.0 } }\nprint(cmp(x,1.0))')
         for value in [float('nan'), float('inf'), float('-inf')]:
@@ -200,7 +200,7 @@ class FloatFiniteTests(unittest.TestCase):
         for operation, a, b in [('add', MAX, MAX), ('add', -MAX, -MAX),
                                  ('sub', MAX, -MAX), ('sub', -MAX, MAX),
                                  ('mul', MAX, 2.0), ('mul', -MAX, 2.0),
-                                 ('div', MAX, 5e-324), ('div', -MAX, 5e-324)]:
+                                 ('div', MAX, sys.float_info.min), ('div', -MAX, sys.float_info.min)]:
             with self.subTest(operation=operation, a=a):
                 context = RuntimeContext()
                 frame = context.create_call('test')
@@ -239,18 +239,14 @@ class FloatFiniteTests(unittest.TestCase):
                                            context, frame.call_id, return_type=TypeRef('Float'))
                         self.assertEqual(context.failure_history, ())
 
-    def test_underflow_and_rounding_are_valid(self):
-        for expression, expected in [('mul(' + literal(5e-324) + ',0.5)', 0.0),
-                                     ('mul(' + literal(-5e-324) + ',0.5)', -0.0),
-                                     ('add(0.1,0.2)', 0.1 + 0.2)]:
-            result, _, _ = self.execute(f'var x: Float = {expression}')
-            self.assertEqual(result.environment['x'].value, expected)
-            self.assertEqual(math.copysign(1, result.environment['x'].value), math.copysign(1, expected))
-            self.assertIsNone(result.value_contract_violation)
-            self.assertEqual(result.failure_history, ())
+    def test_rounding_is_unchanged(self):
+        result, _, _ = self.execute('var x: Float = add(0.1,0.2)')
+        self.assertEqual(result.environment['x'].value, 0.1 + 0.2)
+        self.assertNotEqual(result.environment['x'].value, 0.3)
+        self.assertEqual(result.failure_history, ())
 
     def test_neg_and_int_conversions_have_empty_contracts(self):
-        for value in [MAX, -MAX, 5e-324, -0.0]:
+        for value in [MAX, -MAX, sys.float_info.min, -0.0]:
             result, diagnostics, _ = self.execute(f'var x: Float = neg({literal(value)})')
             self.assertEqual(result.environment['x'].value, -value)
             self.assertEqual(diagnostics.items, [])
@@ -277,8 +273,8 @@ class FloatFiniteTests(unittest.TestCase):
 
     def test_direct_alias_does_not_inherit_implementation_contract(self):
         for operation, a, b in [('add', MAX, MAX), ('sub', MAX, -MAX),
-                                 ('mul', MAX, 2.0), ('div', MAX, 5e-324)]:
-            for declaration in ['', 'failure FloatOverflow']:
+                                 ('mul', MAX, 2.0), ('div', MAX, sys.float_info.min)]:
+            for declaration in ['', 'failure FloatOverflow failure FloatUnderflow']:
                 result, _, _ = self.execute(
                     f'sig alias(Float,Float) -> Float {{ {declaration} builtin core.float.{operation} }}\n'
                     f'var x: Float = alias({literal(a)},{literal(b)})')
@@ -293,16 +289,16 @@ class FloatFiniteTests(unittest.TestCase):
         source = (
             'sig inner(U,U) -> U { require U guarantees Addable '
             'failure IntegerOverflow when U guarantees BoundedArithmetic '
-            'failure FloatOverflow when U guarantees FiniteArithmetic }\n'
+            'failure FloatOverflow when U guarantees FiniteArithmetic failure FloatUnderflow when U guarantees FiniteArithmetic }\n'
             'func inner(a: U,b: U) { return force(thunk(add(a,b))) }\n'
             'sig outer(T,T) -> T { require T guarantees Addable '
             'failure IntegerOverflow when T guarantees BoundedArithmetic '
-            'failure FloatOverflow when T guarantees FiniteArithmetic }\n'
+            'failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic }\n'
             'func outer(a: T,b: T) { return inner(a,b) }\n'
             f'var x: Float = outer({literal(MAX)},{literal(MAX)})\n'
             'resolve x { FloatOverflow { x = 0.0 } }\nprint(x)')
         result, diagnostics, stdout = self.execute(source)
-        self.assertEqual(diagnostics.items, [])
+        self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatUnderflow'])
         self.assertEqual(stdout, '0.0\n')
         self.assertIsNone(result.contract_violation)
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
@@ -313,15 +309,15 @@ class FloatFiniteTests(unittest.TestCase):
     def test_generic_body_requires_both_symbolic_clauses(self):
         for clause, missing in [
                 ('failure IntegerOverflow when T guarantees BoundedArithmetic', 'FloatOverflow'),
-                ('failure FloatOverflow when T guarantees FiniteArithmetic', 'IntegerOverflow')]:
+                ('failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic', 'IntegerOverflow')]:
             with self.assertRaisesRegex(TypecheckError, 'undeclared failures: ' + missing):
                 checked(f'sig f(T,T) -> T {{ require T guarantees Addable {clause} }}\n'
                         'func f(a: T,b: T) { return add(a,b) }')
 
     def test_resolve_and_repeated_thunk_force_recover_overflow(self):
         for operation, a, b in [('add', MAX, MAX), ('sub', MAX, -MAX),
-                                 ('mul', MAX, 2.0), ('div', MAX, 5e-324)]:
-            contract = 'FloatOverflow, DivideByZero' if operation == 'div' else 'FloatOverflow'
+                                 ('mul', MAX, 2.0), ('div', MAX, sys.float_info.min)]:
+            contract = 'FloatOverflow, FloatUnderflow, DivideByZero' if operation == 'div' else 'FloatOverflow, FloatUnderflow'
             expression = f'{operation}({literal(a)},{literal(b)})'
             for delayed in [False, True]:
                 prefix = f'var t: Thunk[Float]<{contract}> = thunk({expression})\n' if delayed else ''
@@ -333,7 +329,7 @@ class FloatFiniteTests(unittest.TestCase):
                                  [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
                 self.assertIsInstance(result.environment['y'], UninitializedBinding)
                 if delayed:
-                    expected = FLOAT_OVERFLOW | (failures(FailureId.DivideByZero) if operation == 'div' else EMPTY_FAILURES)
+                    expected = (failures(FailureId.FloatOverflow) if operation in ('add', 'sub') else FLOAT_OVERFLOW) | (failures(FailureId.DivideByZero) if operation == 'div' else EMPTY_FAILURES)
                     self.assertEqual(result.environment['t'].value.potential_failure_contract, expected)
 
 

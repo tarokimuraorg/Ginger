@@ -8,6 +8,7 @@ class FailureId(str, Enum):
     RandomErr = "RandomErr"
     DivideByZero = "DivideByZero"
     FloatOverflow = "FloatOverflow"
+    FloatUnderflow = "FloatUnderflow"
     IntegerOverflow = "IntegerOverflow"
     UnexpectedErr = "UnexpectedErr"
 

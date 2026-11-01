@@ -211,6 +211,7 @@ class Int64Lit:
 @dataclass(frozen=True)
 class FloatLit:
     value: float
+    source_text: str | None = field(default=None, compare=False)
 
 @dataclass(frozen=True)
 class UnaryMinusExpr:

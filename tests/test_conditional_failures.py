@@ -23,6 +23,7 @@ from ginger.typecheck import Binding, effect_expr, symbolic_effect_expr, typeche
 OVERFLOW = failures(FailureId.IntegerOverflow)
 BOUNDED_OVERFLOW = ConditionalFailure(FailureId.IntegerOverflow, 'T', 'BoundedArithmetic')
 FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
+FINITE_UNDERFLOW = ConditionalFailure(FailureId.FloatUnderflow, 'T', 'FiniteArithmetic')
 FINITE_OVERFLOW = ConditionalFailure(FailureId.FloatOverflow, 'T', 'FiniteArithmetic')
 CONDITIONAL_OVERFLOW = FailureContract(EMPTY_FAILURES, frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
 CONDITION = ('failure IntegerOverflow when T guarantees BoundedArithmetic '
@@ -232,7 +233,7 @@ class ConditionalFailureTests(unittest.TestCase):
 
     def test_conditional_declaration_cannot_cover_unconditional_inferred_failure(self):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures.*DivideByZero'):
-            checked('sig risky(T) -> Float { failure DivideByZero when T guarantees BoundedArithmetic failure FloatOverflow }\n'
+            checked('sig risky(T) -> Float { failure DivideByZero when T guarantees BoundedArithmetic failure FloatOverflow failure FloatUnderflow }\n'
                     'func risky(x: T) { return div(1.0,0.0) }')
 
     def test_optional_property_does_not_become_a_call_requirement(self):
@@ -337,17 +338,20 @@ class ConditionalFailureTests(unittest.TestCase):
         for operation in ['add', 'sub', 'mul']:
             with self.subTest(operation=operation):
                 self.assertEqual(syms.sig_failures[operation], EMPTY_FAILURES)
-                self.assertEqual(syms.sig_conditional_failures[operation], frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
+                self.assertEqual(syms.sig_conditional_failures[operation], frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW} | ({FINITE_UNDERFLOW} if operation == "mul" else set())))
 
     def test_standard_explicit_and_infix_arithmetic_share_all_contracts(self):
         operations = [('add', '+', 'Addable', 3), ('sub', '-', 'Subtractable', -1),
                       ('mul', '*', 'Multipliable', 2)]
         for operation, operator, guarantee, expected in operations:
+            condition = CONDITION + (" failure FloatUnderflow when T guarantees FiniteArithmetic" if operation == "mul" else "")
+            symbolic = FailureContract(EMPTY_FAILURES, CONDITIONAL_OVERFLOW.conditional | frozenset({FINITE_UNDERFLOW})) if operation == "mul" else CONDITIONAL_OVERFLOW
+            float_effect = FLOAT_OVERFLOW | (failures(FailureId.FloatUnderflow) if operation == "mul" else EMPTY_FAILURES)
             for body in [f'{operation}(a,b)', f'(a {operator} b)']:
-                source = (f'sig generic(T,T) -> T {{ require T guarantees {guarantee} {CONDITION} }}\n'
+                source = (f'sig generic(T,T) -> T {{ require T guarantees {guarantee} {condition} }}\n'
                           f'func generic(a: T,b: T) {{ return {body} }}\n')
                 for typ, args, effect in [('Int', '1,2', OVERFLOW),
-                                         ('Float', '1.0,2.0', FLOAT_OVERFLOW)]:
+                                         ('Float', '1.0,2.0', float_effect)]:
                     with self.subTest(operation=operation, body=body, typ=typ):
                         program, syms, env, _ = self.annotated(source + f'var x: {typ} = generic({args})')
                         call = syms.funcs['generic'].body.stmts[0].expr
@@ -355,7 +359,7 @@ class ConditionalFailureTests(unittest.TestCase):
                         self.assertEqual(syms.resolved_calls[id(call)].deferred_method, operation)
                         self.assertEqual(symbolic_effect_expr(call, {'a': Binding(TypeRef('T'), False),
                                                                    'b': Binding(TypeRef('T'), False)}, syms),
-                                         CONDITIONAL_OVERFLOW)
+                                         symbolic)
                         self.assertEqual(effect_expr(program.items[-1].expr, env, syms), effect)
                         cell = eval_program(program).environment['x']
                         self.assertEqual(cell.value, expected if typ == 'Int' else float(expected))
@@ -363,7 +367,7 @@ class ConditionalFailureTests(unittest.TestCase):
                 with self.assertRaisesRegex(TypecheckError, 'does not guarantee ' + guarantee):
                     checked(source.replace(f'require T guarantees {guarantee}', ''))
             for typ, left, right, effect in [('Int', '1', '2', OVERFLOW),
-                                           ('Float', '1.0', '2.0', FLOAT_OVERFLOW)]:
+                                           ('Float', '1.0', '2.0', float_effect)]:
                 resolutions = []
                 for expression in [f'{operation}({left},{right})', f'({left} {operator} {right})']:
                     program, syms, env, _ = self.annotated(f'var x: {typ} = {expression}')

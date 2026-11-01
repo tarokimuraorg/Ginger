@@ -10,7 +10,7 @@
 // Expected stdout (ordered):
 // 1
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, IOErr} x 1
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, FloatUnderflow, IOErr} x 1
 // UNHANDLED_FAILURES {IOErr} x 1
 // Expected normal failure:
 // none
@@ -24,7 +24,7 @@ sig notify() -> Unit { failure A failure B failure IOErr }
 @attr.io
 func notify() { print(1) }
 failureset A { IOErr }
-failureset B { IOErr DivideByZero FloatOverflow }
+failureset B { IOErr DivideByZero FloatOverflow FloatUnderflow }
 guarantee Shared {}
 typegroup Shared = Int
 failureset Shared { IOErr }
