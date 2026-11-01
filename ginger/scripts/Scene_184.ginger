@@ -1,0 +1,14 @@
+// FloatUnderflow: resolved x 2; normal zeros and binary64 rounding unchanged.
+// stdout: 0.0, 0.0, 0.0, -0.0, 0.30000000000000004, -0.0
+// warnings: {FloatOverflow} x 2, {FloatOverflow, FloatUnderflow} x 3.
+var x: Float = mul(1e-307,0.01)
+resolve x { FloatUnderflow { x = 0.0 } }
+print(x)
+print(mul(0.0,0.5))
+print(sub(1.0,1.0))
+print(neg(0.0))
+print(add(0.1,0.2))
+var t: Thunk[Float]<FloatOverflow, FloatUnderflow> = thunk(mul(-1e-307,1e-307))
+x = force(t)
+resolve x { FloatUnderflow { x = -0.0 } }
+print(x)

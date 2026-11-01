@@ -18,7 +18,7 @@
 //}
 
 sig f(Float) -> Float {
-    failure FloatOverflow
+    failure FloatOverflow failure FloatUnderflow
 }
 
 func f(x:Float) {

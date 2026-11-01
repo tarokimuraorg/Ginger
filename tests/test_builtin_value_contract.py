@@ -88,8 +88,9 @@ class BuiltinValueContractTests(unittest.TestCase):
     def test_int64_exact_type(self):
         self.rejects('Int64', [True, 1.0, None, IntSubclass(1)], 'wrong_python_type')
 
-    def test_float_finite_only(self):
-        self.accepts('Float', [1.5, 0.0, -0.0, 5e-324, 1.7976931348623157e308])
+    def test_float_normal_or_zero(self):
+        self.rejects('Float', [5e-324, -5e-324], 'subnormal')
+        self.accepts('Float', [1.5, 0.0, -0.0, 2.2250738585072014e-308, 1.7976931348623157e308])
         self.rejects('Float', [float('inf'), float('-inf'), float('nan')], 'non_finite')
         self.rejects('Float', [1, True, None, FloatSubclass(1.5)], 'wrong_python_type')
 
@@ -192,7 +193,7 @@ class BuiltinValueContractTests(unittest.TestCase):
 
     def test_fatal_skips_pending_failure_propagation_and_restores_scope(self):
         source = ('sig bad() -> Int { builtin test.value }\n'
-                  'sig f() -> Int { failure DivideByZero failure FloatOverflow }\n'
+                  'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
                   'func f() { var y: Float = div(1.0,0.0)\nreturn bad() }\n'
                   'var x: Int = f()')
         context = RuntimeContext()

@@ -14,7 +14,7 @@
 // 3.0
 // Expected warnings (static diagnostic count; braces are one diagnostic):
 // UNHANDLED_FAILURES {IntegerOverflow} x 1
-// UNHANDLED_FAILURES {FloatOverflow} x 2
+// UNHANDLED_FAILURES {FloatOverflow, FloatUnderflow} x 2
 // Expected normal failure:
 // IntegerOverflow: resolved x 1
 // Expected fatal:
@@ -25,7 +25,7 @@
 sig addTwo(T, T) -> T {
     require T guarantees Addable
     failure IntegerOverflow when T guarantees BoundedArithmetic
-    failure FloatOverflow when T guarantees FiniteArithmetic
+    failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic
 }
 
 func addTwo(a:T, b:T) {

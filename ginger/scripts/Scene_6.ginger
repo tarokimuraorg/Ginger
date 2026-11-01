@@ -27,7 +27,7 @@
 
 failureset CalculationFailure {
     DivideByZero
-    FloatOverflow
+    FloatOverflow FloatUnderflow
     IOErr
 }
 
@@ -41,6 +41,9 @@ resolve first {
     FloatOverflow {
         first = 1
     }
+    FloatUnderflow {
+        first = 0
+    }
     IOErr {
         first = 2
     }
@@ -48,12 +51,15 @@ resolve first {
 
 print(first)
 
-var t2: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(10.0,2.0))
+var t2: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(10.0,2.0))
 
 var second: Float = force(t2)
 
 resolve second {
     FloatOverflow {
+        second = 0
+    }
+    FloatUnderflow {
         second = 0
     }
     DivideByZero {

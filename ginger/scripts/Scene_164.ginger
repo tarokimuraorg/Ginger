@@ -5,7 +5,7 @@
 // Expected stdout (ordered):
 // 3
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, FloatUnderflow} x 1
 // Expected normal failure:
 // DivideByZero: unresolved x 1
 // Expected fatal:
@@ -13,8 +13,8 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig f() -> Int { failure DivideByZero failure FloatOverflow }
+sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
 func f() { print(div(1.0,0.0)) return 3 }
-var t: Thunk[Int]<DivideByZero, FloatOverflow> = thunk(f())
+var t: Thunk[Int]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(f())
 var x: Int = force(t)
 print(x)

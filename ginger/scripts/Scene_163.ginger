@@ -5,7 +5,7 @@
 // Expected stdout (ordered):
 // 8
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {FloatOverflow, IOErr} x 1
+// UNHANDLED_FAILURES {FloatOverflow, FloatUnderflow, IOErr} x 1
 // Expected normal failure:
 // DivideByZero: resolved x 1
 // Expected fatal:
@@ -15,6 +15,6 @@
 
 sig h(Float) -> Unit { failure IOErr }
 func h(x: Float) {}
-var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))
+var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
 var x: Unit = h(force(t))
 resolve x { DivideByZero { x = print(8) } }

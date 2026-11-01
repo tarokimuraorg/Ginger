@@ -17,7 +17,7 @@ from ginger.typecheck import effect_expr, typecheck_program
 
 
 OVERFLOW = failures(FailureId.IntegerOverflow)
-FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
+FLOAT_OVERFLOW = failures(FailureId.FloatOverflow, FailureId.FloatUnderflow)
 # Concrete parameter boundaries already support these calls. ReturnStmt itself
 # must never provide a type argument to a generic call.
 INT_IDENTITY = 'sig keepInt(Int) -> Int {}\nfunc keepInt(x: Int) { return x }\n'
@@ -117,9 +117,9 @@ class IntegerOverflowTests(unittest.TestCase):
 
     def test_float_runtime_effect_and_resolve_eligibility(self):
         for op, result in [('add', 3.0), ('sub', -1.0), ('mul', 2.0)]:
-            source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure FloatOverflow }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
+            source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure FloatOverflow failure FloatUnderflow }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
             program, diags = checked(source + 'var x: Float = f(1.0)')
-            self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
+            self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
             self.assertEqual(eval_program(program).environment['x'].value, result)
             with self.assertRaisesRegex(TypecheckError, 'latest write.*no declared or inferred'):
                 checked(source + 'var result: Float = f(1.0)\n'
@@ -192,7 +192,7 @@ class IntegerOverflowTests(unittest.TestCase):
         program, diags = checked(identity + prefix +
                                  'var x: Float = identity(add(toFloat(force(t)),2.0))\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(8) } }')
-        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
+        self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '8\n')
 
     def test_failed_initialization_and_assignment_do_not_store_result(self):
@@ -227,7 +227,7 @@ class IntegerOverflowTests(unittest.TestCase):
         for typ, arg in [('Int', '1'), ('Float', '1.0')]:
             for op in ['add', 'sub', 'mul', 'neg']:
                 args = arg if op == 'neg' else f'{arg},{arg}'
-                source = (f'sig f() -> {typ} {{ failure IntegerOverflow failure FloatOverflow }}\n'
+                source = (f'sig f() -> {typ} {{ failure IntegerOverflow failure FloatOverflow failure FloatUnderflow }}\n'
                           f'func f() {{ return {op}({args}) }}')
                 with self.subTest(typ=typ, op=op):
                     checked(source)

@@ -62,3 +62,6 @@ print(slope(1,1))
 
 // slope(a,b)の時、 a > b => Falling
 print(slope(2,1))
+
+print(eq(0.99999999999999999, 1.0))
+print(eq(0.9999999999999999, 1.0))

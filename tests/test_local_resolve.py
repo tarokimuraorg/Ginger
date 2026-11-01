@@ -57,7 +57,7 @@ class LocalResolveTests(unittest.TestCase):
 
     def test_partial_handler(self):
         body = 'var y: Float = div(1.0,0.0)\nresolve y { DivideByZero { y = 0.0 } }\nreturn y'
-        checked(self.program(body, 'FloatOverflow', 'Float'))
+        checked(self.program(body, 'FloatOverflow failure FloatUnderflow', 'Float'))
         with self.assertRaisesRegex(TypecheckError, 'FloatOverflow'):
             checked(self.program(body, 'Never', 'Float'))
 
@@ -146,17 +146,17 @@ class LocalResolveTests(unittest.TestCase):
     def test_generic_conditional_failures_recovered(self):
         source = ('sig safe(T,T) -> T { require T guarantees Addable failure Never }\n'
                   'func safe(a: T,b: T) { var y: T = a + b\n'
-                  'resolve y { IntegerOverflow { y = a }\nFloatOverflow { y = b } }\nreturn y }\n')
+                  'resolve y { IntegerOverflow { y = a }\nFloatOverflow { y = b } FloatUnderflow { y = a } }\nreturn y }\n')
         result, stdout = self.public_result(source + 'print(safe(9007199254740991,1))\nprint(safe(1e308,1e308))')
         self.assertEqual(stdout, '9007199254740991\n1e+308\n')
         self.assertFalse(result.unresolved_events)
 
     def test_failureset_is_individual_events(self):
-        source = ('failureset Arithmetic { DivideByZero FloatOverflow }\n'
+        source = ('failureset Arithmetic { DivideByZero FloatOverflow FloatUnderflow }\n'
                   'sig quotient() -> Float { failure Arithmetic }\n'
                   'func quotient() { return div(1.0,0.0) }\n')
         result, stdout = self.public_result(source + self.program('var y: Float = quotient()\n'
-            'resolve y { DivideByZero { y = 0.0 }\nFloatOverflow { y = 1.0 } }\nreturn y', ret='Float') +
+            'resolve y { DivideByZero { y = 0.0 }\nFloatOverflow { y = 1.0 } FloatUnderflow { y = 0.0 } }\nreturn y', ret='Float') +
             'print(f(1))')
         self.assertEqual(stdout, '0.0\n')
         self.assertFalse(result.unresolved_events)
@@ -164,7 +164,7 @@ class LocalResolveTests(unittest.TestCase):
     def test_handler_independent_failure_remains_outward(self):
         body = ('var y: Int = x + 1\nresolve y { IntegerOverflow {\n'
                 'print(div(1.0,0.0))\ny = 888 } }\nreturn y')
-        checked(self.program(body, 'DivideByZero failure FloatOverflow'))
+        checked(self.program(body, 'DivideByZero failure FloatOverflow failure FloatUnderflow'))
         with self.assertRaisesRegex(TypecheckError, 'DivideByZero'):
             checked(self.program(body))
 
@@ -181,12 +181,12 @@ class LocalResolveTests(unittest.TestCase):
         self.assertEqual(len(result.unresolved_events), 1)
 
     def test_assignment_cause_excludes_callee_pending(self):
-        prefix = ('sig pending() -> Int { failure DivideByZero failure FloatOverflow }\n'
+        prefix = ('sig pending() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
                   'func pending() { print(div(1.0,0.0))\nreturn 3 }\n')
         body = ('var y: Int = 123\ny = add(pending(),add(x,1))\n'
                 'resolve y { DivideByZero { y = 999 }\nIntegerOverflow { y = 888 } }\nreturn y')
         result, stdout = self.public_result(prefix + self.program(body,
-            'DivideByZero failure FloatOverflow failure IntegerOverflow') + 'print(f(9007199254740991))')
+            'DivideByZero failure FloatOverflow failure FloatUnderflow failure IntegerOverflow') + 'print(f(9007199254740991))')
         self.assertEqual(stdout, '888\n')
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])

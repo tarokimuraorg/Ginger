@@ -6,7 +6,7 @@
 // Expected stdout (ordered):
 // (empty)
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {DivideByZero, FloatOverflow} x 1
+// UNHANDLED_FAILURES {DivideByZero, FloatOverflow, FloatUnderflow} x 1
 // Expected normal failure:
 // DivideByZero: unresolved x 1 before fatal (no ExecutionResult is returned)
 // Expected fatal:

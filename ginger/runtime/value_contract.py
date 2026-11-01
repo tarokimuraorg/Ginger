@@ -1,11 +1,10 @@
 """Public runtime value contracts; open-world payloads remain opaque."""
 
-import math
 from dataclasses import dataclass
 
 from ginger.ast import TypeRef
 from .thunk import ThunkValue
-from ginger.numeric import INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
+from ginger.numeric import float_value_error, INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
 
 
 def safe_value_repr(value):
@@ -82,8 +81,8 @@ def validate_runtime_value(value, return_type: TypeRef, *, implementation, call_
         expected = {'Float': float, 'Bool': bool, 'Unit': type(None)}[return_type.name]
         if type(value) is not expected:
             reason = 'wrong_python_type'
-        elif return_type == TypeRef('Float') and not math.isfinite(value):
-            reason = 'non_finite'
+        elif return_type == TypeRef('Float'):
+            reason = float_value_error(value)
     elif return_type in (TypeRef('Ordering'), TypeRef('Slope')):
         if type(value) is not tuple:
             reason = 'wrong_python_type'

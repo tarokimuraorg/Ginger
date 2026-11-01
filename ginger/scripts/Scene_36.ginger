@@ -7,7 +7,7 @@
 // Expected stdout (ordered):
 // 3.0
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {FloatOverflow, IntegerOverflow} x 1
+// UNHANDLED_FAILURES {FloatOverflow, FloatUnderflow, IntegerOverflow} x 1
 // Expected normal failure:
 // none
 // Expected fatal:
@@ -18,7 +18,7 @@
 sig addBoth(T,T) -> T {
     require T guarantees Addable
     failure IntegerOverflow
-    failure FloatOverflow
+    failure FloatOverflow failure FloatUnderflow
 }
 func addBoth(a: T,b: T) { return a + b }
 print(addBoth(1.0,2.0))

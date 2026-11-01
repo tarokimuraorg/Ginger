@@ -20,7 +20,7 @@
 
 failureset CalculationFailure {
     DivideByZero
-    FloatOverflow
+    FloatOverflow FloatUnderflow
     IOErr
 }
 
@@ -45,6 +45,9 @@ resolve result {
     FloatOverflow {
         result = 1
     }
+    FloatUnderflow {
+        result = 0
+    }
     IOErr {
         result = 2
     }
@@ -63,6 +66,9 @@ resolve result {
     }
     FloatOverflow {
         result = 1
+    }
+    FloatUnderflow {
+        result = 0
     }
     IOErr {
         result = 2

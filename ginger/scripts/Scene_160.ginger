@@ -21,7 +21,7 @@ sig alias(Int,Int) -> Int { failure IntegerOverflow builtin core.int.add }
 var x: Int = alias(9007199254740991,1)
 resolve x { IntegerOverflow { x = 7 } }
 print(x)
-sig real(Float,Float) -> Float { failure DivideByZero failure FloatOverflow builtin core.float.div }
+sig real(Float,Float) -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow builtin core.float.div }
 var y: Float = real(1.0,0.0)
 resolve y { DivideByZero { y = 8 } FloatOverflow { y = 99 } }
 print(y)

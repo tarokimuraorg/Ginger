@@ -54,7 +54,7 @@ class ThunkValueContractTests(unittest.TestCase):
                 ('Calculation', overflow, True),
                 ('Never', overflow, False), ('FloatOverflow', divide, False)]:
             with self.subTest(public=public, saved=saved):
-                source = 'failureset Calculation { FloatOverflow DivideByZero }\n'
+                source = 'failureset Calculation { FloatOverflow FloatUnderflow DivideByZero }\n'
                 source += self.source(contract=public, tail=f'var t: Thunk[Float]<{public}> = make()')
                 result = self.run_source(source, self.thunk(1.0, saved))
                 self.assertEqual(result.value_contract_violation is None, valid)
@@ -129,7 +129,8 @@ class ThunkValueContractTests(unittest.TestCase):
                    'func use(t: Thunk[T]<Never>) { return force(t) }\n')
         for typ, value, valid in [('Int', 1, True), ('Float', 1.0, True),
                                    ('Int', 1.0, False), ('Float', 1, False),
-                                   ('Float', float('nan'), False)]:
+                                   ('Float', float('nan'), False), ('Float', 5e-324, False),
+                                   ('Float', -5e-324, False)]:
             with self.subTest(typ=typ, value=value):
                 result = self.run_source(generic + self.source(typ, tail=f'var x: {typ} = use(make())'),
                                          self.thunk(value))
@@ -168,7 +169,7 @@ class ThunkValueContractTests(unittest.TestCase):
     def test_standard_thunk_success_and_no_value(self):
         for expr in ['1.5', 'div(1.0, 0.0)']:
             result = evaluator.eval_program(lower_program(parse(
-                f'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk({expr})\n'
+                f'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk({expr})\n'
                 'var x: Float = force(t)')))
             self.assertIsNone(result.value_contract_violation)
             self.assertIsNone(result.contract_violation)
@@ -190,7 +191,7 @@ class ThunkValueContractTests(unittest.TestCase):
 
         with patch('ginger.eval.expression_type', side_effect=narrow_public):
             result = evaluator.eval_program(lower_program(parse(
-                'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0, 0.0))\n'
+                'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0, 0.0))\n'
                 'var x: Float = force(t)')))
         self.assertIsNone(result.contract_violation)
         self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')

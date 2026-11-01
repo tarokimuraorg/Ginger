@@ -17,7 +17,7 @@ from test_failure_contract import checked, recorded
 
 OVERFLOW = 'var x: Int = add(9007199254740991,1)\n'
 DIVISION = 'var x: Float = div(1.0,0.0)\n'
-THREE_FAILURES = ('sig risky() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow }\n'
+THREE_FAILURES = ('sig risky() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
                 'func risky() { return div(1.0,0.0) }\n'
                 'var x: Float = risky()\n')
 
@@ -81,7 +81,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_initialized_unit_value_with_pending_failure_is_no_op(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Unit { failure DivideByZero failure FloatOverflow }\n'
+            'sig f() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
             'func f() { print(div(1.0,0.0)) }\nvar x: Unit = f()\n'
             'resolve x { DivideByZero { x = print(999) } }\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -143,7 +143,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(context.unresolved_pending(1), (1,))
 
     def test_failed_return_cause_excludes_earlier_failed_statement(self):
-        prefix = ('sig f() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow }\n'
+        prefix = ('sig f() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
                   'func f() { print(add(9007199254740991,1))\nreturn div(1.0,0.0) }\n'
                   'var x: Float = f()\n')
         env, _, _ = self.run_source(prefix)
@@ -157,7 +157,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, (result.failure_history[0],))
 
     def test_failed_argument_cause_excludes_successful_argument_pending_events(self):
-        prefix = ('sig f() -> Int { failure DivideByZero failure FloatOverflow }\n'
+        prefix = ('sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
                   'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
                   'var x: Int = add(f(),add(9007199254740991,1))\n')
         env, _, _ = self.run_source(prefix)
@@ -264,13 +264,13 @@ class ResolveTests(unittest.TestCase):
     def test_partial_resolve_leaves_only_other_initializer_warning(self):
         self.assertEqual(self.warning_messages(THREE_FAILURES +
             'resolve x { IntegerOverflow { x = 0 } }'),
-            ['unhandled failures: DivideByZero, FloatOverflow'])
+            ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow'])
 
     def test_multiple_resolve_statements_combine_initializer_coverage(self):
         self.assertEqual(self.warning_messages(THREE_FAILURES +
             'resolve x { IntegerOverflow { x = 0 } }\n'
             'resolve x { DivideByZero { x = 1 } }\n'
-            'resolve x { FloatOverflow { x = 2 } }'), [])
+            'resolve x { FloatOverflow { x = 2 } FloatUnderflow { x = 0 } }'), [])
 
     def test_resolve_warning_removal_is_limited_to_target_binding(self):
         self.assertEqual(self.warning_messages(OVERFLOW +
@@ -294,7 +294,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(self.warning_messages(THREE_FAILURES +
             'resolve x { IntegerOverflow { print(div(2.0,0.0))\nx = 0 }\n'
             'DivideByZero { print(add(9007199254740991,1))\nx = 1 } }'),
-            ['unhandled failures: FloatOverflow', 'unhandled failures: DivideByZero, FloatOverflow',
+            ['unhandled failures: FloatOverflow, FloatUnderflow', 'unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow',
              'unhandled failures: IntegerOverflow'])
 
     def test_handler_new_failure_keeps_original_unresolved_and_records_cause(self):
@@ -353,19 +353,19 @@ class ResolveTests(unittest.TestCase):
 
     def test_force_failure_can_be_resolved_from_initializer_binding(self):
         result, stdout = self.public_result(
-            'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
+            'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nresolve x { DivideByZero { x = 0 } }\nprint(x)')
         self.assertEqual(stdout, '0.0\n')
         self.assertEqual(result.environment['x'].value, 0.0)
         self.assertIsInstance(result.environment['t'].value, ThunkValue)
         self.assertEqual(result.environment['t'].value.potential_failure_contract,
-                         frozenset({FailureId.DivideByZero, FailureId.FloatOverflow}))
+                         frozenset({FailureId.DivideByZero, FailureId.FloatOverflow, FailureId.FloatUnderflow}))
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(result.unresolved_events, ())
 
     def test_repeated_force_produces_distinct_binding_causes(self):
         result, _ = self.public_result(
-            'var t: Thunk[Float]<DivideByZero, FloatOverflow> = thunk(div(1.0,0.0))\n'
+            'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nvar y: Float = force(t)\n'
             'resolve x { DivideByZero { x = 0 } }')
         self.assertEqual([e.event_id for e in result.failure_history], [1, 2])
@@ -499,7 +499,7 @@ class LatestWriteTests(unittest.TestCase):
         self.assertEqual(stdout, '2.0\n')
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])
-        self.assertEqual(self.warning_messages(source), ['unhandled failures: FloatOverflow'] * 2)
+        self.assertEqual(self.warning_messages(source), ['unhandled failures: FloatOverflow, FloatUnderflow'] * 2)
 
     def test_same_failure_events_and_warnings_are_separate(self):
         source = ('var x: Int = 1\nx = add(9007199254740991,1)\n'
@@ -564,7 +564,7 @@ class LatestWriteTests(unittest.TestCase):
         self.assertEqual([e.status for e in result.failure_history], [FailureStatus.UNRESOLVED] * 2)
 
     def test_argument_and_callee_failures_on_reassignment(self):
-        prefix = ('sig calculate(Float, Float) -> Float { failure DivideByZero failure FloatOverflow }\n'
+        prefix = ('sig calculate(Float, Float) -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
                   'func calculate(a: Float, b: Float) { print(77)\nreturn div(a,b) }\n'
                   'var x: Float = 10.0\n')
         for expr, failure, expected in [('calculate(mul(1e308,1e308),1)', 'FloatOverflow', '1.0\n'),
@@ -578,7 +578,7 @@ class LatestWriteTests(unittest.TestCase):
 
     def test_assignment_direct_cause_excludes_pending_events(self):
         result, stdout = self.public_result(
-            'sig f() -> Int { failure DivideByZero failure FloatOverflow }\n'
+            'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
             'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
             'var x: Int = 10\nx = add(f(),add(9007199254740991,1))\n'
             'resolve x { DivideByZero { x = 9\nprint(999) }\n'
@@ -612,14 +612,17 @@ class LatestWriteTests(unittest.TestCase):
         self.assertEqual(stdout, '2.0\n')
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])
-        self.assertEqual(self.warning_messages(source), [])
+        self.assertEqual(self.warning_messages(source), ['unhandled failures: FloatUnderflow'] * 2)
 
 
     def test_intermediate_handler_write_warning_survives(self):
         source = ('var x: Float = div(1.0,0.0)\n'
                   'resolve x { DivideByZero { x = mul(1e308,1e308)\nx = div(1.0,0.0) } }\n'
                   'resolve x { DivideByZero { x = 1 }\nFloatOverflow { x = 2 } }')
-        self.assertEqual(self.warning_messages(source), ['unhandled failures: FloatOverflow'])
+        self.assertEqual(self.warning_messages(source), [
+            'unhandled failures: FloatUnderflow',
+            'unhandled failures: FloatOverflow, FloatUnderflow',
+            'unhandled failures: FloatUnderflow'])
 
     def test_call_local_same_name_does_not_replace_root_write(self):
         result, stdout = self.public_result(

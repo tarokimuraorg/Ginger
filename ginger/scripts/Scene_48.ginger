@@ -14,7 +14,7 @@
 // 7
 // 8.0
 // Expected warnings (static diagnostic count; braces are one diagnostic):
-// UNHANDLED_FAILURES {FloatOverflow, IntegerOverflow} x 2
+// UNHANDLED_FAILURES {FloatOverflow, FloatUnderflow, IntegerOverflow} x 2
 // Expected normal failure:
 // IntegerOverflow: resolved x 1
 // FloatOverflow: resolved x 1
@@ -23,13 +23,13 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow> { require T guarantees Addable }
+sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow, FloatUnderflow> { require T guarantees Addable }
 func delayed(a: T,b: T) { return thunk(a + b) }
 print(force(delayed(1,2)))
 print(force(delayed(1.0,2.0)))
-sig inner(U,U) -> U { require U guarantees Addable failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic }
+sig inner(U,U) -> U { require U guarantees Addable failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic failure FloatUnderflow when U guarantees FiniteArithmetic }
 func inner(a: U,b: U) { return force(thunk(add(a,b))) }
-sig outer(T,T) -> T { require T guarantees Addable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic }
+sig outer(T,T) -> T { require T guarantees Addable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic }
 func outer(a: T,b: T) { return inner(a,b) }
 var i: Int = outer(9007199254740991,1)
 resolve i { IntegerOverflow { i = 7 } }

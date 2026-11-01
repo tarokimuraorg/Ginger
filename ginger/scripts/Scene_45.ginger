@@ -31,8 +31,8 @@ func unwrap(t: Thunk[T]<Never>) { return force(t) }
 print(unwrap(unwrap(capture(1))))
 print(unwrap(unwrap(capture(2.0))))
 print(unwrap(unwrap(capture(3i64))))
-var outer: Thunk[Thunk[Float]<DivideByZero, FloatOverflow>]<Never> = thunk(thunk(div(1.0,0.0)))
-var inner: Thunk[Float]<DivideByZero, FloatOverflow> = force(outer)
+var outer: Thunk[Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>]<Never> = thunk(thunk(div(1.0,0.0)))
+var inner: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = force(outer)
 print(4)
 var x: Float = force(inner)
 resolve x { DivideByZero { x = 5 } FloatOverflow { x = 99 } }
