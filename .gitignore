@@ -1,1 +1,13 @@
 .DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Python packaging
+*.egg-info/
+build/
+dist/
