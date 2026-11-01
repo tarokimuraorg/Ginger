@@ -63,5 +63,8 @@ print(slope(1,1))
 // slope(a,b)の時、 a > b => Falling
 print(slope(2,1))
 
+// Float有限精度範囲外のため、true
 print(eq(0.99999999999999999, 1.0))
+
+// Floatの有限精度範囲内のため、false
 print(eq(0.9999999999999999, 1.0))
