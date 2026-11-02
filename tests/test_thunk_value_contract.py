@@ -8,7 +8,7 @@ from ginger.builtin import BUILTINS, call_builtin
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.lower import lower_program
 from ginger.numeric import INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.thunk import ThunkValue
 
 

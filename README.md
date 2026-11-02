@@ -52,12 +52,18 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Int / Float | 数値リテラル、加減乗算、Float 除算、`neg`、`toFloat` |
 | Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
-| `guarantee` / `impl` | メソッドの宣言、型への保証登録、builtin への対応付け |
+| `guarantee` | 型に要求する保証とメソッドの宣言 |
 | `register` | メソッドを持たない guarantee への型の登録 |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
 | `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
+
+### ソースと内部 builtin の境界
+
+`builtin` は処理系内部専用で、Ginger ソースから直接指定できません。`sig` 内の `builtin` 節、および現在 builtin 対応付けのみを扱う `impl` 宣言は、実行前の構文解析で拒否します。`guarantee`、`register`、`require` と builtin 指定のない `sig` は引き続き利用できます。ユーザー定義 impl の将来の仕様は未決定です。
+
+JSON catalog の guarantees / registers / impls / sigs と builtin ID は維持し、標準演算・型推論・generic dispatch・failure 契約は従来どおり機能します。catalog loader と内部生成 AST は共通の宣言登録・検証経路を利用します。Python からの AST 直接構築や宣言登録 API は信頼された処理系内部の入口であり、ソースの禁止規則の対象ではありません。以下の custom builtin / 独自 builtin sig / impl に関する記述も、この内部機構の契約を説明するもので、Ginger の公開構文や builtin ID の公開 API を定めるものではありません。
 
 ## 型・変数・式
 
@@ -141,7 +147,7 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 | 独自 builtin sig / impl | argument / return 境界で標準型の representation / 値域を検証。不正な値は ValueContractViolation |
 | Python API の直接呼び出し | Cell / 外部 environment の注入などは全面検証しない |
 
-独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装の alias も、add / sub は FloatOverflow、mul / div は FloatOverflow / FloatUnderflow、div はさらに DivideByZero の宣言を自身で持つ必要があります。
+内部 catalog / AST で構築した独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装の alias も、add / sub は FloatOverflow、mul / div は FloatOverflow / FloatUnderflow、div はさらに DivideByZero の宣言を自身で持つ必要があります。
 
 builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限であること、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。subnormal は builtin / custom builtin 戻り値、初期化・再代入・読み出し、関数引数・戻り値、Thunk / force、外部実行 API の各境界で正常値です。ValueContractViolation は fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
@@ -229,14 +235,14 @@ Type identity は **name + recursive type arguments** です。`Box[Int] ≠ Box
 
 TypeRef は open-world です。canonical type registry による型名の存在検査はなく、`MissingType` や `Box[MissingType]` も unknown type としては拒否しません。これは型のコンストラクタや値の生成機能を提供するという意味ではありません。
 
-`impl` target・`register` target・`typegroup` member は **concrete identity position** です。ここで concrete identity は、symbolic type variable または contextual `Self` を再帰的な型引数にも含まない TypeRef を指します。
+内部 catalog / AST の `impl` target と、ソースでも利用できる `register` target・`typegroup` member は **concrete identity position** です。ここで concrete identity は、symbolic type variable または contextual `Self` を再帰的な型引数にも含まない TypeRef を指します。
 
 | identity の例 | 上記3か所での使用 |
 |---|---|
 | `Box[Int]`、`Box[Float]`、`Box[MissingType]`、`Pair[Int, Float]` | 合法 |
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
-`impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register Box[T] guarantees G`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
+内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register Box[T] guarantees G`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
 
 ### Cell / ThunkValue の shallow immutability（Phase 3B）
 

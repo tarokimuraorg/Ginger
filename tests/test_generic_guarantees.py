@@ -10,7 +10,7 @@ from ginger.core.failure_spec import FailureId, EMPTY_FAILURES, failures
 from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_block, eval_program
-from ginger.pipeline import run
+from internal_declarations import run
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.typecheck import Binding, effect_expr, typecheck_program
 

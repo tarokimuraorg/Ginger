@@ -9,7 +9,7 @@ import ginger.eval as evaluator
 from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.main import main
-from ginger.pipeline import run, execute, compile
+from internal_declarations import run, execute, compile
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.failures import FailureStatus, FailureContractViolation
 from ginger.runtime.results import ExecutionResult

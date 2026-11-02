@@ -9,7 +9,7 @@ from ginger.builtin import BUILTINS, call_builtin
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.extension import ThunkHandle
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.thunk import ThunkValue
 from ginger.runtime.failures import RaisedFailure

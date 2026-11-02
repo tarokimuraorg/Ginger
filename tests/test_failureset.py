@@ -9,7 +9,7 @@ from ginger.core.catalog_loader import load_core_catalog_json
 from ginger.core.failure_spec import FailureId
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.symbols_builder import build_symbols
 from test_failure_contract import checked, output
 

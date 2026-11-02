@@ -9,7 +9,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import EvalError, TypecheckError
 from ginger.eval import eval_program
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.symbols_builder import build_symbols, normalize_types, _same_type
 from ginger.type_identity import type_identity_key
 from ginger.typecheck import collect_type_evidence, effect_expr, typecheck_program

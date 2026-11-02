@@ -5,8 +5,8 @@ from ginger.ast import TypeRef
 from ginger.builtin import BUILTINS
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
-from ginger.pipeline import compile
+from internal_declarations import parse
+from internal_declarations import compile
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.type_identity import type_identity_key
 from test_parameterized_type_identity import annotated

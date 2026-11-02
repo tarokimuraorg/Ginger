@@ -11,7 +11,7 @@ from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import FailureId
 from ginger.lower import lower_program
 from ginger.numeric import INT_MAX
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.results import NoValue
 
 

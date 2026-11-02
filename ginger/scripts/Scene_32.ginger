@@ -17,13 +17,24 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-guarantee Opposite { flip(self: Self) -> Self }
-impl Int guarantees Opposite { flip = builtin core.int.neg }
-impl Float guarantees Opposite { flip = builtin core.float.neg }
-sig flip(T) -> T { require T guarantees Opposite }
-sig relay(U) -> U { require U guarantees Opposite }
-func relay(x: U) { return flip(x) }
+// builtinは処理系内部専用
+//guarantee Opposite { flip(self: Self) -> Self } 
+//impl Int guarantees Opposite { flip = builtin core.int.neg }
+//impl Float guarantees Opposite { flip = builtin core.float.neg }
+
+sig flip(T) -> T { require T guarantees Negatable }
+
+func flip(a: T) {
+    return -a
+}
+
 print(flip(2))
-print(relay(3))
 print(flip(2.5))
+
+sig relay(U) -> U { require U guarantees Negatable }
+func relay(x: U) { return neg(x) }
+
+print(relay(3))
 print(relay(3.5))
+
+print(add(1,2))

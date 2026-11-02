@@ -12,7 +12,7 @@ from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, failures
 from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.tokenizer import tokenize
 from ginger.typecheck import typecheck_program
 from ginger.eval import UninitializedBinding, eval_program

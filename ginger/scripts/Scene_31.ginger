@@ -19,7 +19,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig opposite(T) -> T { require T guarantees Negatable }
-func opposite(x: T) { return (-x) }
+func opposite(x: T) { return -x }
 sig show(T) -> Unit { require T guarantees Printable }
 func show(x: T) { print(x) }
 show(opposite(1))

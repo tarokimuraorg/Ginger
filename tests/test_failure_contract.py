@@ -14,7 +14,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.failures import RaisedFailure
 from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program

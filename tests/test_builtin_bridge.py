@@ -9,7 +9,7 @@ from ginger.builtin import BUILTINS, builtin_failure_contract, call_builtin
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId, failures
 from ginger.lower import lower_program
 from ginger.numeric import INT_MAX
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.builtin_bridge import invoke_builtin
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure

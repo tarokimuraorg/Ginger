@@ -9,7 +9,7 @@ from ginger.ast import IdentExpr, TypeRef
 from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.eval import Cell, FunctionEnv
-from ginger.pipeline import run
+from internal_declarations import run
 from ginger.runtime.thunk import ThunkValue
 
 

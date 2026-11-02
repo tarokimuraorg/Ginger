@@ -299,9 +299,15 @@ class Parser:
         gname = self.eat("IDENT").text
         return RegisterDecl(typ=typ, guarantee=gname)
 
+    def reject_source_builtin(self) -> None:
+        raise SyntaxError("builtin is internal to the Ginger implementation; "
+                          "Ginger source cannot declare builtin bindings")
+
     # ---- impl ----
 
     def parse_impl(self) -> ImplDecl:
+        self.reject_source_builtin()
+        # Retained for internal AST fixtures; source impl currently only maps builtins.
         # impl Int guarantees Addable { add = builtin core.int.add }
         self.eat("KW", "impl")
         typ = self.parse_type()
@@ -385,6 +391,7 @@ class Parser:
                 continue
 
             if self.match("KW", "builtin"):
+                self.reject_source_builtin()
 
                 self.eat("KW", "builtin")
 

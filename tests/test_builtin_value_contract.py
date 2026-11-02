@@ -11,7 +11,7 @@ from ginger.core.failure_spec import EMPTY_FAILURES
 from ginger.lower import lower_program
 from ginger.main import report_result
 from ginger.numeric import INT_MIN, INT_MAX, INT64_MIN, INT64_MAX
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.builtin_bridge import invoke_builtin
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.results import ExecutionResult, NoValue, Value
