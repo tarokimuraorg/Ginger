@@ -79,7 +79,7 @@ class GuaranteeMethodArityTests(unittest.TestCase):
             'guarantee G { op(self: Self, other: Self) -> Self }\n'
             'guarantee H {}\n'
             'impl Int guarantees G { op = builtin test.op }\n'
-            'register Int guarantees H\n'
+            'register H { Int }\n'
             'sig op(T) -> T { require T guarantees G require T guarantees H }\n')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: a + b}):
             compile(source)

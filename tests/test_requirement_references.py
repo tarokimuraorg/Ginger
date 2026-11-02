@@ -87,7 +87,7 @@ class RequirementReferenceTests(unittest.TestCase):
                     'func op(x: T) { return x }', diagnostic)
 
     def test_user_function_with_valid_requirement(self):
-        source = ('guarantee G {}\nregister Int guarantees G\n'
+        source = ('guarantee G {}\nregister G { Int }\n'
                   'sig op(T) -> T { require T guarantees G }\n'
                   'func op(x: T) { return x }\n')
         compile(source)

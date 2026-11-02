@@ -18,12 +18,16 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 guarantee TaggedFailure {}
-register Float guarantees TaggedFailure
+register TaggedFailure { Float }
+
 sig marked(T) -> T { failure IOErr when T guarantees TaggedFailure }
 func marked(x: T) { return x }
+
 print(marked(1))
 print(marked(1.0))
+
 sig optional(T) -> T { failure IOErr when T guarantees BoundedArithmetic }
 func optional(x: T) { return x }
+
 print(optional(2.0))
 print(optional(2))

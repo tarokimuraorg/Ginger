@@ -40,7 +40,7 @@ def annotated(source):
 
 
 def normalized_type(spelling):
-    typ = parse(f'register {spelling} guarantees Marker').items[0].typ
+    typ = parse(f'register Marker {{ {spelling} }}').items[0].typ
     return normalize_types(typ, {})
 
 
@@ -68,7 +68,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
 
     def test_parser_and_lowering_preserve_targets(self):
         source = (implementation('Box[Int]') +
-                  'register Box[Float] guarantees Marker\n'
+                  'register Marker { Box[Float] }\n'
                   'typegroup Boxes = Box[Int] | Box[Float]')
         parsed = parse(source)
         lowered = lower_program(parsed)
@@ -154,7 +154,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         self.assertEqual(self.seen, [])
 
     def test_register_isolation(self):
-        prefix = ('guarantee Marker {}\nregister Box[Int] guarantees Marker\n'
+        prefix = ('guarantee Marker {}\nregister Marker { Box[Int] }\n'
                   'sig take(T) -> T { require T guarantees Marker }\n'
                   'func take(x: T) { return x }\n')
         program, _, _ = annotated(prefix + use('Box[Int]', 'take'))
@@ -164,12 +164,12 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
                 annotated(prefix + use(typ, 'take'))
 
     def test_distinct_registers_allowed_but_exact_duplicate_rejected(self):
-        prefix = 'guarantee Marker {}\nregister Box[Int] guarantees Marker\n'
-        _, symbols, _ = annotated(prefix + 'register Box[Float] guarantees Marker')
+        prefix = 'guarantee Marker {}\nregister Marker { Box[Int] }\n'
+        _, symbols, _ = annotated(prefix + 'register Marker { Box[Float] }')
         for typ in ['Box[Int]', 'Box[Float]']:
             self.assertEqual(symbols.type_guarantees[type_identity_key(normalized_type(typ))], {'Marker'})
         with self.assertRaisesRegex(TypecheckError, 'duplicate register'):
-            annotated(prefix + 'register Box[Int] guarantees Marker')
+            annotated(prefix + 'register Marker { Box[Int] }')
 
     def test_typegroup_isolation(self):
         prefix = ('typegroup Boxes = Box[Int]\n'
@@ -195,7 +195,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
                         prefix, calls = CAPABILITY + implementation(target), ['op', 'relay']
                     else:
                         declaration, requirement = (
-                            (f'guarantee Marker {{}}\nregister {target} guarantees Marker', 'T guarantees Marker')
+                            (f'guarantee Marker {{}}\nregister Marker {{ {target} }}', 'T guarantees Marker')
                             if kind == 'register' else (f'typegroup Boxes = {target}', 'T in Boxes'))
                         prefix = (declaration + f'\nsig take(T) -> T {{ require {requirement} }}\n'
                                   'func take(x: T) { return x }\n')
@@ -218,7 +218,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         for declaration, requirement, call in [
             (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'op'),
             (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'relay'),
-            ('guarantee Marker {}\nregister Thunk[Int]<Never> guarantees Marker\n',
+            ('guarantee Marker {}\nregister Marker { Thunk[Int]<Never> }\n',
              'T guarantees Marker', 'take'),
             ('typegroup Boxes = Thunk[Int]<Never>\n', 'T in Boxes', 'take'),
         ]:
@@ -250,7 +250,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         self.assertFalse(_same_type(pure, conditional))
 
     def test_conditional_failure_uses_exact_registration(self):
-        prefix = ('guarantee Marker {}\nregister Box[Int] guarantees Marker\n'
+        prefix = ('guarantee Marker {}\nregister Marker { Box[Int] }\n'
                   'sig keep(T) -> T { failure IntegerOverflow when T guarantees Marker }\n'
                   'func keep(x: T) { return x }\n')
         for typ, expected in [('Box[Int]', failures(FailureId.IntegerOverflow)),

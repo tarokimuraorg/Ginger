@@ -113,11 +113,15 @@ class Parser:
             if self.match("EOF"):
                 break
 
-            items.append(self.parse_toplevel())
+            declaration = self.parse_toplevel()
+            if isinstance(declaration, list):
+                items.extend(declaration)
+            else:
+                items.append(declaration)
 
         return Program(items)
 
-    def parse_toplevel(self) -> TopLevel:
+    def parse_toplevel(self) -> TopLevel | List[RegisterDecl]:
 
         self.reject_removed_syntax()
         
@@ -291,13 +295,26 @@ class Parser:
 
     # ---- register ----
 
-    def parse_register(self) -> RegisterDecl:
-        # register Int guarantees Addable
+    def parse_register(self) -> List[RegisterDecl]:
+        # Expand source blocks into the same individual declarations as catalogs.
         self.eat("KW", "register")
-        typ = self.parse_type()
-        self.eat("KW", "guarantees")
         gname = self.eat("IDENT").text
-        return RegisterDecl(typ=typ, guarantee=gname)
+        self.eat("SYM", "{")
+        self.skip_newlines()
+        if self.match("SYM", "}"):
+            raise SyntaxError("register block must contain at least one concrete type")
+        declarations = []
+        while True:
+            declarations.append(RegisterDecl(typ=self.parse_type(), guarantee=gname))
+            self.skip_newlines()
+            if not self.match("SYM", ","):
+                break
+            self.eat("SYM", ",")
+            self.skip_newlines()
+            if self.match("SYM", "}"):
+                break
+        self.eat("SYM", "}")
+        return declarations
 
     def reject_source_builtin(self) -> None:
         raise SyntaxError("builtin is internal to the Ginger implementation; "

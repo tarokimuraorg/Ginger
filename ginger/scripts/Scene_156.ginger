@@ -16,7 +16,7 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 guarantee Mark {}
-register Pair[Int,Float] guarantees Mark
+register Mark { Pair[Int,Float] }
 sig keep(T) -> T { require T guarantees Mark }
 func keep(x: T) { return x }
 sig invalid(Pair[Float,Int]) -> Pair[Float,Int] {}

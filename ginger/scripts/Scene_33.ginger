@@ -32,8 +32,8 @@ func keep(x: T) { return x }
 
 guarantee Mark {}
 
-register Int guarantees Mark
-register Float guarantees Mark
+register Mark { Int }
+register Mark { Float }
 
 typegroup Numbers = Int | Float
 

@@ -18,6 +18,6 @@
 guarantee G { op(self: Self, other: Self) -> Self }
 impl Int guarantees G { op = builtin core.int.add }
 guarantee H {}
-register Int guarantees H
+register H { Int }
 sig op(T) -> T { require T guarantees G require T guarantees H }
 print(op(1))

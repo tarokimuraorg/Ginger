@@ -242,7 +242,7 @@ TypeRef は open-world です。canonical type registry による型名の存在
 | `Box[Int]`、`Box[Float]`、`Box[MissingType]`、`Pair[Int, Float]` | 合法 |
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
-内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register Box[T] guarantees G`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
+内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register G { Box[T] }`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
 
 ### Cell / ThunkValue の shallow immutability（Phase 3B）
 
@@ -384,6 +384,8 @@ print(result)
 `failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
 ## guarantee と標準 catalog
+
+`register Mark { Int, Float }` は、メソッドを持たない `guarantee Mark {}` に具体型を登録します。改行と末尾カンマを許可し、空ブロック・同じ型と保証の重複登録・typegroup 名の登録は拒否します。guarantee は後方に宣言でき、全宣言の収集後に検証します。旧ソース構文 `register Int guarantees Mark` は拒否します。内部 JSON catalog の登録形式は変更ありません。
 
 `guarantee` method は capability method の型契約の canonical source、`sig` は public generic call surface と public failure/effect contract を定義します。guarantee 経由で dispatch する sig は、method の `Self` を require が指定する型変数へ再帰的に projection し、引数数・引数型・戻り値型を照合します。Thunk の潜在契約も正規化後に一致する必要があり、widening では代用しません。この照合は、func / 直接 builtin を持たず、guarantee requirement が1個で同名 method に対応する sig が対象です。
 

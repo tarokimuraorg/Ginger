@@ -160,7 +160,7 @@ func g() { f() }
         program, diags = checked("@attr.io\nsig h() -> Unit {}\n@attr.io\nfunc h() {}\nh()")
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), "")
-        for declaration in ["guarantee G {}", "typegroup G {}", "register Int guarantees G",
+        for declaration in ["guarantee G {}", "typegroup G {}", "register G { Int }",
                             "impl Int guarantees G {}", "failureset F { IOErr }",
                             "var x: Int = 1", "resolve x { IOErr { print(1) } }"]:
             for attr in ('handled', 'io'):

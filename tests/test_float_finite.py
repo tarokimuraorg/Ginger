@@ -269,7 +269,7 @@ class FloatFiniteTests(unittest.TestCase):
             self.assertEqual('BoundedArithmetic' in syms.type_guarantees[name], name == 'Int')
         for operation, guarantee in [('add', 'Addable'), ('sub', 'Subtractable'), ('mul', 'Multipliable')]:
             with self.assertRaisesRegex(TypecheckError, 'does not guarantee ' + guarantee):
-                checked('register Int64 guarantees FiniteArithmetic\n' + f'var x: Int64 = {operation}(1i64,2i64)')
+                checked('register FiniteArithmetic { Int64 }\n' + f'var x: Int64 = {operation}(1i64,2i64)')
 
     def test_direct_alias_does_not_inherit_implementation_contract(self):
         for operation, a, b in [('add', MAX, MAX), ('sub', MAX, -MAX),
