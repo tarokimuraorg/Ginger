@@ -30,10 +30,10 @@ sig keep(T) -> T {
 
 func keep(x: T) { return x }
 
-guarantee Mark {}
-
 register Mark { Int }
 register Mark { Float }
+
+guarantee Mark {}
 
 typegroup Numbers = Int | Float
 
