@@ -5,8 +5,8 @@ from ginger.ast import TypeRef
 from ginger.builtin import BUILTINS
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
-from ginger.pipeline import compile
+from internal_declarations import parse
+from internal_declarations import compile
 from ginger.symbols_builder import build_symbols, normalize_types
 from ginger.type_identity import type_identity_key
 from test_parameterized_type_identity import annotated
@@ -17,7 +17,7 @@ def declaration(kind, typ):
         return (f'guarantee G {{ op(self: Self) -> Self }}\n'
                 f'impl {typ} guarantees G {{ op = builtin test.op }}')
     if kind == 'register':
-        return f'guarantee Marker {{}}\nregister {typ} guarantees Marker'
+        return f'guarantee Marker {{}}\nregister Marker {{ {typ} }}'
     return f'typegroup Group = {typ}'
 
 
@@ -63,7 +63,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
                     source = declaration(kind, typ)
                     syms = build_symbols(lower_program(parse(source)))
                     compile(source)
-                    target = parse(f'register {typ} guarantees Marker').items[0].typ
+                    target = parse(f'register Marker {{ {typ} }}').items[0].typ
                     key = type_identity_key(normalize_types(target, {}))
                     if kind == 'impl':
                         self.assertEqual(syms.impls[(key, 'G', 'op')], 'test.op')
@@ -74,7 +74,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
 
     def test_validation_precedes_registration_conflicts(self):
         for source, position in [
-            ('register Box[T] guarantees MissingGuarantee', 'register target'),
+            ('register MissingGuarantee { Box[T] }', 'register target'),
             ('impl Box[T] guarantees MissingGuarantee {}', 'impl target'),
             ('typegroup Group = Int\ntypegroup Group = Box[T]', 'typegroup member'),
         ]:

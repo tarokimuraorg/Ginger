@@ -6,7 +6,7 @@ from test_failure_contract import checked, output, recorded
 from ginger.builtin import BUILTINS
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.tokenizer import tokenize
 from ginger.eval import eval_program
 

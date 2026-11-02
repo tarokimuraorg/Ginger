@@ -16,5 +16,5 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 guarantee G {}
-register Box[Int] guarantees G
-register Box[Int] guarantees G
+register G { Box[Int] }
+register G { Box[Int] }

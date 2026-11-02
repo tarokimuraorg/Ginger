@@ -246,7 +246,7 @@ class ConditionalFailureTests(unittest.TestCase):
         self.assertEqual(eval_program(program).environment['b'].value, 1.0)
 
     def test_custom_float_marker_conditions_are_independent_capabilities(self):
-        marker = 'guarantee TaggedFailure {}\nregister Float guarantees TaggedFailure\n'
+        marker = 'guarantee TaggedFailure {}\nregister TaggedFailure { Float }\n'
         source = (marker + 'sig marked(T) -> T { failure IOErr when T guarantees TaggedFailure }\n'
                   'func marked(x: T) { return x }\n'
                   'var a: Int = marked(1)\nvar b: Float = marked(1.0)')

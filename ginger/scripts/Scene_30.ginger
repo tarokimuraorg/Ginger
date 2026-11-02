@@ -36,20 +36,55 @@
 
 sig identity(T) -> T {}
 func identity(x: T) { return x }
+
 sig first(T,T) -> T {}
 func first(a: T,b: T) { return a }
+
 sig relay(U) -> U {}
 func relay(x: U) { let y: U = identity(x) return y }
+
 typegroup Floating = Float
+
 sig choose(T,U) -> U { require U in Floating }
 func choose(a: T,b: U) { return b }
+
+// 1
 print(identity(1))
+
+// 1
 print(identity(1i64))
+
+// 2.0
 print(relay(2.0))
+
+// 1.0
+// Int と Float は Float に統一できる
 print(first(1,2.0))
+
+// 1.0
+// Float と Int は Float に統一できる
 print(first(1.0,2))
+
+// 1
+// Int と Int64 は Int64 に統一できる
 print(first(1,2i64))
+
+// 1
+// Int64 と Int は Int64 に統一できる
 print(first(1i64,2))
+
+// 3.0 (Int + Float = Float)
 print(add(1,2.0))
+
+//3.0 (Float + Int = Float)
 print(add(1.0,2))
+
+// 2.0
+// U = Float は Floating に属している (T:Int64, U:Float => U:Float)　
 print(choose(1i64,2.0))
+
+// U = Int が Floating に属さないためエラー
+//print(choose(1,2))
+
+// Int64 と Float を共通の T に統一できない
+//print(first(1i64,2.0))

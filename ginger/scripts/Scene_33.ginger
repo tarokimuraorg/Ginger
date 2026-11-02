@@ -22,13 +22,26 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig keep(T) -> T { require T guarantees Mark require T guarantees Mark require T in Numbers }
+sig keep(T) -> T { 
+    require T guarantees Mark
+    require T guarantees Mark 
+    require T in Numbers
+}
+
 func keep(x: T) { return x }
+
+register Mark { Int }
+register Mark { Float }
+
 guarantee Mark {}
-register Int guarantees Mark
-register Float guarantees Mark
+
 typegroup Numbers = Int | Float
-sig unused(Box[Box[T]]) -> T { require T guarantees Mark }
+
+sig unused(Box[Box[T]]) -> T { 
+    require T guarantees Mark 
+}
+
 sig missing(Int) -> Int {}
+
 print(keep(1))
 print(keep(2.0))

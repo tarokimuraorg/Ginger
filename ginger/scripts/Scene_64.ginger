@@ -15,5 +15,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-register Int64 guarantees FiniteArithmetic
+register FiniteArithmetic { Int64 }
 print(mul(1i64,2i64))

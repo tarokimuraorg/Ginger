@@ -19,12 +19,20 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 guarantee Mark {}
-register Thunk[Int]<Never> guarantees Mark
+register Mark { Thunk[Int]<Never> }
 typegroup IntThunks = Thunk[Int]<Never>
-sig keep(T) -> T { require T guarantees Mark require T in IntThunks }
+
+sig keep(T) -> T { 
+    require T guarantees Mark
+    require T in IntThunks
+}
+
 func keep(x: T) { return x }
+
 print(force(keep(thunk(1))))
 print(force(keep(thunk(add(1,2)))))
-register Box[Int] guarantees Mark
-register Box[Float] guarantees Mark
+
+register Mark { Box[Int] }
+register Mark { Box[Float] }
+
 typegroup Boxes = Box[Box[Int]] | Pair[Int,Float] | MissingType

@@ -38,4 +38,3 @@ print(x)
 sig fresh() -> Int {}
 func fresh() { var a: Int = 1 let before: Int = a a = 2 return before }
 print(fresh())
-print(fresh())

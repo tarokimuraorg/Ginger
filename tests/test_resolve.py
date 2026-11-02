@@ -8,7 +8,7 @@ from ginger.builtin import BUILTINS
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.errors import EvalError, TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
+from internal_declarations import parse
 from ginger.runtime.context import RuntimeContext
 from ginger.runtime.failures import FailureContractViolation, FailureStatus, RaisedFailure
 from ginger.runtime.thunk import ThunkValue

@@ -6,8 +6,8 @@ from ginger.builtin import BUILTINS
 from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
-from ginger.pipeline import compile, run
+from internal_declarations import parse
+from internal_declarations import compile, run
 from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program
 
@@ -46,7 +46,7 @@ class RequirementTypeVariableTests(unittest.TestCase):
                 'sig extract(Box[Box[T]]) -> T { require T guarantees G }')
 
     def test_nested_parameter_binding(self):
-        source = ('guarantee G {}\nregister Int guarantees G\n'
+        source = ('guarantee G {}\nregister G { Int }\n'
                   'sig box() -> Box[Box[Int]] { builtin test.box }\n'
                   'sig keep(Box[Box[T]]) -> Box[Box[T]] { require T guarantees G }\n'
                   'func keep(x: Box[Box[T]]) { return x }\n'
@@ -61,7 +61,7 @@ class RequirementTypeVariableTests(unittest.TestCase):
             self.assertEqual(run(source).environment['x'].value, ((1,),))
 
     def test_thunk_parameter_binding(self):
-        source = ('guarantee G {}\nregister Int guarantees G\n'
+        source = ('guarantee G {}\nregister G { Int }\n'
                   'sig use(Thunk[T]<Never>) -> T { require T guarantees G }\n'
                   'func use(x: Thunk[T]<Never>) { return force(x) }\n'
                   'var x: Int = use(thunk(1))')
@@ -78,7 +78,7 @@ class RequirementTypeVariableTests(unittest.TestCase):
                              'sig op(T[U]) -> T { require U guarantees G }', variable='U')
 
     def test_second_parameter_need_not_appear_in_return(self):
-        source = ('guarantee G {}\nregister Float guarantees G\n'
+        source = ('guarantee G {}\nregister G { Float }\n'
                   'sig combine(T,U) -> T { require U guarantees G }\n'
                   'func combine(a: T,b: U) { return a }\n'
                   'var x: Int = combine(1,2.0)')
@@ -114,7 +114,7 @@ class RequirementTypeVariableTests(unittest.TestCase):
                                      'func op(x: Int) { return x }' + suffix)
 
     def test_user_function_valid_target(self):
-        source = ('guarantee G {}\nregister Int guarantees G\n'
+        source = ('guarantee G {}\nregister G { Int }\n'
                   'sig op(T) -> T { require T guarantees G }\n'
                   'func op(x: T) { return x }\nvar x: Int = op(1)')
         self.assertEqual(run(source).environment['x'].value, 1)

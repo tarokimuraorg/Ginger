@@ -300,18 +300,6 @@ def build_symbols(prog: Program) -> Symbols:
             t = type_identity_key(item.typ)
             g = item.guarantee
 
-            # guarantee の宣言がある前提（core注入 or catalog）
-            gdecl = guarantees.get(g)
-
-            if gdecl is None:
-                raise TypecheckError(f"unknown guarantee '{g}'")
-
-            # methods がある guarantee は register 禁止（Printable など）
-            if len(gdecl.methods) > 0:
-                raise TypecheckError(
-                    f"'{g}' requires implementations; use impl, not register"
-                )
-
             if g in type_guarantees.get(t, set()):
                 raise TypecheckError(f"duplicate register: '{t}' guarantees '{g}'")
             
@@ -335,6 +323,22 @@ def build_symbols(prog: Program) -> Symbols:
             
         elif isinstance(item, VarDecl):
             pass  # checked later
+
+    # Validate registration references only after all declarations are collected.
+    for item in items:
+        if not isinstance(item, RegisterDecl):
+            continue
+        gdecl = guarantees.get(item.guarantee)
+        if gdecl is None:
+            raise TypecheckError(f"unknown guarantee '{item.guarantee}'")
+        if gdecl.methods:
+            raise TypecheckError(
+                f"'{item.guarantee}' requires implementations; use impl, not register"
+            )
+        if item.typ.name in typegroups:
+            raise TypecheckError(
+                f"typegroup '{item.typ.name}' is not a concrete register target"
+            )
 
     syms = Symbols(
         guarantees=guarantees,

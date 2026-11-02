@@ -6,8 +6,8 @@ from ginger.builtin import BUILTINS
 from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.lower import lower_program
-from ginger.parser import parse
-from ginger.pipeline import compile, run
+from internal_declarations import parse
+from internal_declarations import compile, run
 from ginger.symbols_builder import build_symbols
 from ginger.typecheck import typecheck_program
 
@@ -79,7 +79,7 @@ class GuaranteeMethodArityTests(unittest.TestCase):
             'guarantee G { op(self: Self, other: Self) -> Self }\n'
             'guarantee H {}\n'
             'impl Int guarantees G { op = builtin test.op }\n'
-            'register Int guarantees H\n'
+            'register H { Int }\n'
             'sig op(T) -> T { require T guarantees G require T guarantees H }\n')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: a + b}):
             compile(source)
