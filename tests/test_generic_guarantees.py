@@ -19,7 +19,7 @@ FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
 OVERFLOW = INT_OVERFLOW | FLOAT_OVERFLOW
 
 
-def addition(body, *, requires='require T guarantees Addable', contract='failure IntegerOverflow failure FloatOverflow'):
+def addition(body, *, requires='require T guarantees Addable', contract='failure { IntegerOverflow, FloatOverflow }'):
     return (f'sig addTwo(T,T) -> T {{ {requires} {contract} }}\n'
             f'func addTwo(a: T,b: T) {{ return {body} }}\n')
 
@@ -37,11 +37,12 @@ class GenericGuaranteeTests(unittest.TestCase):
     def test_pipeline_run_uses_body_proofs_and_instantiates_contracts(self):
             for body in ['add(a,b)', '(a + b)']:
                 for conditional in [False, True]:
-                    contract = 'failure IntegerOverflow'
+                    contract = 'failure { IntegerOverflow }'
                     if conditional:
-                        contract += ' when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic'
+                        contract = ('failure { IntegerOverflow when T guarantees BoundedArithmetic, '
+                                    'FloatOverflow when T guarantees FiniteArithmetic }')
                     else:
-                        contract += ' failure FloatOverflow'
+                        contract += ' failure { FloatOverflow }'
                     for typ, args, expected in [('Int', '1,2', '3\n'),
                                                 ('Float', '1.0,2.0', '3.0\n'),
                                                 ('Int64', '1i64,2i64', None)]:
@@ -103,7 +104,7 @@ class GenericGuaranteeTests(unittest.TestCase):
         for body in ['add(a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'undeclared failures: .*IntegerOverflow'):
-                checked(addition(body, contract='failure Never'))
+                checked(addition(body, contract='failure { Never }'))
 
     def test_explicit_and_lowered_infix_share_symbolic_resolution(self):
         resolutions = []
@@ -181,7 +182,7 @@ class GenericGuaranteeTests(unittest.TestCase):
 
     def test_nested_generic_substitution_and_frame_bindings(self):
         source = (addition('(a + b)') +
-                    'sig relay(U,U) -> U { require U guarantees Addable failure IntegerOverflow failure FloatOverflow }\n'
+                    'sig relay(U,U) -> U { require U guarantees Addable failure { IntegerOverflow, FloatOverflow } }\n'
                     'func relay(a: U,b: U) { return addTwo(a,b) }\n'
                     'print(relay(1,2))\nprint(relay(1.0,2.0))')
         program, syms, _, _ = self.annotated(source)
@@ -208,7 +209,7 @@ class GenericGuaranteeTests(unittest.TestCase):
     def test_nested_caller_needs_its_own_capability(self):
         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
             checked(addition('add(a,b)') +
-                    'sig relay(U,U) -> U { failure IntegerOverflow failure FloatOverflow }\n'
+                    'sig relay(U,U) -> U { failure { IntegerOverflow, FloatOverflow } }\n'
                     'func relay(a: U,b: U) { return addTwo(a,b) }')
 
     def test_thunk_captures_generic_dispatch_binding(self):

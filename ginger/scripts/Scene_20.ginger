@@ -24,7 +24,7 @@
 //}
 
 sig f(Thunk[Int]<IntegerOverflow>) -> Int {
-    failure IntegerOverflow
+    failure { IntegerOverflow }
 }
 
 func f(t: Thunk[Int]<IntegerOverflow>) {

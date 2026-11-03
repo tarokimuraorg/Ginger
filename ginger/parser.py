@@ -381,30 +381,43 @@ class Parser:
             if self.match("KW", "failure"):
 
                 self.eat("KW", "failure")
-                failure_type = self.parse_type()
-                if failure_type.args or failure_type.failure_specs is not None:
-                    raise SyntaxError("failure names cannot have type arguments or failure contracts")
-                f = failure_type.name
-                clause: str | ConditionalFailureDecl = f
-                if self.match("KW", "when"):
-                    self.eat("KW", "when")
-                    if f == "Never":
-                        raise SyntaxError("Never cannot have a failure condition")
-                    type_var = self.eat("IDENT").text
-                    self.eat("KW", "guarantees")
-                    guarantee = self.eat("IDENT").text
-                    clause = ConditionalFailureDecl(f, type_var, guarantee)
-                if clause in failures:
-                    raise SyntaxError(f"duplicate failure '{f}'")
-                if failures and (f == "Never" or "Never" in failures):
-                    raise SyntaxError("cannot combine 'Never' with other failures")
-                if (isinstance(clause, ConditionalFailureDecl) and f in failures
-                        or isinstance(clause, str) and any(
-                            isinstance(previous, ConditionalFailureDecl)
-                            and previous.failure_name == f for previous in failures)):
-                    raise SyntaxError(f"redundant conditional failure '{f}'")
-                # Preserve Never until symbols_builder normalizes source/catalog alike.
-                failures.append(clause)
+                self.eat("SYM", "{")
+                self.skip_newlines()
+                if self.match("SYM", "}"):
+                    raise SyntaxError("failure block must contain at least one element")
+                while True:
+                    failure_type = self.parse_type()
+                    if failure_type.args or failure_type.failure_specs is not None:
+                        raise SyntaxError("failure names cannot have type arguments or failure contracts")
+                    f = failure_type.name
+                    clause: str | ConditionalFailureDecl = f
+                    if self.match("KW", "when"):
+                        self.eat("KW", "when")
+                        if f == "Never":
+                            raise SyntaxError("Never cannot have a failure condition")
+                        type_var = self.eat("IDENT").text
+                        self.eat("KW", "guarantees")
+                        guarantee = self.eat("IDENT").text
+                        clause = ConditionalFailureDecl(f, type_var, guarantee)
+                    if clause in failures:
+                        raise SyntaxError(f"duplicate failure '{f}'")
+                    if failures and (f == "Never" or "Never" in failures):
+                        raise SyntaxError("cannot combine 'Never' with other failures")
+                    if (isinstance(clause, ConditionalFailureDecl) and f in failures
+                            or isinstance(clause, str) and any(
+                                isinstance(previous, ConditionalFailureDecl)
+                                and previous.failure_name == f for previous in failures)):
+                        raise SyntaxError(f"redundant conditional failure '{f}'")
+                    # Preserve Never until symbols_builder normalizes source/catalog alike.
+                    failures.append(clause)
+                    self.skip_newlines()
+                    if not self.match("SYM", ","):
+                        break
+                    self.eat("SYM", ",")
+                    self.skip_newlines()
+                    if self.match("SYM", "}"):
+                        break
+                self.eat("SYM", "}")
                 continue
 
             if self.match("KW", "builtin"):

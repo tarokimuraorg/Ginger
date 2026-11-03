@@ -16,8 +16,8 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 //sig broken(Float) -> Float {
-//    failure DivideByZero
-//    failure FloatOverflow failure FloatUnderflow
+//    failure { DivideByZero }
+//    failure { FloatOverflow, FloatUnderflow }
 //}
 
 //func broken(x: Float) {
@@ -27,8 +27,8 @@
 //}
 
 sig f(Float) -> Float {
-    failure DivideByZero
-    failure FloatOverflow failure FloatUnderflow
+    failure { DivideByZero }
+    failure { FloatOverflow, FloatUnderflow }
 }
 
 func f(x:Float) {

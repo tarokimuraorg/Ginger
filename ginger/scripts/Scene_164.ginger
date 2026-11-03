@@ -13,7 +13,7 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
 func f() { print(div(1.0,0.0)) return 3 }
 var t: Thunk[Int]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(f())
 var x: Int = force(t)

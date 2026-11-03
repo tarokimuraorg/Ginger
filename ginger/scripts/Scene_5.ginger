@@ -25,7 +25,7 @@ failureset CalculationFailure {
 }
 
 sig calculate(Float, Float) -> Float {
-    failure CalculationFailure
+    failure { CalculationFailure }
 }
 
 func calculate(a:Float,b:Float) {

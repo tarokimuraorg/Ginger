@@ -16,5 +16,5 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 typegroup Numeric = Int | Float
-sig sum(T,T) -> T { require T in Numeric failure IntegerOverflow failure FloatOverflow failure FloatUnderflow }
+sig sum(T,T) -> T { require T in Numeric failure { IntegerOverflow, FloatOverflow, FloatUnderflow } }
 func sum(a: T,b: T) { return add(a,b) }

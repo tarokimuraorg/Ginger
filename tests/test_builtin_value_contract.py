@@ -166,8 +166,8 @@ class BuiltinValueContractTests(unittest.TestCase):
             self.assertEqual(result.failure_history, ())
 
     def test_fatal_stops_assignment_resolve_widening_and_later_calls(self):
-        source = ('sig bad() -> Int { failure IOErr builtin test.value }\n'
-                  'sig f() -> Int { failure IOErr }\n'
+        source = ('sig bad() -> Int { failure { IOErr } builtin test.value }\n'
+                  'sig f() -> Int { failure { IOErr } }\n'
                   'func f() { return bad() }\n')
         for statement in ['var x: Int = f()', 'var x: Int = 7\nx = f()',
                           'var x: Float = f()', 'var x: Float = add(f(), 1.0)']:
@@ -193,7 +193,7 @@ class BuiltinValueContractTests(unittest.TestCase):
 
     def test_fatal_skips_pending_failure_propagation_and_restores_scope(self):
         source = ('sig bad() -> Int { builtin test.value }\n'
-                  'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+                  'sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func f() { var y: Float = div(1.0,0.0)\nreturn bad() }\n'
                   'var x: Int = f()')
         context = RuntimeContext()

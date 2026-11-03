@@ -68,10 +68,12 @@ class StatementContinuationTests(unittest.TestCase):
         self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
         self.assertFalse(hasattr(env['x'], 'value'))
 
-    def test_failed_assignment_preserves_previous_value(self):
-        env, context, stdout = self.run_source('var x: Float = 5.0\nx = div(1.0,0.0)\nprint(x)')
-        self.assertEqual(env['x'].value, 5.0)
-        self.assertEqual(stdout, '5.0\n')
+    def test_failed_assignment_replaces_previous_value(self):
+        env, context, stdout = self.run_source('var x: Float = 5.0\nx = div(1.0,0.0)\nprint(3)')
+        self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
+        self.assertEqual(env['x'].related_event_ids, (1,))
+        self.assertEqual(len(context.failure_history), 1)
+        self.assertEqual(stdout, '3\n')
         self.assertEqual([r.statement_kind for r in context.incomplete_statements], ['AssignStmt'])
 
     def test_repeated_failure_is_not_collapsed(self):
@@ -90,7 +92,7 @@ class StatementContinuationTests(unittest.TestCase):
                     self.run_source('print(1)\nprint(3)')
                 printer.assert_called_once_with(1)
         # Caller declaration must not legitimize an undeclared builtin failure.
-        source = ('sig f() -> Unit { failure IOErr }\nfunc f() { print(1) }\n'
+        source = ('sig f() -> Unit { failure { IOErr } }\nfunc f() { print(1) }\n'
                   'var x: Unit = f()\nresolve x { IOErr { x = print(2) } }\nprint(3)')
         printer = Mock(side_effect=RaisedFailure(FailureId.IOErr))
         with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation):
@@ -99,7 +101,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_user_function_body_continues_with_child_frame(self):
         _, context, stdout = self.run_source(
-            'sig f() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { print(div(1.0,0.0))\nprint(2) }\nf()\nprint(3)')
         self.assertEqual(stdout, '2\n3\n')
         self.assertEqual(len(context.call_frames), 2)
@@ -107,7 +109,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_failed_return_does_not_execute_unreachable_body(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { return div(1.0,0.0)\nprint(9)\nreturn 4.0 }\n'
             'var x: Float = f()\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -116,7 +118,7 @@ class StatementContinuationTests(unittest.TestCase):
 
     def test_valid_return_after_incomplete_statement_keeps_root_history(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { print(div(1.0,0.0))\nreturn 4 }\nvar x: Int = f()\nprint(x)')
         self.assertEqual(env['x'].value, 4)
         self.assertEqual(stdout, '4\n')

@@ -64,7 +64,7 @@ class ThunkSyntaxTests(unittest.TestCase):
 
     def test_failure_declaration_does_not_discard_postfix(self):
         with self.assertRaisesRegex(SyntaxError, 'failure names cannot have'):
-            parse('sig f() -> Int { failure IntegerOverflow<Never> }')
+            parse('sig f() -> Int { failure { IntegerOverflow<Never> } }')
 
     def test_never_mixing_duplicates_and_unknown_names(self):
         for spec, message in [('Never, IntegerOverflow', 'cannot combine'),

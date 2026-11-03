@@ -27,8 +27,8 @@ class FailureSetTests(unittest.TestCase):
         self.assertEqual(build_symbols(program).failuresets['CalculationFailure'], EXPECTED)
 
     def test_expansion_and_mixed_declarations(self):
-        for clause in ('failure CalculationFailure',
-                       'failure CalculationFailure failure PrintErr'):
+        for clause in ('failure { CalculationFailure }',
+                       'failure { CalculationFailure, PrintErr }'):
             with self.subTest(clause=clause):
                 syms = build_symbols(parse(SET + f'sig f() -> Unit {{ {clause} }}'))
                 expected = EXPECTED | ({FailureId.PrintErr} if 'PrintErr' in clause else set())
@@ -36,15 +36,15 @@ class FailureSetTests(unittest.TestCase):
 
     def test_upper_bound_and_call_propagation(self):
         source = SET + '''
-sig f() -> Float { failure CalculationFailure }
+sig f() -> Float { failure { CalculationFailure } }
 func f() { return div(1.0, 0.0) }
-sig g() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow failure IOErr }
+sig g() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }
 func g() { return f() }
 '''
         _, diags = checked(source)
         self.assertEqual(diags.items, [])
         with self.assertRaisesRegex(TypecheckError, "func 'g'.*undeclared failures: IOErr"):
-            checked(source.replace('failure DivideByZero failure FloatOverflow failure FloatUnderflow failure IOErr', 'failure DivideByZero failure FloatOverflow failure FloatUnderflow'))
+            checked(source.replace('failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }', 'failure { DivideByZero, FloatOverflow, FloatUnderflow }'))
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
             checked(source.replace('{ DivideByZero FloatOverflow FloatUnderflow IOErr }', '{ IOErr }'))
 
@@ -73,29 +73,29 @@ func g() { return f() }
 guarantee Shared {}
 typegroup Shared = Int
 failureset Shared { IOErr }
-sig Shared() -> Unit { failure Shared }
+sig Shared() -> Unit { failure { Shared } }
 func Shared() {}
 '''))
         self.assertEqual(syms.sig_failures['Shared'], frozenset({FailureId.IOErr}))
 
     def test_forward_reference_and_overlap(self):
         syms = build_symbols(parse('''
-sig f() -> Unit { failure A failure B failure IOErr }
+sig f() -> Unit { failure { A, B, IOErr } }
 failureset A { IOErr }
 failureset B { IOErr DivideByZero FloatOverflow FloatUnderflow }
 '''))
         self.assertEqual(syms.sig_failures['f'], EXPECTED)
 
     def test_sig_never_and_duplicate_rules(self):
-        for clause in ('failure CalculationFailure failure Never',
-                       'failure Never failure CalculationFailure',
-                       'failure CalculationFailure failure CalculationFailure'):
+        for clause in ('failure { CalculationFailure, Never }',
+                       'failure { Never, CalculationFailure }',
+                       'failure { CalculationFailure, CalculationFailure }'):
             with self.subTest(clause=clause), self.assertRaises(SyntaxError):
                 parse(SET + f'sig f() -> Unit {{ {clause} }}')
 
     def test_resolve_only_individual_ids(self):
         prefix = SET + '''
-sig f() -> Float { failure CalculationFailure }
+sig f() -> Float { failure { CalculationFailure } }
 func f() { return div(1.0, 0.0) }
 var x: Float = f()
 '''
@@ -123,19 +123,19 @@ var x: Float = f()
         sources = [
             'sig f() -> Unit { %s }\n'
             'func f() { print(div(1.0,0.0)) }\n'
-            'sig g() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow failure IOErr }\nfunc g() { f() }\nf()',
+            'sig g() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }\nfunc g() { f() }\nf()',
             'sig f(Thunk[Float]<Never>) -> Float { %s }\n'
             'func f(t: Thunk[Float]<Never>) { return force(t) }',
             'sig h(Int) -> Unit { %s builtin core.int.print }\n'
-            'sig f() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow failure IOErr }\nfunc f() { h(1) }',
+            'sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }\nfunc f() { h(1) }',
         ]
         for source in sources:
             with self.subTest(source=source):
-                _, named = checked(SET + source % 'failure CalculationFailure')
-                _, explicit = checked(source % 'failure DivideByZero failure FloatOverflow failure FloatUnderflow failure IOErr')
+                _, named = checked(SET + source % 'failure { CalculationFailure }')
+                _, explicit = checked(source % 'failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }')
                 self.assertEqual(named.items, explicit.items)
                 self.assertFalse(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named))
-        _, diags = checked(SET + 'sig h(Int) -> Unit { failure CalculationFailure '
+        _, diags = checked(SET + 'sig h(Int) -> Unit { failure { CalculationFailure } '
                            'builtin core.int.print }\nvar x: Unit = h(1)\n'
                            'resolve x { IOErr { x = print(0) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow'])

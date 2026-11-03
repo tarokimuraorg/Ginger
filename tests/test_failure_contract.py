@@ -46,10 +46,10 @@ def recorded(program):
 
 class FailureContractTests(unittest.TestCase):
     def test_upper_bounds(self):
-        for failures in ("", "failure Never", "failure IOErr"):
+        for failures in ("", "failure { Never }", "failure { IOErr }"):
             with self.subTest(failures=failures):
                 checked(f"sig f() -> Unit {{ {failures} }}\nfunc f() {{}}")
-        for failures in ("failure DivideByZero failure FloatOverflow failure FloatUnderflow", "failure IOErr failure DivideByZero failure FloatOverflow failure FloatUnderflow"):
+        for failures in ("failure { DivideByZero, FloatOverflow, FloatUnderflow }", "failure { IOErr, DivideByZero, FloatOverflow, FloatUnderflow }"):
             with self.subTest(failures=failures):
                 checked(f"sig f() -> Float {{ {failures} }}\n"
                         "func f() { return div(1.0, 0.0) }")
@@ -68,9 +68,9 @@ class FailureContractTests(unittest.TestCase):
 
     def test_multiple_missing_and_declared_order(self):
         source = """
-sig risky() -> Unit { failure PrintErr failure DivideByZero failure FloatOverflow failure FloatUnderflow failure IOErr }
+sig risky() -> Unit { failure { PrintErr, DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }
 func risky() {}
-sig f() -> Unit { failure TimeErr failure IOErr }
+sig f() -> Unit { failure { TimeErr, IOErr } }
 func f() { risky() }
 """
         with self.assertRaisesRegex(TypecheckError,
@@ -79,14 +79,14 @@ func f() { risky() }
 
     def test_user_call_propagation(self):
         source = """
-sig g() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig g() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
 func g() { return div(1.0, 0.0) }
 sig f() -> Unit { %s }
 func f() { print(g()) }
 """
         with self.assertRaisesRegex(TypecheckError, "func 'f'.*DivideByZero"):
             checked(source % "")
-        checked(source % "failure DivideByZero failure FloatOverflow failure FloatUnderflow")
+        checked(source % "failure { DivideByZero, FloatOverflow, FloatUnderflow }")
 
     def test_unreachable_effects_but_not_types_are_ignored(self):
         checked("sig f() -> Unit {}\nfunc f() { return print(1)\nprint(div(1.0,0.0)) }")
@@ -99,23 +99,23 @@ func f() { print(g()) }
         checked("sig f() -> Unit {}\nfunc f() { f() }")
         source = """
 sig f() -> Unit { %s }
-sig g() -> Unit { failure IOErr }
+sig g() -> Unit { failure { IOErr } }
 func f() { g() }
 func g() { f() }
 """
-        checked(source % "failure IOErr")
+        checked(source % "failure { IOErr }")
         with self.assertRaisesRegex(TypecheckError, "func 'f'.*IOErr"):
             checked(source % "")
         with self.assertRaisesRegex(TypecheckError, "DivideByZero"):
             checked("sig f() -> Unit {}\nfunc f() { f()\nprint(div(1.0,0.0)) }")
 
     def test_source_declarations(self):
-        for clause in ("", "failure Never"):
+        for clause in ("", "failure { Never }"):
             program, _ = checked(f"sig f() -> Unit {{ {clause} }}")
             self.assertEqual(build_symbols(program).sig_failures["f"], EMPTY_FAILURES)
-        for clause in ("failure Never failure IOErr", "failure IOErr failure Never",
-                       "failure IOErr failure IOErr", "failure Never failure Never",
-                       "failure IOErr[Int]"):
+        for clause in ("failure { Never, IOErr }", "failure { IOErr, Never }",
+                       "failure { IOErr, IOErr }", "failure { Never, Never }",
+                       "failure { IOErr[Int] }"):
             with self.subTest(clause=clause), self.assertRaises(SyntaxError):
                 checked(f"sig f() -> Unit {{ {clause} }}")
 
@@ -172,9 +172,9 @@ func g() { f() }
         prefix = "sig h() -> Unit {}\nfunc h() {}\n"
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):
             checked(prefix + "sig f() -> Unit {}\nfunc f() { h()\nprint(div(1.0,0.0)) }")
-        prefix = ("sig h() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n"
+        prefix = ("sig h() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n"
                   "func h() { print(div(1.0,0.0)) }\n"
-                  "sig middle() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\nfunc middle() { h() }\n")
+                  "sig middle() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nfunc middle() { h() }\n")
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):
             checked(prefix + "sig caller() -> Unit {}\nfunc caller() { middle() }")
         program, diags = checked(prefix + "middle()\nprint(3)")
@@ -184,7 +184,7 @@ func g() { f() }
         self.assertEqual([e.failure_id for e in context.failure_history], [FailureId.DivideByZero])
 
     def test_builtin_contract_is_visible_and_resolvable(self):
-        prefix = "sig h(Int) -> Unit { failure IOErr builtin core.int.print }\n"
+        prefix = "sig h(Int) -> Unit { failure { IOErr } builtin core.int.print }\n"
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: IOErr"):
             checked(prefix + "sig f() -> Unit {}\nfunc f() { h(1) }")
         program, diags = checked(prefix + "h(1)")
@@ -206,7 +206,7 @@ func g() { f() }
             self.assertEqual(output(program), '0\n')
 
     def test_thunk_contract_validation_and_saved_force(self):
-        _, diags = checked("sig f(Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n"
+        _, diags = checked("sig f(Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n"
                            "func f(t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) { return force(t) }")
         self.assertEqual(diags.items, [])
         program, diags = checked("var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n"

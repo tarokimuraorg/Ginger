@@ -17,8 +17,32 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig mark(Int) -> Float {}
-func mark(x: Int) { print(x) return toFloat(x) }
+func mark(x: Int) {
+    print(x)
+    return toFloat(x)
+}
+
 sig combine(Float,Float,Float) -> Float {}
-func combine(a: Float,b: Float,c: Float) { print(99) return a }
+func combine(a: Float,b: Float,c: Float) {
+    print(99)
+    return a
+}
+
 print(combine(mark(1),div(1.0,0.0),mark(3)))
 print(4)
+
+//sig useSecond(Float, Float) -> Float {}
+
+//func useSecond(a: Float, b: Float) {
+//    print(99)
+//.   引数は再代入不可のため、回復されない
+//    resolve b {
+//        DivideByZero {
+//            b = 0
+//        }
+//    }
+//    return b
+//}
+
+//print(useSecond(1.0, div(1.0, 0.0)))
+//print(4)

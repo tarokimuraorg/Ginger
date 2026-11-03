@@ -18,12 +18,12 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig failed() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig failed() -> Float { failure { IntegerOverflow, DivideByZero, FloatOverflow, FloatUnderflow } }
 func failed() { print(add(9007199254740991,1)) return div(1.0,0.0) }
 var x: Float = failed()
 resolve x { IntegerOverflow { print(999) x = 9 } DivideByZero { x = 0 } }
 print(x)
-sig value() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig value() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
 func value() { print(div(1.0,0.0)) return 3 }
 var y: Int = add(value(),add(9007199254740991,1))
 resolve y { DivideByZero { print(999) y = 9 } IntegerOverflow { y = 0 } }

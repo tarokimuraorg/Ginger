@@ -21,13 +21,50 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig failed() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
-func failed() { return div(1.0,0.0) print(99) return 4.0 }
+sig failed() -> Float {
+    failure {
+        DivideByZero,
+        FloatOverflow,
+        FloatUnderflow
+    }
+}
+
+func failed() {
+    return div(1.0,0.0)
+    print(99)
+    return 4.0
+}
+
 var absent: Float = failed()
+//print(absent)
 print(3)
-sig value() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
-func value() { print(div(1.0,0.0)) return 4 }
-sig unit() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
-func unit() { print(div(1.0,0.0)) return print(2) }
+
+sig value() -> Int {
+    failure {
+        DivideByZero,
+        FloatOverflow,
+        FloatUnderflow
+    }
+}
+
+func value() {
+    print(div(1.0,0.0))
+    return 4
+}
+
+sig unit() -> Unit {
+    failure {
+        DivideByZero,
+        FloatOverflow,
+        FloatUnderflow
+    }
+}
+
+func unit() {
+    print(div(1.0,0.0))
+    return print(2)
+}
+
 print(value())
+
 unit()

@@ -116,7 +116,7 @@ resolve x {
 print(x) // 0.0（静的には未処理 FloatOverflow の警告が残る）
 ```
 
-**generic 演算の failure 契約:** add / sub / mul は `failure IntegerOverflow when T guarantees BoundedArithmetic` と `failure FloatOverflow when T guarantees FiniteArithmetic` を公開し、mul だけが `failure FloatUnderflow when T guarantees FiniteArithmetic` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。既存の FiniteArithmetic / BoundedArithmetic marker と conditional failure の仕組みを維持します。marker はメソッドを持たず、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
+**generic 演算の failure 契約:** add / sub / mul は `failure { IntegerOverflow when T guarantees BoundedArithmetic }` と `failure { FloatOverflow when T guarantees FiniteArithmetic }` を公開し、mul だけが `failure { FloatUnderflow when T guarantees FiniteArithmetic }` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。既存の FiniteArithmetic / BoundedArithmetic marker と conditional failure の仕組みを維持します。marker はメソッドを持たず、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
 
 `ginger/builtin.py` の `INT_ARITHMETIC_FAILURES`・`FLOAT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` と `core.float.add/sub/mul/div` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
@@ -219,7 +219,7 @@ print(negative)
 `balance` / `slope` / `gt` は既存 `Ord.cmp` impl を共有し、追加 capability や method を要求しません。
 Int / Int64 / 非正規化数を含む有限 Float、および custom `Ord.cmp` impl と generic dispatch に対応します。
 既存の Int → Int64 / Float widening を維持し、Int64 ↔ Float 変換は追加しません。
-比較に subtraction は使わず、標準比較は `failure Never` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
+比較に subtraction は使わず、標準比較は `failure { Never }` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
 
 `Slope` は `Ordering` と別の nominal type で、相互の暗黙変換はありません。
 内部表現は `("Slope", "Rising" / "Flat" / "Falling")`。`("Ordering", "Flat")` とは型タグで区別します。
@@ -296,7 +296,7 @@ adapter は direct Thunk 型だけに適用します。nested Thunk は outer ha
 
 ```ginger
 sig convert(Int) -> Float {
-    failure Never
+    failure { Never }
 }
 func convert(value: Int) {
     return toFloat(value)
@@ -366,7 +366,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 ```ginger
 sig increment(Int) -> Int {
-    failure IntegerOverflow
+    failure { IntegerOverflow }
 }
 func increment(x: Int) {
     var y: Int = add(x, 1)
@@ -381,7 +381,7 @@ resolve result {
 print(result)
 ```
 
-`failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
+`failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
 ## guarantee と標準 catalog
 
@@ -398,8 +398,10 @@ requirement は型変数を宣言・推論するものではなく、すでに s
 ```ginger
 sig addTwo(T, T) -> T {
     require T guarantees Addable
-    failure IntegerOverflow when T guarantees BoundedArithmetic
-    failure FloatOverflow when T guarantees FiniteArithmetic
+    failure {
+        IntegerOverflow when T guarantees BoundedArithmetic,
+        FloatOverflow when T guarantees FiniteArithmetic
+    }
 }
 func addTwo(a: T, b: T) {
     return (a + b)
@@ -446,23 +448,25 @@ inferred_failures ⊆ declared_failures
 
 宣言に、現行実装では実際に発生しない failure が含まれていても許可します。内部で確実に処理され、外へ漏れない failure は公開契約に含めません。実装バグや型検査で防ぐべき問題まで failure として列挙する必要はありません。
 
-sig 本体に `failure DivideByZero` などを列挙できます。個別 FailureId は `core/failure_spec.py` に定義されたものに限られ、宣言済み failureset 名も使用できます。
+sig 本体に `failure { DivideByZero, FloatOverflow, FloatUnderflow }` のようなカンマ区切りのブロックを記述できます。1行・複数行と末尾カンマを許可し、空ブロックは拒否します。単独指定も `failure { Never }` のようにブロックが必要です。複数ブロックも許可し、重複・矛盾はブロックをまたいで検査します。`when` は各要素に個別に作用し、ブロック全体には指定できません。個別 FailureId は `core/failure_spec.py` に定義されたものに限られ、宣言済み failureset 名も使用できます。
 
-- failure の省略と `failure Never` は、空集合、つまり「外部へ公開する failure なし」を表します。
+- failure の省略と `failure { Never }` は、空集合、つまり「外部へ公開する failure なし」を表します。
 - Never と通常 failure の混在は、記述順によらず拒否します。
 - 同一 failure の重複（Never の重複を含む）は拒否します。
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-条件付き宣言の構文は `failure <FailureId> when <TypeVariable> guarantees <Guarantee>` だけです。条件の型変数はその sig の有効な型変数、guarantee は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T guarantees BoundedArithmetic` のために `require T guarantees BoundedArithmetic` を追加する必要はありません。
+条件付き宣言の構文は `failure { <FailureId> when <TypeVariable> guarantees <Guarantee> }` です。条件の型変数はその sig の有効な型変数、guarantee は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T guarantees BoundedArithmetic` のために `require T guarantees BoundedArithmetic` を追加する必要はありません。
 
 内部の `FailureContract` は無条件の FailureSet と、`ConditionalFailure(FailureId, 型変数, guarantee)` の集合を保持します。generic 本体では条件を保存し、nested generic call は通常の型 binding で条件内の変数も置換します。
 
 ```ginger
 sig relay(U, U) -> U {
     require U guarantees Addable
-    failure IntegerOverflow when U guarantees BoundedArithmetic
-    failure FloatOverflow when U guarantees FiniteArithmetic
+    failure {
+        IntegerOverflow when U guarantees BoundedArithmetic,
+        FloatOverflow when U guarantees FiniteArithmetic
+    }
 }
 func relay(a: U, b: U) {
     return addTwo(a, b)
@@ -471,7 +475,7 @@ func relay(a: U, b: U) {
 
 先の addTwo と組み合わせると、callee の `T guarantees BoundedArithmetic` は caller の `U guarantees BoundedArithmetic` に置換されます。FiniteArithmetic の条件も同じく T から U に置換します。具体型が決まった call-site では marker の登録を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{FloatOverflow}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
 
-上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure IntegerOverflow` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure Never` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
+上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure { IntegerOverflow }` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure { Never }` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
 
 ```ginger
 var integer: Int = addTwo(9007199254740991, 1)
@@ -556,7 +560,7 @@ Phase 3 時点の未宣言 RaisedFailure の再送出は、Phase 7 で FailureCo
 
 ## statement 単位の継続（Phase 4）
 
-宣言済み builtin failure は `FailureEvent + NoValue` として式の親へ返します。引数は左から右に評価し、NoValue に達したら残りの引数と呼び出し先を実行しません。値を必要とする親演算も実行せず、原因 event ID を保持したまま文を未完遂にし、次の文へ進みます。実行済みの副作用は取り消しません。
+宣言済み builtin failure は `FailureEvent + NoValue` として式の親へ返します。引数は左から右に評価します。builtin・guarantee 経由の演算では、NoValue に達したら残りの引数と呼び出し先を実行しません。ユーザー定義関数では後続引数も評価し、失敗した引数を具体化済みの仮引数型・原因 event ID を持つ `UninitializedBinding` として束縛して、本体を実行します。未使用なら正常に戻れますが、読み出すと既存の `EvalError` で停止します。引数評価中の失敗済み変数の読み出しも致命的停止のままです。正常値の型検証・generic の静的型推論は維持し、未使用引数のイベントも未解決記録に残します。値を必要とする builtin は NoValue を伝播し、文を未完遂にして次の独立した文へ進みます。実行済みの副作用は取り消しません。
 
 ```ginger
 print(div(1.0, 0.0))
@@ -565,7 +569,7 @@ print(3)
 
 この例は静的警告に続いて `3` を出力します。最初の print は呼び出されず、DivideByZero のイベントは unresolved のまま残ります。同じ failure の再発は別イベントです。`RuntimeContext.incomplete_statements` で root call ID、scope、文の index / 種類、原因 event ID を内部的に確認できます。index は program items または関数 body 内の0始まりで、source locationではありません。
 
-初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は resolve の対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
+初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は resolve の対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。再代入失敗も原因 event ID を保持する `UninitializedBinding` に置き換え、以前の正常値は読み出せません。トップレベル・関数ローカルとも、旧値を読み出さない正常な再代入で回復できます。通常の再代入で回復しても、過去の未解決 failure イベントは解決・削除しません。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
 
 関数本体の通常文でもNoValueなら次の独立文へ継続します。Phase 5以降は関数ごとのpendingを保持し、正常値・正常Unitと未解決failureが共存できます。明示returnなしで本体末尾へ到達した場合は、途中に未完遂文があっても正常Unitです。return式がNoValueなら関数を終了し、caller側で継続します。
 
@@ -593,7 +597,7 @@ handler 内の return と nested resolve は引き続き未対応です。
 
 ```ginger
 sig safeAddOne(Int) -> Int {
-    failure Never
+    failure { Never }
 }
 func safeAddOne(x: Int) {
     var result: Int = add(x, 1)
@@ -607,9 +611,9 @@ func safeAddOne(x: Int) {
 ```
 
 `safeAddOne(1)` は 2、`safeAddOne(9007199254740991)` は 888 です。
-内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure Never` にできます。
+内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure { Never }` にできます。
 local resolve は既存の BindingWrite と `(call ID, binding name)` を使い、top-level と同じ evaluator を通ります。
-初期化失敗は UninitializedBinding、再代入失敗は以前の値を保持し、最新 write の直接原因 event だけを回復します。
+初期化失敗・再代入失敗はともに UninitializedBinding を保存し、resolve は最新 write の直接原因 event だけを回復します。
 反復呼び出し・caller/callee の同名 local は独立します。
 
 関数の outward contract は各 statement の failure 履歴を合算し、確実に回復する最新 write の
@@ -621,7 +625,7 @@ conditional failure は既存の条件節を保持し、回復する FailureId �
 保守的に契約へ残します。top-level の既存 warning coverage は変更していません。
 
 `tests/test_local_resolve.py` に local recovery・契約・call isolation・direct cause・Thunk・generic の回帰テストがあります。
-Scene 174 は initializer と Never、175 は再代入前の値保持、176 は最新 event のみの回復、177 は反復 call isolation を確認します。
+Scene 174 は initializer と Never、175 は再代入失敗後の回復、176 は最新 event のみの回復、177 は反復 call isolation を確認します。
 
 ## binding に基づく resolve runtime
 
@@ -638,11 +642,11 @@ resolve x {
 print(x)
 ```
 
-出力は `0.0` です（静的には未指定の FloatOverflow / FloatUnderflow の警告が残ります）。失敗した再代入の直後は current value が 5.0、latest write が failed です。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
+出力は `0.0` です（静的には未指定の FloatOverflow / FloatUnderflow の警告が残ります）。失敗した再代入の直後は UninitializedBinding、latest write は failed です。独立した文は継続できますが、x の読み出しは停止します。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
 
 ```text
 initializer / assignment が NoValue
-→ current value は保持（成功値がなければ UninitializedBinding）
+→ 原因 event ID を保持する UninitializedBinding に更新
 → latest write に直接原因 event ID を記録
 → resolve binding が matching handler を実行
 → handler 内の target write 成功で元 event を resolved に更新
@@ -650,7 +654,7 @@ initializer / assignment が NoValue
 
 metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な BindingWrite レコードに保持します。Cell は frozen のままで、ThunkValue / ThunkHandle は変更しません。成功 write は原因 ID を空にし、成功 write 数を増加させます。resolve はこの数の変化で新たな回復を判定するため、既存値だけで元 event を resolved にしません。handler 内で回復後に再び代入が失敗した場合は、元 event は resolved、新 event は unresolved、latest write は新しい失敗です。
 
-`UninitializedBinding.related_event_ids` は診断用として維持します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、失敗 write の最新の関連 event ID が直接原因です。正常値と pending が共存した earlier event は回復しません。`calculate(mul(1e308, 1e308), 1)` では calculate を実行せず、mul の FloatOverflow が assignment の直接原因になります。
+`UninitializedBinding.related_event_ids` は診断用として維持します。値を要求する builtin の引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、失敗 write の最新の関連 event ID が直接原因です。正常値と pending が共存した earlier event は回復しません。`calculate(mul(1e308, 1e308), 1)` では calculate 本体を実行します。失敗した仮引数を読むと致命的停止し、呼び出し元の resolve には到達しません。仮引数を使わず正常値を返した場合は successful write となり、その binding の resolve では引数由来の未解決イベントを回復しません。
 
 `x = bad1()` の後に `x = bad2()` があれば、resolve x が見るのは bad2 の失敗だけです。同じ FailureId でも event ID で区別し、bad1 の event は unresolved history に残します。さらに `x = 123.0` が成功すれば latest write は success となり、古い失敗は回復対象になりません。その literal write に failure はないため、対応する handler は静的にも拒否されます。静的 failure がある write が runtime で成功した場合は、resolve は合法ですが no-op です。
 
@@ -658,7 +662,7 @@ handler の新 event には `caused_by = 元 event ID` を設定します。targ
 
 Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery は未実装です。
 
-手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler と既存値保持、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。Scene 38 の top-level / local の既存値保持も維持します。
+手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler 後の読み出し停止、173 は calculate の引数失敗後、仮引数の読み出しで停止する例です。
 
 resolved event も履歴に残ります。CallFrame.pending_event_ids の参照は伝播履歴として保持し、現在有効な pending は `RuntimeContext.unresolved_pending` が status を照合して取得します。callee 終了時も unresolved だけを caller へ渡します。ExecutionResult の公開フィールドは変更していません。
 
@@ -729,7 +733,7 @@ failure指定には個別FailureId、failureset、単独のNeverを使えます�
 sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
 
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
-`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure Never }` は有効です。
+`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure { Never } }` は有効です。
 静的に解決されたThunkは本体上限検証の対象です。
 ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
@@ -800,7 +804,7 @@ failureset CalculationFailure {
     IOErr
 }
 sig calculate() -> Float {
-    failure CalculationFailure
+    failure { CalculationFailure }
 }
 func calculate() {
     return div(1.0, 2.0)

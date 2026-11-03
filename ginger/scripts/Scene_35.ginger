@@ -20,13 +20,13 @@
 guarantee TaggedFailure {}
 register TaggedFailure { Float }
 
-sig marked(T) -> T { failure IOErr when T guarantees TaggedFailure }
+sig marked(T) -> T { failure { IOErr when T guarantees TaggedFailure } }
 func marked(x: T) { return x }
 
 print(marked(1))
 print(marked(1.0))
 
-sig optional(T) -> T { failure IOErr when T guarantees BoundedArithmetic }
+sig optional(T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }
 func optional(x: T) { return x }
 
 print(optional(2.0))

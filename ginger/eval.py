@@ -48,7 +48,7 @@ class Cell:
 
 @dataclass(frozen=True)
 class UninitializedBinding:
-    """A declared binding without a value; retains its initializer event IDs."""
+    """A binding without a value; retains its latest failed write's event IDs."""
     mutable: bool
     typ: TypeRef
     related_event_ids: tuple[int, ...]
@@ -56,9 +56,9 @@ class UninitializedBinding:
     @property
     def cause_event_id(self) -> int:
         # A successful subexpression can carry earlier pending events. Once an
-        # expression produces NoValue, argument evaluation stops; a failed
-        # return also ends its function. The newest related event is therefore
-        # the direct cause, even when the tuple includes earlier pending.
+        # expression produces NoValue, value-consuming builtin evaluation stops;
+        # a failed return also ends its function. The newest related event is
+        # therefore the direct cause, even with earlier pending events.
         return max(self.related_event_ids)
 
 Binding = Cell | UninitializedBinding
@@ -183,7 +183,7 @@ def record_incomplete(stmt, index, result):
 
 
 def eval_binding_statement(stmt, env, syms, outer=None):
-    """Evaluate/coerce before publishing a new Cell, including on reassignment."""
+    """Publish the RHS value or failure state, without reading the old value."""
     if isinstance(stmt, VarDecl):
         typ, mutable = instantiated_type(stmt.typ, env, syms), stmt.mutable
     else:
@@ -196,11 +196,10 @@ def eval_binding_statement(stmt, env, syms, outer=None):
         mutable = cell.mutable
     result = eval_expr(stmt.expr, env, syms, outer)
     if isinstance(result.value_result, NoValue):
-        # NoValue short-circuits arguments/returns: the newest related event is
+        # NoValue short-circuits value consumers/returns: the newest related event is
         # the direct cause, not earlier pending from successful subexpressions.
         _active_runtime.get().record_binding_write(stmt.name, (max(result.related_event_ids),))
-        if isinstance(stmt, VarDecl):
-            env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
+        env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
         return result
     value = prepare_typed_value(
         result.value_result.value, expression_type(stmt.expr, env, syms, outer), typ,
@@ -246,7 +245,7 @@ def expression_type(expr, env, syms, outer=None):
 def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Binding], resolved: ResolvedCall) -> EvalResult:
     """
     Run a user-defined func body.
-    - Parameters are bound positionally
+    - Parameters are bound positionally, preserving failed argument bindings.
     - Parameters are immutable; local declarations retain their let/var mutability.
     - Runtime lookup checks locals, then caller_env via outer; checked function
       bodies can reference only parameters and local declarations.
@@ -266,7 +265,8 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
     local = FunctionEnv(resolved.type_bindings)
 
     for p, v, typ in zip(fdecl.params, args, resolved.parameter_types):
-        local[p.name] = Cell(value=v, mutable=False, typ=typ)
+        local[p.name] = (v if isinstance(v, UninitializedBinding)
+                         else Cell(value=v, mutable=False, typ=typ))
 
     context = _active_runtime.get()
     contract = instantiated_signature_failures(syms, fname, resolved.type_bindings)
@@ -349,14 +349,15 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         return EvalResult(forced.value_result, tuple(dict.fromkeys(
             (*result.related_event_ids, *forced.related_event_ids))))
 
-    args = []
+    is_user_func = expr.callee in syms.funcs
+    argument_results = []
     related_ids = []
     for argument in expr.args:
         result = eval_expr(argument.expr, env, syms, outer)
         related_ids.extend(result.related_event_ids)
-        if isinstance(result.value_result, NoValue):
+        if isinstance(result.value_result, NoValue) and not is_user_func:
             return EvalResult(NoValue(), tuple(dict.fromkeys(related_ids)))
-        args.append(result.value_result.value)
+        argument_results.append(result)
 
     actual_types = [expression_type(a.expr, env, syms, outer) for a in expr.args]
     checked = syms.resolved_calls[id(expr)]
@@ -375,9 +376,13 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         selected_type = resolved.type_bindings[requirement.type_var]
         resolved = replace(resolved, implementation=syms.impls.get(
             (type_identity_key(selected_type), resolved.deferred_guarantee, resolved.deferred_method)))
-    args = [prepare_typed_value(value, actual, parameter,
+    # Only user calls reach this boundary with NoValue. Keep each argument's
+    # own events and statically instantiated type; never validate a dummy value.
+    args = [UninitializedBinding(False, parameter, result.related_event_ids)
+            if isinstance(result.value_result, NoValue) else
+            prepare_typed_value(result.value_result.value, actual, parameter,
                                 boundary="call_argument", implementation=expr.callee)
-            for value, actual, parameter in zip(args, actual_types, resolved.parameter_types)]
+            for result, actual, parameter in zip(argument_results, actual_types, resolved.parameter_types)]
 
     if expr.callee in syms.funcs:
         result = eval_user_func(expr.callee, args, syms, env, resolved)

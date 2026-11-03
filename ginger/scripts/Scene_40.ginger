@@ -19,15 +19,51 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig value() -> Int { failure IntegerOverflow }
-func value() { print(add(9007199254740991,1)) return 3 }
+sig value() -> Int { 
+    failure { 
+        IntegerOverflow 
+    } 
+}
+
+func value() { 
+    print(add(9007199254740991,1)) 
+    return 3 
+}
+
 var x: Int = value()
-resolve x { IntegerOverflow { x = 0 print(999) } }
+resolve x { 
+    IntegerOverflow { 
+        x = 0 
+        print(999) 
+    } 
+}
+
 print(x)
-sig unit() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
-func unit() { print(div(1.0,0.0)) }
+
+sig unit() -> Unit { 
+    failure { 
+        DivideByZero, 
+        FloatOverflow, 
+        FloatUnderflow 
+    } 
+}
+
+func unit() { 
+    print(div(1.0,0.0)) 
+}
+
 var u: Unit = unit()
-resolve u { DivideByZero { u = print(999) } }
+resolve u { 
+    DivideByZero { 
+        u = print(999) 
+    } 
+}
+
 var recover: Unit = print(div(1.0,0.0))
-resolve recover { DivideByZero { recover = print(2) } }
+resolve recover { 
+    DivideByZero { 
+        recover = print(2) 
+    } 
+}
+
 print(4)

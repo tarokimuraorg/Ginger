@@ -1,5 +1,5 @@
 // Only latest event recovers. Expected: 888; one older unresolved IntegerOverflow.
-sig f(Int) -> Int { failure IntegerOverflow }
+sig f(Int) -> Int { failure { IntegerOverflow } }
 func f(x: Int) {
     var y: Int = 123
     y = add(x, 1)

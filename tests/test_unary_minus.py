@@ -1,12 +1,14 @@
 from test_failure_contract import recorded
+import io
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from test_failure_contract import checked, output
 from ginger.ast import UnaryMinusExpr, TypeRef
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.diagnostics import Diagnostics
-from ginger.errors import TypecheckError
+from ginger.errors import EvalError, TypecheckError
 from ginger.lower import lower_program
 from ginger.parser import parse
 from ginger.symbols_builder import build_symbols
@@ -118,24 +120,25 @@ class UnaryMinusTests(unittest.TestCase):
                 program, diags = checked(FLOAT_IDENTITY + f'print(identity({expr}))')
                 self.assertEqual([d.message for d in diags],
                                  ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow'])
-                _, context, stdout = recorded(program)
-                self.assertEqual(stdout, '')
-                self.assertEqual(context.failure_history[0].failure_id, FailureId.DivideByZero)
+                with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
+                    recorded(program)
                 program, diags = checked(FLOAT_IDENTITY + f'var x: Float = identity({expr})\n'
                                          'resolve x { DivideByZero { x = 0\nprint(7) } }')
                 self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
-                self.assertEqual(output(program), '7\n')
+                with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
+                    output(program)
 
     def test_function_failure_contract(self):
-        source = FLOAT_IDENTITY + ('sig risky() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        source = FLOAT_IDENTITY + ('sig risky() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func risky() { return div(1.0, 0.0) }\n'
                   'sig f() -> Float { %s }\nfunc f() { return identity((-(risky()))) }\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
             checked(source % '')
-        program, diags = checked((source % 'failure DivideByZero failure FloatOverflow failure FloatUnderflow') +
+        program, diags = checked((source % 'failure { DivideByZero, FloatOverflow, FloatUnderflow }') +
                                  'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint(8) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
-        self.assertEqual(output(program), '8\n')
+        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
+            output(program)
 
     def test_thunk_preserves_latent_and_force_failures(self):
         prefix = FLOAT_IDENTITY + 'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk((-(div(1.0, 0.0))))\n'
@@ -146,7 +149,8 @@ class UnaryMinusTests(unittest.TestCase):
                                  'var x: Float = identity((-force(t)))\n'
                                  'resolve x { DivideByZero { x = 0\nprint(9) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
-        self.assertEqual(output(program), '9\n')
+        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
+            output(program)
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix.replace('Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>', 'Thunk[Float]<Never>'))
 
@@ -168,7 +172,7 @@ class UnaryMinusTests(unittest.TestCase):
                          + ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow']),
             'Scene_2': ('2.0\n', []), 'Scene_3': ('-1\n0.0\n', ['unhandled failures: FloatOverflow, FloatUnderflow']),
             'Scene_4': ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
-            'Scene_5': ('0.0\n1.0\n', []),
+            'Scene_5': ('0.0\n', []),
             'Scene_6': ('0.0\n5.0\n', []),
             'Scene_7': ('-2\n-2\n3\n3\n', ['unhandled failures: IntegerOverflow', 'unhandled failures: IntegerOverflow']),
         }
@@ -176,7 +180,14 @@ class UnaryMinusTests(unittest.TestCase):
         for name, (stdout, warnings) in expected.items():
             with self.subTest(name=name):
                 program, diags = checked((root / f'{name}.ginger').read_text())
-                self.assertEqual(output(program), stdout)
+                if name == 'Scene_5':
+                    stream = io.StringIO()
+                    with redirect_stdout(stream), self.assertRaisesRegex(EvalError, "uninitialized binding 'a'"):
+                        from ginger.eval import eval_program
+                        eval_program(program)
+                    self.assertEqual(stream.getvalue(), stdout)
+                else:
+                    self.assertEqual(output(program), stdout)
                 self.assertEqual([d.message for d in diags], warnings)
 
 

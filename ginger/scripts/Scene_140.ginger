@@ -15,4 +15,4 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig f() -> Int { failure IntegerOverflow<Never> }
+sig f() -> Int { failure { IntegerOverflow<Never> } }
