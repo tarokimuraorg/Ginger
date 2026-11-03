@@ -210,10 +210,7 @@ class IntegerOverflowTests(unittest.TestCase):
                 eval_program(program)
             env = environments[0]
             self.assertEqual(env['x'].value, INT_MAX)
-            if statement.startswith('y ='):
-                self.assertEqual(env['y'].value, 7)
-            else:
-                self.assertIsInstance(env['y'], UninitializedBinding)
+            self.assertIsInstance(env['y'], UninitializedBinding)
 
     def test_direct_builtin_alias_still_needs_its_own_failure_declaration(self):
         source = ('sig alias(Int,Int) -> Int { builtin core.int.add }\n'

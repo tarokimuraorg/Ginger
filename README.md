@@ -569,7 +569,7 @@ print(3)
 
 この例は静的警告に続いて `3` を出力します。最初の print は呼び出されず、DivideByZero のイベントは unresolved のまま残ります。同じ failure の再発は別イベントです。`RuntimeContext.incomplete_statements` で root call ID、scope、文の index / 種類、原因 event ID を内部的に確認できます。index は program items または関数 body 内の0始まりで、source locationではありません。
 
-初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は resolve の対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。既存値のある変数の再代入が失敗した場合は既存値を維持します。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
+初期化失敗には `UninitializedBinding` を使用します。型・可変性・原因 event ID のみを保持し、None・0・NoValue を変数の値として保存しません。初期化 failure 自体では停止せず、独立した statement の実行を継続します。ただし後続処理が未初期化 binding の値を要求すると、識別子の読み出し境界で fatal な `EvalError` により runtime を停止します。未宣言変数とは区別した診断に binding 名と原因 event ID を含めます。未初期化状態を NoValue として依存先へ伝播せず、新しい binding も FailureEvent も作成しません。元イベントの履歴・status と未初期化 binding は停止時点まで保持します。この停止は resolve の対象でも FailureContractViolation でもありません。未初期化 var は後の正常代入で回復できます。再代入失敗も原因 event ID を保持する `UninitializedBinding` に置き換え、以前の正常値は読み出せません。トップレベル・関数ローカルとも、旧値を読み出さない正常な再代入で回復できます。通常の再代入で回復しても、過去の未解決 failure イベントは解決・削除しません。未宣言変数・型エラー・未宣言 RaisedFailure・Python 内部例外などの致命的エラーでは継続しません。
 
 関数本体の通常文でもNoValueなら次の独立文へ継続します。Phase 5以降は関数ごとのpendingを保持し、正常値・正常Unitと未解決failureが共存できます。明示returnなしで本体末尾へ到達した場合は、途中に未完遂文があっても正常Unitです。return式がNoValueなら関数を終了し、caller側で継続します。
 
@@ -613,7 +613,7 @@ func safeAddOne(x: Int) {
 `safeAddOne(1)` は 2、`safeAddOne(9007199254740991)` は 888 です。
 内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure { Never }` にできます。
 local resolve は既存の BindingWrite と `(call ID, binding name)` を使い、top-level と同じ evaluator を通ります。
-初期化失敗は UninitializedBinding、再代入失敗は以前の値を保持し、最新 write の直接原因 event だけを回復します。
+初期化失敗・再代入失敗はともに UninitializedBinding を保存し、resolve は最新 write の直接原因 event だけを回復します。
 反復呼び出し・caller/callee の同名 local は独立します。
 
 関数の outward contract は各 statement の failure 履歴を合算し、確実に回復する最新 write の
@@ -625,7 +625,7 @@ conditional failure は既存の条件節を保持し、回復する FailureId �
 保守的に契約へ残します。top-level の既存 warning coverage は変更していません。
 
 `tests/test_local_resolve.py` に local recovery・契約・call isolation・direct cause・Thunk・generic の回帰テストがあります。
-Scene 174 は initializer と Never、175 は再代入前の値保持、176 は最新 event のみの回復、177 は反復 call isolation を確認します。
+Scene 174 は initializer と Never、175 は再代入失敗後の回復、176 は最新 event のみの回復、177 は反復 call isolation を確認します。
 
 ## binding に基づく resolve runtime
 
@@ -642,11 +642,11 @@ resolve x {
 print(x)
 ```
 
-出力は `0.0` です（静的には未指定の FloatOverflow / FloatUnderflow の警告が残ります）。失敗した再代入の直後は current value が 5.0、latest write が failed です。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
+出力は `0.0` です（静的には未指定の FloatOverflow / FloatUnderflow の警告が残ります）。失敗した再代入の直後は UninitializedBinding、latest write は failed です。独立した文は継続できますが、x の読み出しは停止します。handler の正常代入で current value は 0.0、latest write は success になり、元の DivideByZero event だけが resolved になります。
 
 ```text
 initializer / assignment が NoValue
-→ current value は保持（成功値がなければ UninitializedBinding）
+→ 原因 event ID を保持する UninitializedBinding に更新
 → latest write に直接原因 event ID を記録
 → resolve binding が matching handler を実行
 → handler 内の target write 成功で元 event を resolved に更新
@@ -662,7 +662,7 @@ handler の新 event には `caused_by = 元 event ID` を設定します。targ
 
 Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery は未実装です。
 
-手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler と既存値保持、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。Scene 38 の top-level / local の既存値保持も維持します。
+手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler 後の読み出し停止、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。
 
 resolved event も履歴に残ります。CallFrame.pending_event_ids の参照は伝播履歴として保持し、現在有効な pending は `RuntimeContext.unresolved_pending` が status を照合して取得します。callee 終了時も unresolved だけを caller へ渡します。ExecutionResult の公開フィールドは変更していません。
 

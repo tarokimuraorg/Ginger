@@ -48,7 +48,7 @@ class Cell:
 
 @dataclass(frozen=True)
 class UninitializedBinding:
-    """A declared binding without a value; retains its initializer event IDs."""
+    """A binding without a value; retains its latest failed write's event IDs."""
     mutable: bool
     typ: TypeRef
     related_event_ids: tuple[int, ...]
@@ -183,7 +183,7 @@ def record_incomplete(stmt, index, result):
 
 
 def eval_binding_statement(stmt, env, syms, outer=None):
-    """Evaluate/coerce before publishing a new Cell, including on reassignment."""
+    """Publish the RHS value or failure state, without reading the old value."""
     if isinstance(stmt, VarDecl):
         typ, mutable = instantiated_type(stmt.typ, env, syms), stmt.mutable
     else:
@@ -199,8 +199,7 @@ def eval_binding_statement(stmt, env, syms, outer=None):
         # NoValue short-circuits arguments/returns: the newest related event is
         # the direct cause, not earlier pending from successful subexpressions.
         _active_runtime.get().record_binding_write(stmt.name, (max(result.related_event_ids),))
-        if isinstance(stmt, VarDecl):
-            env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
+        env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
         return result
     value = prepare_typed_value(
         result.value_result.value, expression_type(stmt.expr, env, syms, outer), typ,

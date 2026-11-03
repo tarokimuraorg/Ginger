@@ -21,7 +21,61 @@
 
 var x: Float = 5.0
 x = div(1.0,0.0)
+print(3)
+
+resolve x {
+    DivideByZero {
+        x = 8.0
+    }
+}
+
 print(x)
-sig local() -> Int { failure { IntegerOverflow } }
-func local() { var y: Int = 7 y = add(9007199254740991,1) return y }
-print(local())
+
+sig localA() -> Int {
+    failure {
+        IntegerOverflow
+    }
+}
+
+func localA() {
+    var y: Int = 7
+    y = add(9007199254740991,1)
+
+    resolve y {
+        IntegerOverflow {
+            y = 999
+        }
+    }
+
+    return y
+}
+
+var z: Int = localA()
+
+//resolve z {
+//    IntegerOverflow {
+//        z = 999
+//    }
+//}
+
+print(localA())
+print(z)
+
+var a: Float = 5.0
+a = div(1.0, 0.0)
+print(3)
+a = 8.0
+print(a)
+
+sig localB() -> Int {
+    failure { IntegerOverflow }
+}
+
+func localB() {
+    var y: Int = 7
+    y = add(9007199254740991, 1)
+    y = 8
+    return y
+}
+
+print(localB())

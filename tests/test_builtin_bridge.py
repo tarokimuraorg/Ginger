@@ -103,10 +103,7 @@ class BuiltinBridgeTests(unittest.TestCase):
                     return original(expr, env, syms, outer)
                 with patch('ginger.eval.eval_expr', side_effect=observe):
                     self.run_source(statement)
-                if statement.startswith('var x: Int = 7'):
-                    self.assertEqual(envs[0]['x'].value, 7)
-                else:
-                    self.assertIsInstance(envs[0]['x'], evaluator.UninitializedBinding)
+                self.assertIsInstance(envs[0]['x'], evaluator.UninitializedBinding)
         outer = Mock(return_value=0)
         with patch.dict(BUILTINS, {'core.int.mul': outer}):
             self.run_source(f'var y: Int = mul(add({INT_MAX},1),2)')

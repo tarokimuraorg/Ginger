@@ -68,10 +68,12 @@ class StatementContinuationTests(unittest.TestCase):
         self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
         self.assertFalse(hasattr(env['x'], 'value'))
 
-    def test_failed_assignment_preserves_previous_value(self):
-        env, context, stdout = self.run_source('var x: Float = 5.0\nx = div(1.0,0.0)\nprint(x)')
-        self.assertEqual(env['x'].value, 5.0)
-        self.assertEqual(stdout, '5.0\n')
+    def test_failed_assignment_replaces_previous_value(self):
+        env, context, stdout = self.run_source('var x: Float = 5.0\nx = div(1.0,0.0)\nprint(3)')
+        self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
+        self.assertEqual(env['x'].related_event_ids, (1,))
+        self.assertEqual(len(context.failure_history), 1)
+        self.assertEqual(stdout, '3\n')
         self.assertEqual([r.statement_kind for r in context.incomplete_statements], ['AssignStmt'])
 
     def test_repeated_failure_is_not_collapsed(self):

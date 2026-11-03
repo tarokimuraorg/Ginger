@@ -158,9 +158,9 @@ class FunctionLocalTests(unittest.TestCase):
             with self.subTest(body=body), self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
                 checked(function(body, params='x: Int', sig_params='Int', contract='failure { Never }'))
 
-    def test_failed_initializer_and_assignment_preserve_environment(self):
-        for body, exists in [('var y: Int = add(x,1)\nreturn y', False),
-                             ('var y: Int = 5\ny = add(x,1)\nreturn y', True)]:
+    def test_failed_initializer_and_assignment_store_failure_state(self):
+        for body in ['var y: Int = add(x,1)\nreturn y',
+                     'var y: Int = 5\ny = add(x,1)\nreturn y']:
             source = function(body, params='x: Int', sig_params='Int', contract='failure { IntegerOverflow }')
             program, _ = checked(source + f'var result: Int = f({INT_MAX})')
             environments = []
@@ -168,14 +168,9 @@ class FunctionLocalTests(unittest.TestCase):
                 environments.append(env)
                 return eval_block(block, env, syms, outer)
             with patch('ginger.eval.eval_block', side_effect=observe):
-                if exists:
-                    self.assertEqual(eval_program(program).environment['result'].value, 5)
-                else:
-                    with self.assertRaisesRegex(EvalError, "uninitialized binding 'y'"):
-                        eval_program(program)
-            self.assertEqual(isinstance(environments[0]['y'], UninitializedBinding), not exists)
-            if exists:
-                self.assertEqual(environments[0]['y'].value, 5)
+                with self.assertRaisesRegex(EvalError, "uninitialized binding 'y'"):
+                    eval_program(program)
+            self.assertIsInstance(environments[0]['y'], UninitializedBinding)
 
     def test_return_context_is_not_reintroduced(self):
         with self.assertRaisesRegex(TypecheckError, 'cannot determine type variable'):

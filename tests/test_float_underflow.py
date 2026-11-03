@@ -81,10 +81,10 @@ class FloatUnderflowTests(unittest.TestCase):
             self.assertEqual(result.environment['x'].value, sys.float_info.min)
             self.assertEqual(result.failure_history, ())
 
-    def test_failed_write_preserves_old_value_and_explicit_recovery_history(self):
-        result, _, out = self.execute('var x: Float = 9.0\nx = mul(5e-324,0.5)\nprint(x)\n'
+    def test_failed_write_explicit_recovery_preserves_history(self):
+        result, _, out = self.execute('var x: Float = 9.0\nx = mul(5e-324,0.5)\n'
             'resolve x { FloatUnderflow { x = 0.0 } }\nprint(x)')
-        self.assertEqual(out, '9.0\n0.0\n')
+        self.assertEqual(out, '0.0\n')
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(result.unresolved_events, ())
 

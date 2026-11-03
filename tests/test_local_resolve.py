@@ -23,11 +23,11 @@ class LocalResolveTests(unittest.TestCase):
         self.assertIsNone(result.contract_violation)
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
 
-    def test_reassignment_preserves_old_value(self):
+    def test_reassignment_recovers_without_reading_old_value(self):
         result, stdout = self.public_result(self.program('var y: Int = 123\ny = x + 1\n'
-            'resolve y { IntegerOverflow { print(y)\ny = 888 } }\nreturn y') +
+            'resolve y { IntegerOverflow { y = 888 } }\nreturn y') +
             'print(f(9007199254740991))')
-        self.assertEqual(stdout, '123\n888\n')
+        self.assertEqual(stdout, '888\n')
         self.assertFalse(result.unresolved_events)
 
     def test_no_target_write_rejected_for_never(self):
@@ -49,9 +49,9 @@ class LocalResolveTests(unittest.TestCase):
         from ginger.runtime.failures import RaisedFailure
         from ginger.core.failure_spec import FailureId
         with patch.dict(BUILTINS, {'test.risky': Mock(side_effect=RaisedFailure(FailureId.IOErr))}):
-            result, stdout = self.public_result(prefix + self.program(body, 'IOErr, IntegerOverflow') +
+            result, stdout = self.public_result(prefix + self.program(body.replace('return y', 'return 4'), 'IOErr, IntegerOverflow') +
                                                'print(f(9007199254740991))')
-        self.assertEqual(stdout, '123\n')
+        self.assertEqual(stdout, '4\n')
         self.assertEqual(len(result.unresolved_events), 2)
         self.assertEqual(result.failure_history[1].caused_by, result.failure_history[0].event_id)
 

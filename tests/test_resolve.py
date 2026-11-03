@@ -313,7 +313,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual([e.status for e in result.failure_history], [FailureStatus.UNRESOLVED] * 2)
         self.assertEqual(new.caused_by, original.event_id)
         self.assertEqual(result.unresolved_events, result.failure_history)
-        self.assertEqual(result.environment['x'].related_event_ids, (original.event_id,))
+        self.assertEqual(result.environment['x'].related_event_ids, (new.event_id,))
         self.assertEqual(result.incomplete_statements[-1].statement_kind, 'AssignStmt')
         self.assertEqual(result.incomplete_statements[-1].related_event_ids, (new.event_id,))
         self.assertEqual(messages, ['unhandled failures: IOErr'])
@@ -338,11 +338,12 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(new.caused_by, original.event_id)
         self.assertEqual(result.unresolved_events, (new,))
 
-    def test_new_failure_after_recovery_does_not_undo_valid_binding(self):
+    def test_new_failure_after_recovery_replaces_valid_binding(self):
         result, stdout = self.public_result(OVERFLOW +
-            'resolve x { IntegerOverflow { x = 4\nx = add(9007199254740991,2) } }\nprint(x)')
-        self.assertEqual(stdout, '4\n')
-        self.assertEqual(result.environment['x'].value, 4)
+            'resolve x { IntegerOverflow { x = 4\nx = add(9007199254740991,2) } }\nprint(3)')
+        self.assertEqual(stdout, '3\n')
+        self.assertIsInstance(result.environment['x'], evaluator.UninitializedBinding)
+        self.assertEqual(result.environment['x'].related_event_ids, (2,))
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
 
@@ -482,15 +483,19 @@ class LatestWriteTests(unittest.TestCase):
         self.assertEqual(context.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(env['x'].value, 1.0)
 
-    def test_failed_reassignment_preserves_value_with_or_without_handler(self):
-        for handler, expected in [('', '10.0\n'),
-                ('resolve x { FloatOverflow { print(999) } }\n', '999\n10.0\n')]:
+    def test_failed_reassignment_stops_with_or_without_handler(self):
+        for handler, expected in [('', ''),
+                ('resolve x { FloatOverflow { print(999) } }\n', '999\n')]:
             with self.subTest(handler=handler):
-                result, stdout = self.public_result(
-                    'var x: Float = 10.0\nx = mul(1e308,1e308)\n' + handler + 'print(x)')
-                self.assertEqual(stdout, expected)
-                self.assertEqual(result.environment['x'].value, 10.0)
-                self.assertEqual(result.failure_history[0].status, FailureStatus.UNRESOLVED)
+                context, env, stream = RuntimeContext(), {}, io.StringIO()
+                with redirect_stdout(stream), self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
+                    evaluator._eval_program_with_context(checked(
+                        'var x: Float = 10.0\nx = mul(1e308,1e308)\n' + handler + 'print(x)')[0], context, env)
+                self.assertEqual(stream.getvalue(), expected)
+                self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
+                event, = context.failure_history
+                self.assertEqual(event.status, FailureStatus.UNRESOLVED)
+                self.assertEqual(env['x'].related_event_ids, (event.event_id,))
 
     def test_two_failed_writes_only_latest_resolves(self):
         source = ('var x: Float = 10.0\nx = mul(1e308,1e308)\n'
@@ -516,8 +521,9 @@ class LatestWriteTests(unittest.TestCase):
     def test_older_matching_failure_is_not_selected(self):
         result, stdout = self.public_result(
             'var x: Float = 10.0\nx = mul(1e308,1e308)\nx = div(1.0,0.0)\n'
-            'resolve x { FloatOverflow { x = 2\nprint(999) } }\nprint(x)')
-        self.assertEqual(stdout, '10.0\n')
+            'resolve x { FloatOverflow { x = 2\nprint(999) } }')
+        self.assertEqual(stdout, '')
+        self.assertIsInstance(result.environment['x'], evaluator.UninitializedBinding)
         self.assertEqual([e.status for e in result.failure_history], [FailureStatus.UNRESOLVED] * 2)
 
     def test_successful_write_clears_runtime_target_preserves_history(self):
@@ -539,17 +545,18 @@ class LatestWriteTests(unittest.TestCase):
         result, stdout = self.public_result(
             'var x: Int = 1\nvar y: Int = 2\nx = add(9007199254740991,1)\n'
             'print(123)\ny = add(9007199254740991,2)\n'
-            'resolve x { IntegerOverflow { x = 3 } }\nprint(x)\nprint(y)')
-        self.assertEqual(stdout, '123\n3\n2\n')
+            'resolve x { IntegerOverflow { x = 3 } }\nprint(x)')
+        self.assertEqual(stdout, '123\n3\n')
+        self.assertIsInstance(result.environment['y'], evaluator.UninitializedBinding)
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
 
     def test_handler_failed_write_becomes_latest_then_recovers(self):
         result, stdout = self.public_result(
             'var x: Float = 10.0\nx = mul(1e308,1e308)\n'
-            'resolve x { FloatOverflow { x = div(1.0,0.0) } }\nprint(x)\n'
+            'resolve x { FloatOverflow { x = div(1.0,0.0) } }\n'
             'resolve x { DivideByZero { x = 2 } }\nprint(x)')
-        self.assertEqual(stdout, '10.0\n2.0\n')
+        self.assertEqual(stdout, '2.0\n')
         original, latest = result.failure_history
         self.assertEqual(original.status, FailureStatus.UNRESOLVED)
         self.assertEqual(latest.status, FailureStatus.RESOLVED)
@@ -559,8 +566,9 @@ class LatestWriteTests(unittest.TestCase):
         result, stdout = self.public_result(
             'var x: Float = 10.0\nx = mul(1e308,1e308)\n'
             'resolve x { FloatOverflow { x = div(1.0,0.0) } }\n'
-            'resolve x { FloatOverflow { x = 2\nprint(999) } }\nprint(x)')
-        self.assertEqual(stdout, '10.0\n')
+            'resolve x { FloatOverflow { x = 2\nprint(999) } }')
+        self.assertEqual(stdout, '')
+        self.assertIsInstance(result.environment['x'], evaluator.UninitializedBinding)
         self.assertEqual([e.status for e in result.failure_history], [FailureStatus.UNRESOLVED] * 2)
 
     def test_argument_and_callee_failures_on_reassignment(self):
