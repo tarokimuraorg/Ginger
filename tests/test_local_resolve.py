@@ -1,7 +1,7 @@
 import unittest
 import test_resolve
 from test_failure_contract import checked
-from ginger.errors import TypecheckError
+from ginger.errors import EvalError, TypecheckError
 from ginger.runtime.failures import FailureStatus
 
 
@@ -83,9 +83,13 @@ class LocalResolveTests(unittest.TestCase):
         prefix = ('sig calculate(Int) -> Int { failure { IntegerOverflow } }\n'
                   'func calculate(x: Int) { return x + 1 }\n')
         for expr in ('calculate(x * x)', 'calculate(x)'):
-            result, stdout = self.public_result(prefix + self.program(f'var y: Int = {expr}\n'
-                'resolve y { IntegerOverflow { y = 888 } }\nreturn y') +
-                'print(f(9007199254740991))')
+            source = prefix + self.program(f'var y: Int = {expr}\n'
+                'resolve y { IntegerOverflow { y = 888 } }\nreturn y') + 'print(f(9007199254740991))'
+            if expr == 'calculate(x * x)':
+                with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
+                    self.public_result(source)
+                continue
+            result, stdout = self.public_result(source)
             self.assertEqual(stdout, '888\n')
             self.assertEqual(len(result.failure_history), 1)
             self.assertFalse(result.unresolved_events)

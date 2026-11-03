@@ -560,7 +560,7 @@ Phase 3 時点の未宣言 RaisedFailure の再送出は、Phase 7 で FailureCo
 
 ## statement 単位の継続（Phase 4）
 
-宣言済み builtin failure は `FailureEvent + NoValue` として式の親へ返します。引数は左から右に評価し、NoValue に達したら残りの引数と呼び出し先を実行しません。値を必要とする親演算も実行せず、原因 event ID を保持したまま文を未完遂にし、次の文へ進みます。実行済みの副作用は取り消しません。
+宣言済み builtin failure は `FailureEvent + NoValue` として式の親へ返します。引数は左から右に評価します。builtin・guarantee 経由の演算では、NoValue に達したら残りの引数と呼び出し先を実行しません。ユーザー定義関数では後続引数も評価し、失敗した引数を具体化済みの仮引数型・原因 event ID を持つ `UninitializedBinding` として束縛して、本体を実行します。未使用なら正常に戻れますが、読み出すと既存の `EvalError` で停止します。引数評価中の失敗済み変数の読み出しも致命的停止のままです。正常値の型検証・generic の静的型推論は維持し、未使用引数のイベントも未解決記録に残します。値を必要とする builtin は NoValue を伝播し、文を未完遂にして次の独立した文へ進みます。実行済みの副作用は取り消しません。
 
 ```ginger
 print(div(1.0, 0.0))
@@ -654,7 +654,7 @@ initializer / assignment が NoValue
 
 metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な BindingWrite レコードに保持します。Cell は frozen のままで、ThunkValue / ThunkHandle は変更しません。成功 write は原因 ID を空にし、成功 write 数を増加させます。resolve はこの数の変化で新たな回復を判定するため、既存値だけで元 event を resolved にしません。handler 内で回復後に再び代入が失敗した場合は、元 event は resolved、新 event は unresolved、latest write は新しい失敗です。
 
-`UninitializedBinding.related_event_ids` は診断用として維持します。引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、失敗 write の最新の関連 event ID が直接原因です。正常値と pending が共存した earlier event は回復しません。`calculate(mul(1e308, 1e308), 1)` では calculate を実行せず、mul の FloatOverflow が assignment の直接原因になります。
+`UninitializedBinding.related_event_ids` は診断用として維持します。値を要求する builtin の引数の NoValue は後続評価を止め、失敗した return は関数を終了するため、失敗 write の最新の関連 event ID が直接原因です。正常値と pending が共存した earlier event は回復しません。`calculate(mul(1e308, 1e308), 1)` では calculate 本体を実行します。失敗した仮引数を読むと致命的停止し、呼び出し元の resolve には到達しません。仮引数を使わず正常値を返した場合は successful write となり、その binding の resolve では引数由来の未解決イベントを回復しません。
 
 `x = bad1()` の後に `x = bad2()` があれば、resolve x が見るのは bad2 の失敗だけです。同じ FailureId でも event ID で区別し、bad1 の event は unresolved history に残します。さらに `x = 123.0` が成功すれば latest write は success となり、古い失敗は回復対象になりません。その literal write に failure はないため、対応する handler は静的にも拒否されます。静的 failure がある write が runtime で成功した場合は、resolve は合法ですが no-op です。
 
@@ -662,7 +662,7 @@ handler の新 event には `caused_by = 元 event ID` を設定します。targ
 
 Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery は未実装です。
 
-手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler 後の読み出し停止、173 は calculate の引数失敗を含む `0.0` / `1.0` の例です。
+手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler 後の読み出し停止、173 は calculate の引数失敗後、仮引数の読み出しで停止する例です。
 
 resolved event も履歴に残ります。CallFrame.pending_event_ids の参照は伝播履歴として保持し、現在有効な pending は `RuntimeContext.unresolved_pending` が status を照合して取得します。callee 終了時も unresolved だけを caller へ渡します。ExecutionResult の公開フィールドは変更していません。
 

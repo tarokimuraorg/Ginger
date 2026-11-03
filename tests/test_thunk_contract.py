@@ -119,7 +119,12 @@ func use() { return execute(make()) }
         program, diags = checked(prefix + 'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n'
                                  'var x: Unit = h(force(t))\n'
                                  'resolve x { DivideByZero { x = print(8) } }')
-        self.assertEqual(output(program), '8\n')
+        # h ignores its failed argument and successfully writes Unit; resolve is a no-op.
+        from test_failure_contract import recorded
+        env, context, stdout = recorded(program)
+        self.assertEqual(stdout, '')
+        self.assertIsNone(env['x'].value)
+        self.assertEqual(context.unresolved_pending(1), (1,))
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow, IOErr'])
         with self.assertRaises(TypecheckError):
             checked(prefix + 'sig wrap() -> Thunk[Unit]<Never> {}\n'

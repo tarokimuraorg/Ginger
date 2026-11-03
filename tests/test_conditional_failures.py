@@ -11,7 +11,7 @@ from ginger.core.catalog_loader import load_core_catalog_json
 from ginger.core.failure_contract import ConditionalFailure, FailureContract
 from ginger.core.failure_spec import FailureId, EMPTY_FAILURES, failures
 from ginger.diagnostics import Diagnostics
-from ginger.errors import TypecheckError
+from ginger.errors import EvalError, TypecheckError
 from ginger.eval import UninitializedBinding, eval_call, eval_program
 from ginger.numeric import INT_MAX
 from ginger.runtime.failures import FailureStatus, RaisedFailure
@@ -412,7 +412,8 @@ class ConditionalFailureTests(unittest.TestCase):
         self.assertEqual(syms.resolved_calls[id(call)].type_bindings, {'T': TypeRef('Float')})
         self.assertEqual(effect_expr(call, env, syms), OVERFLOW | FLOAT_OVERFLOW)
         self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatOverflow'])
-        self.assertEqual(eval_program(program).environment['x'].value, 0.0)
+        with self.assertRaisesRegex(EvalError, 'uninitialized binding'):
+            eval_program(program)
 
 
 if __name__ == '__main__':
