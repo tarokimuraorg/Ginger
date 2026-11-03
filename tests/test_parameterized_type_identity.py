@@ -251,7 +251,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
 
     def test_conditional_failure_uses_exact_registration(self):
         prefix = ('guarantee Marker {}\nregister Marker { Box[Int] }\n'
-                  'sig keep(T) -> T { failure IntegerOverflow when T guarantees Marker }\n'
+                  'sig keep(T) -> T { failure { IntegerOverflow when T guarantees Marker } }\n'
                   'func keep(x: T) { return x }\n')
         for typ, expected in [('Box[Int]', failures(FailureId.IntegerOverflow)),
                               ('Box[Float]', EMPTY_FAILURES), ('Box[MissingType]', EMPTY_FAILURES)]:

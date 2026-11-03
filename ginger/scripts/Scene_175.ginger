@@ -1,5 +1,5 @@
 // Failed reassignment preserves 123, then recovers to 888. Expected: 123, 888.
-sig f(Int) -> Int { failure Never }
+sig f(Int) -> Int { failure { Never } }
 func f(x: Int) {
     var y: Int = 123
     y = add(x, 1)

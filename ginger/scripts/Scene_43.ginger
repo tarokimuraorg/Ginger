@@ -17,7 +17,7 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig risky() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig risky() -> Float { failure { IntegerOverflow, DivideByZero, FloatOverflow, FloatUnderflow } }
 func risky() { return div(1.0,0.0) }
 var x: Float = risky()
 resolve x { IntegerOverflow { print(999) x = 0 } }

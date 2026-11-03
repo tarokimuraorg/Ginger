@@ -17,8 +17,28 @@
 
 sig addBoth(T,T) -> T {
     require T guarantees Addable
-    failure IntegerOverflow
-    failure FloatOverflow failure FloatUnderflow
+    failure { 
+        IntegerOverflow,
+        FloatOverflow,
+        FloatUnderflow
+    }
 }
 func addBoth(a: T,b: T) { return a + b }
 print(addBoth(1.0,2.0))
+
+guarantee Mark {}
+register Mark { Float }
+
+sig check(T) -> T {
+    failure {
+        IntegerOverflow when T guarantees BoundedArithmetic,
+        IOErr when T guarantees Mark
+    }
+}
+
+func check(x: T) {
+    return x
+}
+
+print(check(1))
+print(check(1.0))

@@ -171,7 +171,7 @@ class FloatFiniteTests(unittest.TestCase):
             self.assertEqual(result.environment['x'].value, 1.0)
 
     def test_custom_nonfinite_return_is_fatal_and_cannot_reach_comparison_or_resolve(self):
-        source = ('sig bad() -> Float { failure FloatOverflow failure FloatUnderflow builtin test.bad }\n'
+        source = ('sig bad() -> Float { failure { FloatOverflow, FloatUnderflow } builtin test.bad }\n'
                   'var before: Int = 7\nvar x: Float = bad()\n'
                   'resolve x { FloatOverflow { x = 0.0 } }\nprint(cmp(x,1.0))')
         for value in [float('nan'), float('inf'), float('-inf')]:
@@ -274,7 +274,7 @@ class FloatFiniteTests(unittest.TestCase):
     def test_direct_alias_does_not_inherit_implementation_contract(self):
         for operation, a, b in [('add', MAX, MAX), ('sub', MAX, -MAX),
                                  ('mul', MAX, 2.0), ('div', MAX, sys.float_info.min)]:
-            for declaration in ['', 'failure FloatOverflow failure FloatUnderflow']:
+            for declaration in ['', 'failure { FloatOverflow, FloatUnderflow }']:
                 result, _, _ = self.execute(
                     f'sig alias(Float,Float) -> Float {{ {declaration} builtin core.float.{operation} }}\n'
                     f'var x: Float = alias({literal(a)},{literal(b)})')
@@ -288,12 +288,12 @@ class FloatFiniteTests(unittest.TestCase):
     def test_nested_generic_thunk_overflow_keeps_concrete_frame_contracts(self):
         source = (
             'sig inner(U,U) -> U { require U guarantees Addable '
-            'failure IntegerOverflow when U guarantees BoundedArithmetic '
-            'failure FloatOverflow when U guarantees FiniteArithmetic failure FloatUnderflow when U guarantees FiniteArithmetic }\n'
+            'failure { IntegerOverflow when U guarantees BoundedArithmetic } '
+            'failure { FloatOverflow when U guarantees FiniteArithmetic, FloatUnderflow when U guarantees FiniteArithmetic } }\n'
             'func inner(a: U,b: U) { return force(thunk(add(a,b))) }\n'
             'sig outer(T,T) -> T { require T guarantees Addable '
-            'failure IntegerOverflow when T guarantees BoundedArithmetic '
-            'failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic }\n'
+            'failure { IntegerOverflow when T guarantees BoundedArithmetic } '
+            'failure { FloatOverflow when T guarantees FiniteArithmetic, FloatUnderflow when T guarantees FiniteArithmetic } }\n'
             'func outer(a: T,b: T) { return inner(a,b) }\n'
             f'var x: Float = outer({literal(MAX)},{literal(MAX)})\n'
             'resolve x { FloatOverflow { x = 0.0 } }\nprint(x)')
@@ -308,8 +308,8 @@ class FloatFiniteTests(unittest.TestCase):
 
     def test_generic_body_requires_both_symbolic_clauses(self):
         for clause, missing in [
-                ('failure IntegerOverflow when T guarantees BoundedArithmetic', 'FloatOverflow'),
-                ('failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic', 'IntegerOverflow')]:
+                ('failure { IntegerOverflow when T guarantees BoundedArithmetic }', 'FloatOverflow'),
+                ('failure { FloatOverflow when T guarantees FiniteArithmetic, FloatUnderflow when T guarantees FiniteArithmetic }', 'IntegerOverflow')]:
             with self.assertRaisesRegex(TypecheckError, 'undeclared failures: ' + missing):
                 checked(f'sig f(T,T) -> T {{ require T guarantees Addable {clause} }}\n'
                         'func f(a: T,b: T) { return add(a,b) }')

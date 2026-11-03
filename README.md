@@ -116,7 +116,7 @@ resolve x {
 print(x) // 0.0（静的には未処理 FloatOverflow の警告が残る）
 ```
 
-**generic 演算の failure 契約:** add / sub / mul は `failure IntegerOverflow when T guarantees BoundedArithmetic` と `failure FloatOverflow when T guarantees FiniteArithmetic` を公開し、mul だけが `failure FloatUnderflow when T guarantees FiniteArithmetic` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。既存の FiniteArithmetic / BoundedArithmetic marker と conditional failure の仕組みを維持します。marker はメソッドを持たず、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
+**generic 演算の failure 契約:** add / sub / mul は `failure { IntegerOverflow when T guarantees BoundedArithmetic }` と `failure { FloatOverflow when T guarantees FiniteArithmetic }` を公開し、mul だけが `failure { FloatUnderflow when T guarantees FiniteArithmetic }` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。既存の FiniteArithmetic / BoundedArithmetic marker と conditional failure の仕組みを維持します。marker はメソッドを持たず、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
 
 `ginger/builtin.py` の `INT_ARITHMETIC_FAILURES`・`FLOAT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` と `core.float.add/sub/mul/div` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
@@ -219,7 +219,7 @@ print(negative)
 `balance` / `slope` / `gt` は既存 `Ord.cmp` impl を共有し、追加 capability や method を要求しません。
 Int / Int64 / 非正規化数を含む有限 Float、および custom `Ord.cmp` impl と generic dispatch に対応します。
 既存の Int → Int64 / Float widening を維持し、Int64 ↔ Float 変換は追加しません。
-比較に subtraction は使わず、標準比較は `failure Never` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
+比較に subtraction は使わず、標準比較は `failure { Never }` です。±0.0 は等値で、NaN / ±Infinity は引き続き拒否されます。
 
 `Slope` は `Ordering` と別の nominal type で、相互の暗黙変換はありません。
 内部表現は `("Slope", "Rising" / "Flat" / "Falling")`。`("Ordering", "Flat")` とは型タグで区別します。
@@ -296,7 +296,7 @@ adapter は direct Thunk 型だけに適用します。nested Thunk は outer ha
 
 ```ginger
 sig convert(Int) -> Float {
-    failure Never
+    failure { Never }
 }
 func convert(value: Int) {
     return toFloat(value)
@@ -366,7 +366,7 @@ user function の `identity(T) -> T`、`first(T,T) -> T` も同じ推論を使�
 
 ```ginger
 sig increment(Int) -> Int {
-    failure IntegerOverflow
+    failure { IntegerOverflow }
 }
 func increment(x: Int) {
     var y: Int = add(x, 1)
@@ -381,7 +381,7 @@ resolve result {
 print(result)
 ```
 
-`failure Never` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
+`failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
 ## guarantee と標準 catalog
 
@@ -398,8 +398,10 @@ requirement は型変数を宣言・推論するものではなく、すでに s
 ```ginger
 sig addTwo(T, T) -> T {
     require T guarantees Addable
-    failure IntegerOverflow when T guarantees BoundedArithmetic
-    failure FloatOverflow when T guarantees FiniteArithmetic
+    failure {
+        IntegerOverflow when T guarantees BoundedArithmetic,
+        FloatOverflow when T guarantees FiniteArithmetic
+    }
 }
 func addTwo(a: T, b: T) {
     return (a + b)
@@ -446,23 +448,25 @@ inferred_failures ⊆ declared_failures
 
 宣言に、現行実装では実際に発生しない failure が含まれていても許可します。内部で確実に処理され、外へ漏れない failure は公開契約に含めません。実装バグや型検査で防ぐべき問題まで failure として列挙する必要はありません。
 
-sig 本体に `failure DivideByZero` などを列挙できます。個別 FailureId は `core/failure_spec.py` に定義されたものに限られ、宣言済み failureset 名も使用できます。
+sig 本体に `failure { DivideByZero, FloatOverflow, FloatUnderflow }` のようなカンマ区切りのブロックを記述できます。1行・複数行と末尾カンマを許可し、空ブロックは拒否します。単独指定も `failure { Never }` のようにブロックが必要です。複数ブロックも許可し、重複・矛盾はブロックをまたいで検査します。`when` は各要素に個別に作用し、ブロック全体には指定できません。個別 FailureId は `core/failure_spec.py` に定義されたものに限られ、宣言済み failureset 名も使用できます。
 
-- failure の省略と `failure Never` は、空集合、つまり「外部へ公開する failure なし」を表します。
+- failure の省略と `failure { Never }` は、空集合、つまり「外部へ公開する failure なし」を表します。
 - Never と通常 failure の混在は、記述順によらず拒否します。
 - 同一 failure の重複（Never の重複を含む）は拒否します。
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-条件付き宣言の構文は `failure <FailureId> when <TypeVariable> guarantees <Guarantee>` だけです。条件の型変数はその sig の有効な型変数、guarantee は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T guarantees BoundedArithmetic` のために `require T guarantees BoundedArithmetic` を追加する必要はありません。
+条件付き宣言の構文は `failure { <FailureId> when <TypeVariable> guarantees <Guarantee> }` です。条件の型変数はその sig の有効な型変数、guarantee は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T guarantees BoundedArithmetic` のために `require T guarantees BoundedArithmetic` を追加する必要はありません。
 
 内部の `FailureContract` は無条件の FailureSet と、`ConditionalFailure(FailureId, 型変数, guarantee)` の集合を保持します。generic 本体では条件を保存し、nested generic call は通常の型 binding で条件内の変数も置換します。
 
 ```ginger
 sig relay(U, U) -> U {
     require U guarantees Addable
-    failure IntegerOverflow when U guarantees BoundedArithmetic
-    failure FloatOverflow when U guarantees FiniteArithmetic
+    failure {
+        IntegerOverflow when U guarantees BoundedArithmetic,
+        FloatOverflow when U guarantees FiniteArithmetic
+    }
 }
 func relay(a: U, b: U) {
     return addTwo(a, b)
@@ -471,7 +475,7 @@ func relay(a: U, b: U) {
 
 先の addTwo と組み合わせると、callee の `T guarantees BoundedArithmetic` は caller の `U guarantees BoundedArithmetic` に置換されます。FiniteArithmetic の条件も同じく T から U に置換します。具体型が決まった call-site では marker の登録を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{FloatOverflow}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
 
-上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure IntegerOverflow` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure Never` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
+上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure { IntegerOverflow }` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure { Never }` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
 
 ```ginger
 var integer: Int = addTwo(9007199254740991, 1)
@@ -593,7 +597,7 @@ handler 内の return と nested resolve は引き続き未対応です。
 
 ```ginger
 sig safeAddOne(Int) -> Int {
-    failure Never
+    failure { Never }
 }
 func safeAddOne(x: Int) {
     var result: Int = add(x, 1)
@@ -607,7 +611,7 @@ func safeAddOne(x: Int) {
 ```
 
 `safeAddOne(1)` は 2、`safeAddOne(9007199254740991)` は 888 です。
-内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure Never` にできます。
+内部で IntegerOverflow が起こり得ても、関数境界までに確実に回復するため `failure { Never }` にできます。
 local resolve は既存の BindingWrite と `(call ID, binding name)` を使い、top-level と同じ evaluator を通ります。
 初期化失敗は UninitializedBinding、再代入失敗は以前の値を保持し、最新 write の直接原因 event だけを回復します。
 反復呼び出し・caller/callee の同名 local は独立します。
@@ -729,7 +733,7 @@ failure指定には個別FailureId、failureset、単独のNeverを使えます�
 sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
 
 Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
-`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure Never }` は有効です。
+`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure { Never } }` は有効です。
 静的に解決されたThunkは本体上限検証の対象です。
 ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
 実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
@@ -800,7 +804,7 @@ failureset CalculationFailure {
     IOErr
 }
 sig calculate() -> Float {
-    failure CalculationFailure
+    failure { CalculationFailure }
 }
 func calculate() {
     return div(1.0, 2.0)

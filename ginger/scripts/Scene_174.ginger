@@ -1,5 +1,5 @@
-// Local initializer recovery; failure Never. Expected: 2, 888.
-sig safeAddOne(Int) -> Int { failure Never }
+// Local initializer recovery; failure { Never }. Expected: 2, 888.
+sig safeAddOne(Int) -> Int { failure { Never } }
 func safeAddOne(x: Int) {
     var result: Int = add(x, 1)
     resolve result {

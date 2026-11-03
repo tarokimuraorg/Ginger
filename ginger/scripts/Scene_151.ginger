@@ -30,8 +30,8 @@ guarantee Mark {}
 sig make() -> T {}
 sig recur() -> Unit {}
 func recur() { recur() }
-sig pure() -> Unit { failure Never }
+sig pure() -> Unit { failure { Never } }
 func pure() {}
-sig spare() -> Unit { failure IOErr }
+sig spare() -> Unit { failure { IOErr } }
 func spare() {}
 print(1)

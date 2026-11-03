@@ -17,9 +17,9 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig difference(T,T) -> T { require T guarantees Subtractable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic }
+sig difference(T,T) -> T { require T guarantees Subtractable failure { IntegerOverflow when T guarantees BoundedArithmetic, FloatOverflow when T guarantees FiniteArithmetic, FloatUnderflow when T guarantees FiniteArithmetic } }
 func difference(a: T,b: T) { return a - b }
-sig product(T,T) -> T { require T guarantees Multipliable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic }
+sig product(T,T) -> T { require T guarantees Multipliable failure { IntegerOverflow when T guarantees BoundedArithmetic, FloatOverflow when T guarantees FiniteArithmetic, FloatUnderflow when T guarantees FiniteArithmetic } }
 func product(a: T,b: T) { return mul(a,b) }
 print(difference(1,2))
 print(difference(1.0,2.0))

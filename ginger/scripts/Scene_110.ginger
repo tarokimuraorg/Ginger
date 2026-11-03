@@ -16,4 +16,4 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 failureset Arithmetic { IntegerOverflow }
-sig f(T) -> T { failure Arithmetic when T guarantees BoundedArithmetic }
+sig f(T) -> T { failure { Arithmetic when T guarantees BoundedArithmetic } }

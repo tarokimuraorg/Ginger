@@ -26,8 +26,8 @@ FLOAT_OVERFLOW = failures(FailureId.FloatOverflow)
 FINITE_UNDERFLOW = ConditionalFailure(FailureId.FloatUnderflow, 'T', 'FiniteArithmetic')
 FINITE_OVERFLOW = ConditionalFailure(FailureId.FloatOverflow, 'T', 'FiniteArithmetic')
 CONDITIONAL_OVERFLOW = FailureContract(EMPTY_FAILURES, frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
-CONDITION = ('failure IntegerOverflow when T guarantees BoundedArithmetic '
-             'failure FloatOverflow when T guarantees FiniteArithmetic')
+CONDITION = ('failure { IntegerOverflow when T guarantees BoundedArithmetic, '
+             'FloatOverflow when T guarantees FiniteArithmetic }')
 
 
 def addition(body='add(a,b)', *, requires='require T guarantees Addable', contract=CONDITION):
@@ -101,7 +101,7 @@ class ConditionalFailureTests(unittest.TestCase):
     def test_never_cannot_cover_symbolic_overflow(self):
         for body in ['add(a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
-                checked(addition(body, contract='failure Never'))
+                checked(addition(body, contract='failure { Never }'))
 
     def test_runtime_int_overflow_preserves_event_and_continuation(self):
         for body in ['add(a,b)', '(a + b)']:
@@ -193,11 +193,11 @@ class ConditionalFailureTests(unittest.TestCase):
             self.assertEqual([f.declared_failure_contract for f in list(result.call_frames.values())[1:]],
                              [OVERFLOW, FLOAT_OVERFLOW])
             with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
-                checked(addition(body, contract='failure Never'))
+                checked(addition(body, contract='failure { Never }'))
 
     def test_nested_generic_condition_substitutes_u_to_t(self):
         source = ('sig inner(U,U) -> U { require U guarantees Addable '
-                  'failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic }\n'
+                  'failure { IntegerOverflow when U guarantees BoundedArithmetic, FloatOverflow when U guarantees FiniteArithmetic } }\n'
                   'func inner(a: U,b: U) { return (a + b) }\n'
                   'sig outer(T,T) -> T { require T guarantees Addable ' + CONDITION + ' }\n'
                   'func outer(a: T,b: T) { return inner(a,b) }\n'
@@ -216,16 +216,16 @@ class ConditionalFailureTests(unittest.TestCase):
 
     def test_different_guarantee_or_typevar_does_not_cover_condition(self):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
-            checked(addition(contract='failure IntegerOverflow when T guarantees Printable'))
+            checked(addition(contract='failure { IntegerOverflow when T guarantees Printable }'))
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
             checked('sig f(T,U) -> T { require T guarantees Addable '
-                    'failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic }\n'
+                    'failure { IntegerOverflow when U guarantees BoundedArithmetic, FloatOverflow when U guarantees FiniteArithmetic } }\n'
                     'func f(a: T,b: U) { return add(a,a) }')
 
     def test_unconditional_declared_failure_covers_conditional_effect(self):
         for body in ['add(a,b)', '(a + b)']:
             program, syms, env, _ = self.annotated(
-                addition(body, contract='failure IntegerOverflow failure FloatOverflow') +
+                addition(body, contract='failure { IntegerOverflow, FloatOverflow }') +
                 'var x: Int = addTwo(1,2)\nvar y: Float = addTwo(1.0,2.0)')
             self.assertEqual(effect_expr(program.items[-2].expr, env, syms), OVERFLOW | FLOAT_OVERFLOW)
             self.assertEqual(effect_expr(program.items[-1].expr, env, syms), OVERFLOW | FLOAT_OVERFLOW)
@@ -233,11 +233,11 @@ class ConditionalFailureTests(unittest.TestCase):
 
     def test_conditional_declaration_cannot_cover_unconditional_inferred_failure(self):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures.*DivideByZero'):
-            checked('sig risky(T) -> Float { failure DivideByZero when T guarantees BoundedArithmetic failure FloatOverflow failure FloatUnderflow }\n'
+            checked('sig risky(T) -> Float { failure { DivideByZero when T guarantees BoundedArithmetic, FloatOverflow, FloatUnderflow } }\n'
                     'func risky(x: T) { return div(1.0,0.0) }')
 
     def test_optional_property_does_not_become_a_call_requirement(self):
-        source = ('sig identity(T) -> T { failure IOErr when T guarantees BoundedArithmetic }\n'
+        source = ('sig identity(T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }\n'
                   'func identity(x: T) { return x }\n'
                   'var a: Int = identity(1)\nvar b: Float = identity(1.0)')
         program, syms, env, _ = self.annotated(source)
@@ -247,7 +247,7 @@ class ConditionalFailureTests(unittest.TestCase):
 
     def test_custom_float_marker_conditions_are_independent_capabilities(self):
         marker = 'guarantee TaggedFailure {}\nregister TaggedFailure { Float }\n'
-        source = (marker + 'sig marked(T) -> T { failure IOErr when T guarantees TaggedFailure }\n'
+        source = (marker + 'sig marked(T) -> T { failure { IOErr when T guarantees TaggedFailure } }\n'
                   'func marked(x: T) { return x }\n'
                   'var a: Int = marked(1)\nvar b: Float = marked(1.0)')
         program, syms, env, diagnostics = self.annotated(source)
@@ -264,35 +264,35 @@ class ConditionalFailureTests(unittest.TestCase):
                          [EMPTY_FAILURES, failures(FailureId.IOErr)])
         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
             checked(marker + 'sig bad(T,T) -> T { require T guarantees TaggedFailure '
-                    'failure IntegerOverflow }\nfunc bad(a: T,b: T) { return add(a,b) }')
+                    'failure { IntegerOverflow } }\nfunc bad(a: T,b: T) { return add(a,b) }')
 
     def test_unknown_or_out_of_scope_typevariable_rejected(self):
         for signature in ['sig f(T) -> T', 'sig f(Int) -> Int']:
             variable = 'U' if '(T)' in signature else 'T'
             with self.subTest(signature=signature), self.assertRaises(TypecheckError):
-                checked(signature + f' {{ failure IOErr when {variable} guarantees BoundedArithmetic }}')
+                checked(signature + f' {{ failure {{ IOErr when {variable} guarantees BoundedArithmetic }} }}')
 
     def test_unknown_guarantee_rejected(self):
         with self.assertRaisesRegex(TypecheckError, 'unknown guarantee'):
-            checked('sig f(T) -> T { failure IOErr when T guarantees MissingGuarantee }')
+            checked('sig f(T) -> T { failure { IOErr when T guarantees MissingGuarantee } }')
 
     def test_conditional_never_rejected(self):
         with self.assertRaises((SyntaxError, TypecheckError)):
-            checked('sig f(T) -> T { failure Never when T guarantees BoundedArithmetic }')
+            checked('sig f(T) -> T { failure { Never when T guarantees BoundedArithmetic } }')
 
     def test_conditional_failureset_and_failure_variable_rejected(self):
         for name in ['ArithmeticFailure', 'F']:
             with self.subTest(name=name), self.assertRaises((SyntaxError, TypecheckError)):
                 checked('failureset ArithmeticFailure { IntegerOverflow }\n'
-                        f'sig f(T) -> T {{ failure {name} when T guarantees BoundedArithmetic }}')
+                        f'sig f(T) -> T {{ failure {{ {name} when T guarantees BoundedArithmetic }} }}')
 
     def test_duplicate_conditional_clause_rejected(self):
         with self.assertRaises((SyntaxError, TypecheckError)):
             checked('sig f(T) -> T { ' + CONDITION + '\n' + CONDITION + ' }')
 
     def test_unconditional_and_conditional_redundancy_rejected_in_both_orders(self):
-        for clauses in ['failure IntegerOverflow\n' + CONDITION,
-                        CONDITION + '\nfailure IntegerOverflow']:
+        for clauses in ['failure { IntegerOverflow }\n' + CONDITION,
+                        CONDITION + '\nfailure { IntegerOverflow }']:
             with self.subTest(clauses=clauses), self.assertRaises((SyntaxError, TypecheckError)):
                 checked('sig f(T) -> T { ' + clauses + ' }')
 
@@ -304,7 +304,7 @@ class ConditionalFailureTests(unittest.TestCase):
         for condition in conditions:
             with self.subTest(condition=condition), self.assertRaises((SyntaxError, TypecheckError)):
                 checked('typegroup Numeric = Int | Float\n'
-                        f'sig f(T) -> T {{ failure IntegerOverflow when {condition} }}')
+                        f'sig f(T) -> T {{ failure {{ IntegerOverflow when {condition} }} }}')
 
     def test_catalog_accepts_mixed_string_and_structured_entries(self):
         entry = {'failure': 'IntegerOverflow',
@@ -344,7 +344,7 @@ class ConditionalFailureTests(unittest.TestCase):
         operations = [('add', '+', 'Addable', 3), ('sub', '-', 'Subtractable', -1),
                       ('mul', '*', 'Multipliable', 2)]
         for operation, operator, guarantee, expected in operations:
-            condition = CONDITION + (" failure FloatUnderflow when T guarantees FiniteArithmetic" if operation == "mul" else "")
+            condition = CONDITION + (" failure { FloatUnderflow when T guarantees FiniteArithmetic }" if operation == "mul" else "")
             symbolic = FailureContract(EMPTY_FAILURES, CONDITIONAL_OVERFLOW.conditional | frozenset({FINITE_UNDERFLOW})) if operation == "mul" else CONDITIONAL_OVERFLOW
             float_effect = FLOAT_OVERFLOW | (failures(FailureId.FloatUnderflow) if operation == "mul" else EMPTY_FAILURES)
             for body in [f'{operation}(a,b)', f'(a {operator} b)']:
@@ -393,7 +393,7 @@ class ConditionalFailureTests(unittest.TestCase):
         self.assertEqual(syms.sig_conditional_failures['alias'], frozenset())
         self.assertEqual(diagnostics.items, [])
         self.assertEqual(eval_program(program).contract_violation.failure_id, FailureId.IntegerOverflow)
-        program, _ = checked('sig alias(Int,Int) -> Int { failure IntegerOverflow builtin core.int.add }\n' +
+        program, _ = checked('sig alias(Int,Int) -> Int { failure { IntegerOverflow } builtin core.int.add }\n' +
                              f'var x: Int = alias({INT_MAX},1)')
         result = eval_program(program)
         self.assertIsNone(result.contract_violation)

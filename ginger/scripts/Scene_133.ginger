@@ -16,6 +16,6 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig f() -> Unit { failure IntegerOverflow }
+sig f() -> Unit { failure { IntegerOverflow } }
 func f() { var x: Int = add(9007199254740991,1)
 resolve x { IntegerOverflow { x = 0 } } }

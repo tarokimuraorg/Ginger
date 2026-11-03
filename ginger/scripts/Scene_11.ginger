@@ -16,7 +16,7 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 sig f(Int) -> Int {
-    failure IntegerOverflow
+    failure { IntegerOverflow }
 }
 
 func f(x: Int) {

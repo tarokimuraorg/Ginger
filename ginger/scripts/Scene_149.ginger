@@ -19,7 +19,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig alias(Int,Int) -> Int { builtin core.int.add }
-sig caller() -> Int { failure IntegerOverflow }
+sig caller() -> Int { failure { IntegerOverflow } }
 func caller() { return alias(9007199254740991,1) }
 var x: Int = caller()
 resolve x { IntegerOverflow { x = 0 print(999) } }

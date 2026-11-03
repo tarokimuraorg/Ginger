@@ -22,7 +22,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
 
     def test_return_ends_body_and_no_value_cause_reaches_initializer(self):
         result, stdout = self.run_source(
-            'sig f() -> Int { failure IntegerOverflow }\n'
+            'sig f() -> Int { failure { IntegerOverflow } }\n'
             'func f() { return add(9007199254740991,1)\nprint(99)\nreturn 4 }\n'
             'var x: Int = f()\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -37,8 +37,8 @@ class ReturnForceRuntimeTests(unittest.TestCase):
 
     def test_value_and_unit_with_pending(self):
         result, stdout = self.run_source(
-            'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\nfunc f() { print(div(1.0,0.0))\nreturn 3 }\n'
-            'sig u() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\nfunc u() { print(div(1.0,0.0))\nreturn print(2) }\n'
+            'sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nfunc f() { print(div(1.0,0.0))\nreturn 3 }\n'
+            'sig u() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nfunc u() { print(div(1.0,0.0))\nreturn print(2) }\n'
             'var x: Int = f()\nlet unit: Unit = u()\nprint(x)')
         self.assertEqual(stdout, '2\n3\n')
         self.assertEqual(result.environment['x'].value, 3)
@@ -48,7 +48,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
     def test_creation_force_call_and_repeated_evaluation(self):
         source = ('sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> {}\n'
             'func make() { return thunk(div(1.0,0.0)) }\n'
-            'sig use(Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig use(Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func use(t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) { return force(t) }\n'
             'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = make()\n')
         result, _ = self.run_source(source)
@@ -60,7 +60,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
         self.assertTrue(all(result.call_frames[e.call_id].function_name == 'use' for e in result.failure_history))
 
     def test_force_value_and_pending_user_function(self):
-        result, stdout = self.run_source('sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        result, stdout = self.run_source('sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
             'var t: Thunk[Int]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(f())\nvar x: Int = force(t)\nprint(x)')
         self.assertEqual(stdout, '3\n')
@@ -100,7 +100,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
             syms.sig_failures[name] = EMPTY_FAILURES
             return original(name, args, syms, env, resolved)
         with patch('ginger.eval.eval_user_func', side_effect=stale):
-            result, stdout = self.run_source('sig f() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            result, stdout = self.run_source('sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                 'func f() { return div(1.0,0.0)\nprint(99) }\n'
                 'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(f())\nprint(force(t))\nprint(99)')
         self.assertEqual(stdout, '')
@@ -111,7 +111,7 @@ class ReturnForceRuntimeTests(unittest.TestCase):
     def test_thunk_potential_contract_checked_for_value_and_no_value(self):
         # Simulate stale runtime metadata without adding any language escape hatch.
         for expression, prefix in [('div(1.0,0.0)', ''), ('f()',
-            'sig f() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\nfunc f() { print(div(1.0,0.0))\nreturn 3.0 }\n')]:
+            'sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nfunc f() { print(div(1.0,0.0))\nreturn 3.0 }\n')]:
             original = evaluator.eval_expr
             def narrow(expr, env, syms, outer=None):
                 result = original(expr, env, syms, outer)

@@ -57,8 +57,8 @@ class ExecutionResultTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, (new,))
 
     def test_nested_frame_path(self):
-        result, _ = self.capture('sig a() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
-            'sig b() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\nfunc a() { return b() }\n'
+        result, _ = self.capture('sig a() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
+            'sig b() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nfunc a() { return b() }\n'
             'func b() { return div(1.0,0.0) }\nvar x: Float = a()')
         event, = result.failure_history
         child = result.call_frames[event.call_id]
@@ -84,7 +84,7 @@ class ExecutionResultTests(unittest.TestCase):
             syms.sig_failures[name] = EMPTY_FAILURES
             return original(name, args, syms, env, resolved)
         with patch('ginger.eval.eval_user_func', side_effect=stale):
-            result, stdout = self.capture('sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            result, stdout = self.capture('sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                 'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
                 'var before: Int = 7\nvar x: Int = f()\nprint(99)')
         self.assertEqual(stdout, '')
@@ -152,7 +152,7 @@ class ExecutionResultTests(unittest.TestCase):
         # Even a sig declaring DivideByZero must not legitimize a Python error.
         with patch.dict(BUILTINS, {'test.broken': broken}):
             with self.assertRaises(ZeroDivisionError) as caught:
-                self.capture('sig broken() -> Float { failure DivideByZero builtin test.broken }\n'
+                self.capture('sig broken() -> Float { failure { DivideByZero } builtin test.broken }\n'
                              'var x: Float = broken()\n'
                              'resolve x { DivideByZero { x = 9 } }\nprint(3)')
         self.assertIs(caught.exception, error)

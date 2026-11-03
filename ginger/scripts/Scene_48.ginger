@@ -27,9 +27,9 @@ sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow, FloatUnderflow> { r
 func delayed(a: T,b: T) { return thunk(a + b) }
 print(force(delayed(1,2)))
 print(force(delayed(1.0,2.0)))
-sig inner(U,U) -> U { require U guarantees Addable failure IntegerOverflow when U guarantees BoundedArithmetic failure FloatOverflow when U guarantees FiniteArithmetic failure FloatUnderflow when U guarantees FiniteArithmetic }
+sig inner(U,U) -> U { require U guarantees Addable failure { IntegerOverflow when U guarantees BoundedArithmetic, FloatOverflow when U guarantees FiniteArithmetic, FloatUnderflow when U guarantees FiniteArithmetic } }
 func inner(a: U,b: U) { return force(thunk(add(a,b))) }
-sig outer(T,T) -> T { require T guarantees Addable failure IntegerOverflow when T guarantees BoundedArithmetic failure FloatOverflow when T guarantees FiniteArithmetic failure FloatUnderflow when T guarantees FiniteArithmetic }
+sig outer(T,T) -> T { require T guarantees Addable failure { IntegerOverflow when T guarantees BoundedArithmetic, FloatOverflow when T guarantees FiniteArithmetic, FloatUnderflow when T guarantees FiniteArithmetic } }
 func outer(a: T,b: T) { return inner(a,b) }
 var i: Int = outer(9007199254740991,1)
 resolve i { IntegerOverflow { i = 7 } }

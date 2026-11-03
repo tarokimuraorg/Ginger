@@ -34,8 +34,8 @@ class CallFrameTests(unittest.TestCase):
 
     def test_nested_propagation_keeps_one_event_and_original_call(self):
         env, stdout = self.run_source(
-            'sig a() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
-            'sig b() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig a() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
+            'sig b() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func a() { return b() }\nfunc b() { print(div(1.0,0.0))\nreturn 3 }\n'
             'var x: Int = a()\nprint(x)')
         self.assertEqual((env['x'].value, stdout), (3, '3\n'))
@@ -58,9 +58,9 @@ class CallFrameTests(unittest.TestCase):
             return result
         with patch('ginger.eval.eval_user_func', side_effect=observe):
             env, stdout = self.run_source(
-                'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+                'sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                 'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
-                'sig u() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+                'sig u() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                 'func u() { print(div(1.0,0.0)) }\n'
                 'var x: Int = add(f(),1)\nlet unit: Unit = u()\nprint(x)')
         self.assertEqual(stdout, '4\n')
@@ -71,7 +71,7 @@ class CallFrameTests(unittest.TestCase):
 
     def test_failed_return_no_value_and_caller_incomplete(self):
         env, stdout = self.run_source(
-            'sig f() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { return div(1.0,0.0)\nprint(9) }\nvar x: Float = f()\nprint(3)')
         self.assertEqual(stdout, '3\n')
         self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
@@ -80,7 +80,7 @@ class CallFrameTests(unittest.TestCase):
         self.assertEqual(self.context.get_call(2).pending_event_ids, (1,))
 
     def test_repeated_calls_and_top_level_origin(self):
-        self.run_source('sig f() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        self.run_source('sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                         'func f() { print(div(1.0,0.0)) }\nf()\nf()\nprint(div(1.0,0.0))')
         self.assertEqual([e.call_id for e in self.context.failure_history], [2, 3, 1])
         self.assertEqual([e.event_id for e in self.context.failure_history], [1, 2, 3])
@@ -107,7 +107,7 @@ class CallFrameTests(unittest.TestCase):
                     raise error
                 with patch.dict(BUILTINS, {'core.int.print': fail}):
                     with self.assertRaises(FailureContractViolation if isinstance(error, RaisedFailure) else type(error)) as raised:
-                        self.run_source('sig f() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+                        self.run_source('sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                                         'func f() { print(div(1.0,0.0))\nprint(1) }\nf()\nprint(3)')
                 if not isinstance(error, RaisedFailure):
                     self.assertIs(raised.exception, error)
@@ -125,7 +125,7 @@ class CallFrameTests(unittest.TestCase):
             self.assertEqual(self.context.current_call_id, parent.call_id)
 
     def test_resolve_keeps_original_child_event_and_frame_references(self):
-        env, stdout = self.run_source('sig f() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        env, stdout = self.run_source('sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                                      'func f() { return div(1.0,0.0) }\n'
                                      'var x: Float = f()\n'
                                      'resolve x { DivideByZero { x = 2\nprint(2) } }\nprint(3)')

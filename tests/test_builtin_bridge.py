@@ -121,7 +121,7 @@ class BuiltinBridgeTests(unittest.TestCase):
 
     def test_undeclared_failure_not_legitimized_by_caller(self):
         source = (f'sig alias(Int,Int) -> Int {{ builtin core.int.add }}\n'
-                  'sig f() -> Int { failure IntegerOverflow }\n'
+                  'sig f() -> Int { failure { IntegerOverflow } }\n'
                   f'func f() {{ return alias({INT_MAX},1) }}\nvar x: Int = f()')
         with self.assertRaises(FailureContractViolation) as raised:
             self.run_source(source)
@@ -129,7 +129,7 @@ class BuiltinBridgeTests(unittest.TestCase):
         self.assertEqual(self.context.failure_history, ())
 
     def test_declared_custom_alias_records_failure(self):
-        source = ('sig alias(Int,Int) -> Int { failure IntegerOverflow builtin core.int.add }\n'
+        source = ('sig alias(Int,Int) -> Int { failure { IntegerOverflow } builtin core.int.add }\n'
                   f'var x: Int = alias({INT_MAX},1)')
         self.run_source(source)
         self.assertEqual([e.origin for e in self.context.failure_history], ['core.int.add'])
@@ -165,11 +165,11 @@ class BuiltinBridgeTests(unittest.TestCase):
                 self.run_source('print(1)')
             self.assertEqual(raised.exception.failure_id, error.fid)
             self.assertEqual(self.context.failure_history, ())
-            self.run_source('sig custom(Int) -> Unit { failure IOErr builtin core.int.print }\ncustom(1)')
+            self.run_source('sig custom(Int) -> Unit { failure { IOErr } builtin core.int.print }\ncustom(1)')
         self.assertEqual([e.failure_id for e in self.context.failure_history], [FailureId.IOErr])
 
     def test_user_functions_have_child_frame_without_duplicate_registration(self):
-        self.run_source('sig f() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        self.run_source('sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                         'func f() { return div(1.0,0.0) }\nprint(f())')
         self.assertEqual(len(self.context.call_frames), 2)
         self.assertEqual(len(self.context.failure_history), 1)

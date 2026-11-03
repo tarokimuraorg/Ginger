@@ -164,7 +164,7 @@ class ExtensionThunkHandleTests(unittest.TestCase):
         def fail():
             raise RaisedFailure(FailureId.IOErr)
         result = self.evaluate(
-            'sig load() -> Thunk[Int]<Never> { failure IOErr builtin test.load }\n'
+            'sig load() -> Thunk[Int]<Never> { failure { IOErr } builtin test.load }\n'
             'var t: Thunk[Int]<Never> = load()\nvar later: Int = 1', {'test.load': fail})
         self.assertIsNone(result.value_contract_violation)
         self.assertEqual(len(result.failure_history), 1)

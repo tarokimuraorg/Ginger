@@ -47,8 +47,8 @@ print(toFloat(-9007199254740991))
 print(toFloat((-9007199254740991)))
 
 sig f(Float) -> Float {
-    failure DivideByZero
-    failure FloatOverflow failure FloatUnderflow
+    failure { DivideByZero }
+    failure { FloatOverflow, FloatUnderflow }
 }
 
 func f(x: Float) {

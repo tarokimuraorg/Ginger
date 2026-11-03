@@ -1,5 +1,5 @@
 // Call-frame isolation. Expected: 888, 2. No unresolved events.
-sig f(Int) -> Int { failure Never }
+sig f(Int) -> Int { failure { Never } }
 func f(x: Int) {
     var y: Int = add(x, 1)
     resolve y {

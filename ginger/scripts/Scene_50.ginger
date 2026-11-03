@@ -20,7 +20,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 @attr.io
-sig notify() -> Unit { failure A failure B failure IOErr }
+sig notify() -> Unit { failure { A, B, IOErr } }
 @attr.io
 func notify() { print(1) }
 failureset A { IOErr }
@@ -28,7 +28,7 @@ failureset B { IOErr DivideByZero FloatOverflow FloatUnderflow }
 guarantee Shared {}
 typegroup Shared = Int
 failureset Shared { IOErr }
-sig Shared() -> Unit { failure Shared }
+sig Shared() -> Unit { failure { Shared } }
 func Shared() {}
 notify()
 Shared()

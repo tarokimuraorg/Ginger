@@ -75,7 +75,7 @@ class IntegerOverflowTests(unittest.TestCase):
                 self.assertEqual(diags.items, [])
                 self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), EMPTY_FAILURES)
                 self.assertEqual(eval_program(program).environment['y'].value, -value)
-        checked(INT_IDENTITY + 'sig f(Int) -> Int { failure Never }\n'
+        checked(INT_IDENTITY + 'sig f(Int) -> Int { failure { Never } }\n'
                 'func f(x: Int) { return keepInt(neg(x)) }')
 
     def test_literal_overflow_remains_static(self):
@@ -94,18 +94,18 @@ class IntegerOverflowTests(unittest.TestCase):
     def test_function_upper_bound_and_transitive_effects(self):
         for op in ['add', 'sub', 'mul']:
             source = INT_IDENTITY + f'sig f(Int) -> Int {{ %s }}\nfunc f(x: Int) {{ return keepInt({op}(x,1)) }}'
-            checked(source % 'failure IntegerOverflow')
-            for contract in ['', 'failure Never', 'failure IOErr']:
+            checked(source % 'failure { IntegerOverflow }')
+            for contract in ['', 'failure { Never }', 'failure { IOErr }']:
                 with self.subTest(op=op, contract=contract), self.assertRaisesRegex(
                         TypecheckError, 'undeclared failures: IntegerOverflow'):
                     checked(source % contract)
-        prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
+        prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure { IntegerOverflow } }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
             checked(prefix + 'sig g(Int) -> Int {}\nfunc g(x: Int) { return f(x) }')
-        checked('sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return x }')
+        checked('sig f(Int) -> Int { failure { IntegerOverflow } }\nfunc f(x: Int) { return x }')
 
     def test_resolve_and_unhandled_propagation(self):
-        prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
+        prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure { IntegerOverflow } }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
         program, diags = checked(prefix + f'var x: Int = f({INT_MAX})\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(7) } }')
         self.assertEqual(diags.items, [])
@@ -117,7 +117,7 @@ class IntegerOverflowTests(unittest.TestCase):
 
     def test_float_runtime_effect_and_resolve_eligibility(self):
         for op, result in [('add', 3.0), ('sub', -1.0), ('mul', 2.0)]:
-            source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure FloatOverflow failure FloatUnderflow }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
+            source = FLOAT_IDENTITY + f'sig f(Float) -> Float {{ failure {{ FloatOverflow, FloatUnderflow }} }}\nfunc f(x: Float) {{ return keepFloat({op}(x,2.0)) }}\n'
             program, diags = checked(source + 'var x: Float = f(1.0)')
             self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
             self.assertEqual(eval_program(program).environment['x'].value, result)
@@ -148,7 +148,7 @@ class IntegerOverflowTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(f'var t: Thunk[Int]<Never> = thunk(add({INT_MAX},1))')
         checked(INT_IDENTITY + 'failureset ArithmeticFailure { IntegerOverflow }\n'
-                'sig f(Int) -> Int { failure ArithmeticFailure }\nfunc f(x: Int) { return keepInt(add(x,1)) }')
+                'sig f(Int) -> Int { failure { ArithmeticFailure } }\nfunc f(x: Int) { return keepInt(add(x,1)) }')
 
     def test_widening_is_pure_but_propagates_argument_failure(self):
         program, diags = checked('var x: Int = 1\nvar y: Int64 = x\nvar z: Float = x')
@@ -156,7 +156,7 @@ class IntegerOverflowTests(unittest.TestCase):
         env = eval_program(program).environment
         self.assertEqual(env['y'].typ, TypeRef('Int64'))
         self.assertIs(type(env['z'].value), float)
-        prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure IntegerOverflow }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
+        prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure { IntegerOverflow } }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
         for typ in ['Int64', 'Float']:
             program, _ = checked(prefix + f'var x: {typ} = f({INT_MAX})')
             self.assertIsInstance(eval_program(program).environment['x'], UninitializedBinding)
@@ -227,7 +227,7 @@ class IntegerOverflowTests(unittest.TestCase):
         for typ, arg in [('Int', '1'), ('Float', '1.0')]:
             for op in ['add', 'sub', 'mul', 'neg']:
                 args = arg if op == 'neg' else f'{arg},{arg}'
-                source = (f'sig f() -> {typ} {{ failure IntegerOverflow failure FloatOverflow failure FloatUnderflow }}\n'
+                source = (f'sig f() -> {typ} {{ failure {{ IntegerOverflow, FloatOverflow, FloatUnderflow }} }}\n'
                           f'func f() {{ return {op}({args}) }}')
                 with self.subTest(typ=typ, op=op):
                     checked(source)

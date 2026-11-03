@@ -145,7 +145,7 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
 
     def test_public_failure_contract_remains_on_sig(self):
         source = declaration('self: Self', 'Self', 'T', 'T').replace(
-            'require T guarantees G', 'require T guarantees G failure IntegerOverflow')
+            'require T guarantees G', 'require T guarantees G failure { IntegerOverflow }')
         with patch.dict(BUILTINS, {'test.op': lambda a: a}):
             compile(source)
 

@@ -24,6 +24,6 @@ wide = thunk(1.0)
 var x: Float = force(wide)
 resolve x { IOErr { x = 99 } }
 print(x)
-sig make() -> Thunk[Int]<DivideByZero> { failure IOErr }
+sig make() -> Thunk[Int]<DivideByZero> { failure { IOErr } }
 func make() { return thunk(2) }
 print(force(make()))

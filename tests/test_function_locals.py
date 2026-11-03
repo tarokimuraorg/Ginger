@@ -20,7 +20,7 @@ def function(body, ret='Int', contract='', params='', sig_params=''):
 class FunctionLocalTests(unittest.TestCase):
     def test_existing_ast_and_lowering(self):
         source = function('let a: Int = 1\nvar b: Int = a + 1\nb = b * 2\nreturn b',
-                          contract='failure IntegerOverflow')
+                          contract='failure { IntegerOverflow }')
         body = parse(source).items[1].body.stmts
         self.assertIsInstance(body[0], VarDecl)
         self.assertFalse(body[0].mutable)
@@ -147,7 +147,7 @@ class FunctionLocalTests(unittest.TestCase):
 
     def test_integer_overflow_acceptance_and_upper_bounds(self):
         body = 'return add(x,1)'
-        source = function(body, params='x: Int', sig_params='Int', contract='failure IntegerOverflow')
+        source = function(body, params='x: Int', sig_params='Int', contract='failure { IntegerOverflow }')
         program, diags = checked(source + f'var x: Int = f({INT_MAX})\n'
             'resolve x { IntegerOverflow { x = 999 } }\nprint(x)')
         self.assertEqual(diags.items, [])
@@ -156,12 +156,12 @@ class FunctionLocalTests(unittest.TestCase):
         for body in ['let y: Int = add(x,1)\nreturn y',
                      'var y: Int = 0\ny = mul(x,2)\nreturn y']:
             with self.subTest(body=body), self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
-                checked(function(body, params='x: Int', sig_params='Int', contract='failure Never'))
+                checked(function(body, params='x: Int', sig_params='Int', contract='failure { Never }'))
 
     def test_failed_initializer_and_assignment_preserve_environment(self):
         for body, exists in [('var y: Int = add(x,1)\nreturn y', False),
                              ('var y: Int = 5\ny = add(x,1)\nreturn y', True)]:
-            source = function(body, params='x: Int', sig_params='Int', contract='failure IntegerOverflow')
+            source = function(body, params='x: Int', sig_params='Int', contract='failure { IntegerOverflow }')
             program, _ = checked(source + f'var result: Int = f({INT_MAX})')
             environments = []
             def observe(block, env, syms, outer):
@@ -180,7 +180,7 @@ class FunctionLocalTests(unittest.TestCase):
     def test_return_context_is_not_reintroduced(self):
         with self.assertRaisesRegex(TypecheckError, 'cannot determine type variable'):
             checked('sig make() -> T {}\n' + function('return make()'))
-        program, _ = checked(function('let x: Int = add(1,2)\nreturn x', contract='failure IntegerOverflow') + 'print(f())')
+        program, _ = checked(function('let x: Int = add(1,2)\nreturn x', contract='failure { IntegerOverflow }') + 'print(f())')
         self.assertEqual(output(program), '3\n')
 
     def test_local_thunk_storage_snapshot_and_force(self):
@@ -197,7 +197,7 @@ class FunctionLocalTests(unittest.TestCase):
         self.assertEqual(output(program), '')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
             checked(function(body + 'return force(t)'))
-        source = function(body + 'return force(t)', contract='failure IntegerOverflow')
+        source = function(body + 'return force(t)', contract='failure { IntegerOverflow }')
         self.assertEqual(output(checked(source + 'var x: Int = f()\n'
             'resolve x { IntegerOverflow { x = 7 } }\nprint(x)')[0]), '7\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
@@ -213,8 +213,8 @@ class FunctionLocalTests(unittest.TestCase):
             checked(function('return 1\nlet later: Int = missing'))
 
     def test_initializer_dependency_requires_failure_contract(self):
-        prefix = 'sig h() -> Unit { failure IOErr }\nfunc h() {}\n'
+        prefix = 'sig h() -> Unit { failure { IOErr } }\nfunc h() {}\n'
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IOErr'):
             checked(prefix + function('let x: Unit = h()', ret='Unit'))
-        _, diags = checked(prefix + function('let x: Unit = h()', ret='Unit', contract='failure IOErr'))
+        _, diags = checked(prefix + function('let x: Unit = h()', ret='Unit', contract='failure { IOErr }'))
         self.assertEqual(diags.items, [])

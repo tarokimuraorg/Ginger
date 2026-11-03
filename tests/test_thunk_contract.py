@@ -72,11 +72,11 @@ class ThunkContractTests(unittest.TestCase):
 
     def test_functions_and_transitive_validation(self):
         prefix = SET + '''
-sig execute(Thunk[Float]<CalculationFailure>) -> Float { failure CalculationFailure }
+sig execute(Thunk[Float]<CalculationFailure>) -> Float { failure { CalculationFailure } }
 func execute(t: Thunk[Float]<IOErr, DivideByZero, FloatOverflow, FloatUnderflow>) { return force(t) }
-sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure Never }
+sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure { Never } }
 func make() { return thunk(div(1.0,0.0)) }
-sig use() -> Float { failure CalculationFailure }
+sig use() -> Float { failure { CalculationFailure } }
 func use() { return execute(make()) }
 '''
         program, diags = checked(prefix + 'var x: Float = use()\n'
@@ -84,14 +84,14 @@ func use() { return execute(make()) }
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '2\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
-            checked(prefix.replace('sig use() -> Float { failure CalculationFailure }',
-                                   'sig use() -> Float { failure Never }'))
+            checked(prefix.replace('sig use() -> Float { failure { CalculationFailure } }',
+                                   'sig use() -> Float { failure { Never } }'))
         with self.assertRaisesRegex(TypecheckError, 'return type mismatch'):
             checked('sig make() -> Thunk[Float]<Never> {}\n'
                     'func make() { return thunk(div(1.0,0.0)) }')
 
     def test_parameter_bounds_and_exact_declarations(self):
-        prefix = SET + 'sig f(Thunk[Int]<DivideByZero>) -> Int { failure DivideByZero }\n'
+        prefix = SET + 'sig f(Thunk[Int]<DivideByZero>) -> Int { failure { DivideByZero } }\n'
         for spec in ['IOErr', 'CalculationFailure', 'Never']:
             with self.subTest(spec=spec), self.assertRaisesRegex(TypecheckError, 'positional types'):
                 checked(prefix + f'func f(t: Thunk[Int]<{spec}>) {{ return force(t) }}')
@@ -110,12 +110,12 @@ func use() { return execute(make()) }
         self.assertEqual(output(program), '5\n')
 
     def test_force_argument_evaluation_effects(self):
-        _, diags = checked('sig make() -> Thunk[Int]<DivideByZero> { failure IOErr }\n'
+        _, diags = checked('sig make() -> Thunk[Int]<DivideByZero> { failure { IOErr } }\n'
                            'func make() { return thunk(1) }\nvar x: Int = force(make())')
         self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero, IOErr'])
 
     def test_callee_and_argument_effects_are_preserved(self):
-        prefix = 'sig h(Float) -> Unit { failure IOErr }\nfunc h(x: Float) {}\n'
+        prefix = 'sig h(Float) -> Unit { failure { IOErr } }\nfunc h(x: Float) {}\n'
         program, diags = checked(prefix + 'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n'
                                  'var x: Unit = h(force(t))\n'
                                  'resolve x { DivideByZero { x = print(8) } }')

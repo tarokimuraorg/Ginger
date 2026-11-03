@@ -14,11 +14,11 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 //sig f(Float) -> Float {
-//    failure Never
+//    failure { Never }
 //}
 
 sig f(Float) -> Float {
-    failure FloatOverflow failure FloatUnderflow
+    failure { FloatOverflow, FloatUnderflow }
 }
 
 func f(x:Float) {

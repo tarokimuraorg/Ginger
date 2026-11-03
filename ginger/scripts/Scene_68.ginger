@@ -17,5 +17,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig sum(T,T) -> T { failure IntegerOverflow failure FloatOverflow failure FloatUnderflow }
+sig sum(T,T) -> T { failure { IntegerOverflow, FloatOverflow, FloatUnderflow } }
 func sum(a: T,b: T) { return a + b }

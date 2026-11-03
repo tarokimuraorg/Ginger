@@ -127,12 +127,12 @@ class UnaryMinusTests(unittest.TestCase):
                 self.assertEqual(output(program), '7\n')
 
     def test_function_failure_contract(self):
-        source = FLOAT_IDENTITY + ('sig risky() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        source = FLOAT_IDENTITY + ('sig risky() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func risky() { return div(1.0, 0.0) }\n'
                   'sig f() -> Float { %s }\nfunc f() { return identity((-(risky()))) }\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
             checked(source % '')
-        program, diags = checked((source % 'failure DivideByZero failure FloatOverflow failure FloatUnderflow') +
+        program, diags = checked((source % 'failure { DivideByZero, FloatOverflow, FloatUnderflow }') +
                                  'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint(8) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '8\n')

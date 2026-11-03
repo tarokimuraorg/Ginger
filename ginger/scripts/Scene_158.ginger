@@ -20,8 +20,8 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig a() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
-sig b() -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }
+sig a() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
+sig b() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
 func a() { return b() }
 func b() { return div(1.0,0.0) }
 var x: Float = a()

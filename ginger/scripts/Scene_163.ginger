@@ -13,7 +13,7 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig h(Float) -> Unit { failure IOErr }
+sig h(Float) -> Unit { failure { IOErr } }
 func h(x: Float) {}
 var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
 var x: Unit = h(force(t))

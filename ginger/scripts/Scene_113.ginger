@@ -16,4 +16,4 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 typegroup Numeric = Int | Float
-sig f(T) -> T { failure IntegerOverflow when T in Numeric }
+sig f(T) -> T { failure { IntegerOverflow when T in Numeric } }

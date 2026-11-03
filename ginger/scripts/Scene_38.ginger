@@ -22,6 +22,6 @@
 var x: Float = 5.0
 x = div(1.0,0.0)
 print(x)
-sig local() -> Int { failure IntegerOverflow }
+sig local() -> Int { failure { IntegerOverflow } }
 func local() { var y: Int = 7 y = add(9007199254740991,1) return y }
 print(local())

@@ -17,7 +17,7 @@ from test_failure_contract import checked, recorded
 
 OVERFLOW = 'var x: Int = add(9007199254740991,1)\n'
 DIVISION = 'var x: Float = div(1.0,0.0)\n'
-THREE_FAILURES = ('sig risky() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+THREE_FAILURES = ('sig risky() -> Float { failure { IntegerOverflow, DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                 'func risky() { return div(1.0,0.0) }\n'
                 'var x: Float = risky()\n')
 
@@ -71,7 +71,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_successful_function_result_with_pending_failure_is_no_op(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Int { failure IntegerOverflow }\n'
+            'sig f() -> Int { failure { IntegerOverflow } }\n'
             'func f() { print(add(9007199254740991,1))\nreturn 3 }\n'
             'var x: Int = f()\n'
             'resolve x { IntegerOverflow { x = 0\nprint(999) } }\nprint(x)')
@@ -81,7 +81,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_initialized_unit_value_with_pending_failure_is_no_op(self):
         env, context, stdout = self.run_source(
-            'sig f() -> Unit { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { print(div(1.0,0.0)) }\nvar x: Unit = f()\n'
             'resolve x { DivideByZero { x = print(999) } }\nprint(3)')
         self.assertEqual(stdout, '3\n')
@@ -143,7 +143,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(context.unresolved_pending(1), (1,))
 
     def test_failed_return_cause_excludes_earlier_failed_statement(self):
-        prefix = ('sig f() -> Float { failure IntegerOverflow failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        prefix = ('sig f() -> Float { failure { IntegerOverflow, DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func f() { print(add(9007199254740991,1))\nreturn div(1.0,0.0) }\n'
                   'var x: Float = f()\n')
         env, _, _ = self.run_source(prefix)
@@ -157,7 +157,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.unresolved_events, (result.failure_history[0],))
 
     def test_failed_argument_cause_excludes_successful_argument_pending_events(self):
-        prefix = ('sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        prefix = ('sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
                   'var x: Int = add(f(),add(9007199254740991,1))\n')
         env, _, _ = self.run_source(prefix)
@@ -243,7 +243,7 @@ class ResolveTests(unittest.TestCase):
                     'DivideByZero { x = 0 } }')
 
     def test_function_resolve_is_supported(self):
-        checked('sig f() -> Unit { failure Never }\nfunc f() {\n' +
+        checked('sig f() -> Unit { failure { Never } }\nfunc f() {\n' +
                 OVERFLOW + 'resolve x { IntegerOverflow { x = 0 } }\n}')
 
     def test_handler_assignment_type_and_mutability_rules_still_apply(self):
@@ -298,7 +298,7 @@ class ResolveTests(unittest.TestCase):
              'unhandled failures: IntegerOverflow'])
 
     def test_handler_new_failure_keeps_original_unresolved_and_records_cause(self):
-        source = ('sig ioFail() -> Int { failure IOErr builtin test.ioFail }\n' +
+        source = ('sig ioFail() -> Int { failure { IOErr } builtin test.ioFail }\n' +
                   OVERFLOW + 'resolve x { IntegerOverflow { x = ioFail() } }\nprint(3)')
         failed_builtin = Mock(side_effect=RaisedFailure(FailureId.IOErr))
         with patch.dict(BUILTINS, {'test.ioFail': failed_builtin}):
@@ -374,7 +374,7 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(result.environment['y'].related_event_ids, (2,))
 
     def test_fatal_initializer_builtin_violation_does_not_enter_resolve(self):
-        source = ('sig raw() -> Int { failure IntegerOverflow builtin test.raw }\n'
+        source = ('sig raw() -> Int { failure { IntegerOverflow } builtin test.raw }\n'
                   'var x: Int = raw()\nresolve x { IntegerOverflow { x = 0\nprint(2) } }\nprint(3)')
         printer = Mock()
         with patch.dict(BUILTINS, {'test.raw': Mock(side_effect=RaisedFailure(FailureId.IOErr)),
@@ -394,7 +394,7 @@ class ResolveTests(unittest.TestCase):
             return original(name, args, syms, env, resolved)
         with patch('ginger.eval.eval_user_func', side_effect=stale):
             result, stdout = self.public_result(
-                'sig f() -> Int { failure IntegerOverflow }\n'
+                'sig f() -> Int { failure { IntegerOverflow } }\n'
                 'func f() { return add(9007199254740991,1) }\nvar x: Int = f()\n'
                 'resolve x { IntegerOverflow { x = 0\nprint(2) } }\nprint(3)')
         self.assertEqual(stdout, '')
@@ -427,7 +427,7 @@ class ResolveTests(unittest.TestCase):
                 context, env = RuntimeContext(), {}
                 printer = Mock()
                 broken = Mock(side_effect=error)
-                source = ('sig broken() -> Int { failure IntegerOverflow builtin test.broken }\n'
+                source = ('sig broken() -> Int { failure { IntegerOverflow } builtin test.broken }\n'
                           'var x: Int = broken()\n'
                           'resolve x { IntegerOverflow { x = 0\nprint(2) } }')
                 with patch.dict(BUILTINS, {'test.broken': broken, 'core.int.print': printer}), \
@@ -564,7 +564,7 @@ class LatestWriteTests(unittest.TestCase):
         self.assertEqual([e.status for e in result.failure_history], [FailureStatus.UNRESOLVED] * 2)
 
     def test_argument_and_callee_failures_on_reassignment(self):
-        prefix = ('sig calculate(Float, Float) -> Float { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+        prefix = ('sig calculate(Float, Float) -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func calculate(a: Float, b: Float) { print(77)\nreturn div(a,b) }\n'
                   'var x: Float = 10.0\n')
         for expr, failure, expected in [('calculate(mul(1e308,1e308),1)', 'FloatOverflow', '1.0\n'),
@@ -578,7 +578,7 @@ class LatestWriteTests(unittest.TestCase):
 
     def test_assignment_direct_cause_excludes_pending_events(self):
         result, stdout = self.public_result(
-            'sig f() -> Int { failure DivideByZero failure FloatOverflow failure FloatUnderflow }\n'
+            'sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
             'var x: Int = 10\nx = add(f(),add(9007199254740991,1))\n'
             'resolve x { DivideByZero { x = 9\nprint(999) }\n'
@@ -626,7 +626,7 @@ class LatestWriteTests(unittest.TestCase):
 
     def test_call_local_same_name_does_not_replace_root_write(self):
         result, stdout = self.public_result(
-            'sig f() -> Int { failure IntegerOverflow }\n'
+            'sig f() -> Int { failure { IntegerOverflow } }\n'
             'func f() { var x: Int = add(9007199254740991,1)\nreturn 7 }\n'
             'var x: Int = add(9007199254740991,2)\nprint(f())\n'
             'resolve x { IntegerOverflow { x = 3 } }\nprint(x)')
