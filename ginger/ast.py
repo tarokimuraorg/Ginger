@@ -35,7 +35,9 @@ Stmt = Union[
     "VarDecl", 
     "AssignStmt",
     "ExprStmt", 
-    "ReturnStmt", 
+    "ReturnStmt",
+    "HandlerReturnStmt",
+    "ResolveStmt",
     ]
 
 @dataclass(frozen=True)
@@ -45,6 +47,17 @@ class BlockStmt:
 @dataclass(frozen=True)
 class ReturnStmt:
     expr: "Expr"
+
+@dataclass(frozen=True)
+class HandlerReturnStmt:
+    expr: "Expr"
+
+
+@dataclass(frozen=True)
+class ResolveExpr:
+    expr: "Expr"
+    handlers: List["ResolveHandler"]
+
 
 @dataclass(frozen=True)
 class ResolveHandler:
@@ -187,6 +200,7 @@ class AssignStmt:
 # ---- expressions ----
 
 Expr = Union[
+    "ResolveExpr",
     "BinaryExpr",
     "UnaryMinusExpr",
     "CallExpr", 

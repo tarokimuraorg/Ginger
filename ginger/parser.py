@@ -1,6 +1,7 @@
 from typing import List, Optional, Tuple
 from .tokenizer import Token, tokenize
 from .ast import (
+    ResolveExpr, HandlerReturnStmt,
     Program, TopLevel,
     TypeRef, Param, FuncSig,
     FailureSetDecl, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
@@ -509,6 +510,9 @@ class Parser:
     def parse_resolve(self) -> ResolveStmt:
         self.eat("KW", "resolve")
         target = self.eat("IDENT").text
+        return ResolveStmt(target=target, handlers=self.parse_resolve_handlers(False))
+
+    def parse_resolve_handlers(self, expression: bool):
         self.skip_newlines()
         self.eat("SYM", "{")
         handlers: List[ResolveHandler] = []
@@ -516,13 +520,13 @@ class Parser:
         while not self.match("SYM", "}"):
             failure_name = self.eat("IDENT").text
             self.skip_newlines()
-            body = self.parse_block(allow_return=False)
+            body = self.parse_block(allow_return=expression, handler_return=expression)
             handlers.append(ResolveHandler(failure_name=failure_name, body=body))
             self.skip_newlines()
         self.eat("SYM", "}")
-        return ResolveStmt(target=target, handlers=handlers)
+        return handlers
     
-    def parse_block(self, *, allow_return: bool = True) -> BlockStmt:
+    def parse_block(self, *, allow_return: bool = True, handler_return: bool = False) -> BlockStmt:
 
         self.eat("SYM", "{")
         stmts: List[Stmt] = []
@@ -546,7 +550,7 @@ class Parser:
                     raise SyntaxError("return is not allowed in resolve handler")
                 self.eat("KW", "return")
                 expr = self.parse_expr()
-                stmts.append(ReturnStmt(expr=expr))
+                stmts.append(HandlerReturnStmt(expr) if handler_return else ReturnStmt(expr))
                 self.skip_newlines()
                 continue
 
@@ -606,6 +610,11 @@ class Parser:
 
         self.reject_removed_syntax()
         
+        if self.match("KW", "resolve"):
+            self.eat("KW", "resolve")
+            expr = self.parse_expr()
+            return ResolveExpr(expr, self.parse_resolve_handlers(True))
+
         # Prefix minus binds to one operand, tighter than every infix operator.
         # Check tokens before grouping erases the explicit expression boundary.
         if self.match("SYM", "-"):

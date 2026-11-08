@@ -17,6 +17,7 @@ from ginger.runtime.results import EvalResult, ExecutionResult, NoValue, Value a
 from ginger.runtime.failures import FailureContractViolation, FailureStatus
 
 from .ast import (
+    ResolveExpr, HandlerReturnStmt,
     FuncDecl,
     VarDecl,
     AssignStmt,
@@ -86,6 +87,11 @@ def instantiated_type(typ, env, syms):
 
 @dataclass
 class ReturnSignal(Exception):
+    result: EvalResult
+    typ: TypeRef
+
+@dataclass
+class HandlerReturnSignal(Exception):
     result: EvalResult
     typ: TypeRef
 
@@ -209,6 +215,39 @@ def eval_binding_statement(stmt, env, syms, outer=None):
     return EvalResult(ProducedValue(None), result.related_event_ids)
 
 def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None) -> EvalResult:
+
+    if isinstance(expr, ResolveExpr):
+        original = eval_expr(expr.expr, env, syms, outer)
+        if isinstance(original.value_result, ProducedValue):
+            return original
+        context = _active_runtime.get()
+        event_id = max(original.related_event_ids)
+        event = context.get_event(event_id)
+        handler = next((h for h in expr.handlers
+                        if h.failure_name == event.failure_id.value), None)
+        if handler is None or event.status is FailureStatus.RESOLVED:
+            return original
+        first_event = context.next_event_id
+        local = env.copy()
+        replacement = None
+        try:
+            try:
+                context.run_handler(event_id, lambda: eval_block(handler.body, local, syms, outer))
+            except HandlerReturnSignal as signal:
+                replacement = signal
+        finally:
+            for name in env:
+                env[name] = local[name]
+        ids = tuple(dict.fromkeys((*original.related_event_ids,
+            *(e.event_id for e in context.failure_history if e.event_id >= first_event),
+            *(replacement.result.related_event_ids if replacement else ()))))
+        if replacement is None or isinstance(replacement.result.value_result, NoValue):
+            return EvalResult(NoValue(), ids)
+        value = prepare_typed_value(replacement.result.value_result.value, replacement.typ,
+                                    expression_type(expr, env, syms),
+                                    boundary="resolve_return", implementation="resolve")
+        context.resolve(event_id)
+        return EvalResult(ProducedValue(value), ids)
 
     if isinstance(expr, (IntLit, Int64Lit)):
         return EvalResult(ProducedValue(int(expr.value)))
@@ -409,12 +448,13 @@ def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[
         elif isinstance(st, ResolveStmt):
             eval_resolve_statement(st, env, syms)
             continue
-        elif isinstance(st, ReturnStmt):
+        elif isinstance(st, (ReturnStmt, HandlerReturnStmt)):
             result = eval_expr(st.expr, env=env, syms=syms, outer=outer)
             record_incomplete(st, index, result)
-            # Value and NoValue both terminate the function. Only the caller's
-            # next independent statement may continue after a failed return.
-            raise ReturnSignal(result, expression_type(st.expr, env, syms, outer))
+            # Value and NoValue both end the owning function or expression
+            # handler; distinct signals keep nested return boundaries separate.
+            signal = HandlerReturnSignal if isinstance(st, HandlerReturnStmt) else ReturnSignal
+            raise signal(result, expression_type(st.expr, env, syms, outer))
         elif isinstance(st, ExprStmt):
             result = eval_expr(st.expr, env=env, syms=syms, outer=outer)
         else:

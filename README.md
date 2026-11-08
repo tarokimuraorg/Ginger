@@ -660,7 +660,7 @@ metadata は RuntimeContext の `(call ID, binding name)` ごとの不変な Bin
 
 handler の新 event には `caused_by = 元 event ID` を設定します。target への代入が失敗した場合も latest write はその新しい失敗で置き換え、元の write には戻しません。fatal な契約違反・EvalError・Python 例外は通常の終了経路へ変換しません。
 
-Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。これは binding recovery の拡張で、expression recovery は未実装です。
+Thunk value の作成成功後に `force(t)` が失敗しても t への write ではないため、`resolve t` の資格には潜在 failure を追加しません。`var result: Int = force(t)` や `result = force(t)` の失敗は result の write として回復できます。式形式の `resolve force(t) { ... }` でも代替値を生成できます。
 
 手動確認用: Scene 170 は failed reassignment の回復、171 は最新の失敗だけの回復、172 は回復しない handler 後の読み出し停止、173 は calculate の引数失敗後、仮引数の読み出しで停止する例です。
 
@@ -912,3 +912,51 @@ force中に生成されたeventがbindingのwrite失敗の原因になれば、r
 | Binary64 | 表現形式を正確に示し、Float の実用値域と区別できる | IEEE 用語の知識が必要で、比較・failure の方針までは伝わらない |
 
 提案は Binary64 を第一候補、使い慣れた命名を重視するなら Float64 とし、どちらも値契約を明示することです。Float → 新型は全域で値を保存でき、逆方向は NaN / Infinity を拒否する明示変換が必要です。変換失敗の契約、NaN payload・signaling NaN の保持、演算時の特殊値の伝播、比較APIは未決定です。今回、Int64 の改名も新型・変換APIの追加も行っていません。
+
+
+### resolve 式による代替値の生成
+
+`resolve <式> { FailureName { return <代替値> } }` は、初期化式、再代入の右辺、関数の return 式、呼び出し引数などで使えます。
+文の先頭の `resolve x { ... }` は従来の binding 回復文として解釈します。式として単独で使う場合は括弧で囲みます（式文の型の規則は従来どおりです）。
+
+```ginger
+var x: Float = 8.0
+x = resolve div(1.0, 0.0) {
+    DivideByZero {
+        return x
+    }
+}
+print(x) // 8.0
+```
+
+右辺の評価が完了するまで代入先は更新されないため、このハンドラは古い正常値を読めます。
+元の式が正常値を生成した場合、その値を返し、ハンドラは実行しません。
+正常値を生成しなかった場合は、既存の失敗伝播と同じく最新の関連イベントを直接原因として、その種類に対応するハンドラを実行します。以前の独立した pending イベントは回復対象にしません。
+
+ハンドラ内の `return` は、その resolve 式だけの代替値を指定し、後続処理を実行しません。関数の return とは別の制御として扱い、ネスト時には最も内側のハンドラに対応します。ハンドラ内で呼び出した関数の return は従来どおり関数を終了します。ハンドラで宣言した変数はそのハンドラ内で使え、既存 var への代入は外側へ反映されます。
+
+| ハンドラの結果 | resolve 式の値 | 元イベント |
+|---|---|---|
+| 正常な代替値を return | 代替値 | resolved |
+| return なしで終了 | NoValue（暗黙の Unit ではない） | unresolved |
+| return 式が failure | NoValue | unresolved |
+| 対応ハンドラなし | NoValue | unresolved |
+
+return は必須ではありません。NoValue を再代入すると var は失敗状態になり、独立した後続文は継続します。その var の読み出しは原因イベント ID 付きで致命的停止します。ハンドラ内の新イベントは独立に記録し、`caused_by` で元イベントを参照します。代替値生成に失敗した場合も両方の履歴と関連 ID を保持します。正常な代替値を返せても、ハンドラ内の別の failure は未解決のまま残ります。
+
+代替値の型は元の式の型と整合する必要があります。既存の widening は利用できますが、新しい暗黙変換はありません。型違反や致命的な読み出し停止は通常の failure として捕捉しません。
+
+resolve 式では回復可能な failure も発生可能性として sig に宣言します。ハンドラ内の failure も含みます。
+
+```ginger
+sig calculate() -> Float {
+    failure { DivideByZero, FloatOverflow, FloatUnderflow }
+}
+func calculate() {
+    return resolve div(1.0, 0.0) {
+        DivideByZero { return 0.0 }
+    }
+}
+```
+
+既存の resolve 文の構文・回復条件・静的解析は維持しています。式形式の回帰テストは `tests/test_resolve_expression.py` にあります。
