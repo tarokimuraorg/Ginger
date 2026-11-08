@@ -287,6 +287,19 @@ class Parser:
         # typegroup Number = Int | Float
         self.eat("KW", "typegroup")
         name = self.eat("IDENT").text
+        if self.match("SYM", "{"):
+            self.eat("SYM", "{")
+            self.skip_newlines()
+            members = []
+            while not self.match("SYM", "}"):
+                members.append(self.parse_type())
+                if self.match("SYM", ","):
+                    self.eat("SYM", ",")
+                elif not self.match("SYM", "}") and not self.match("NEWLINE"):
+                    raise SyntaxError("typegroup members must be separated by a newline or comma")
+                self.skip_newlines()
+            self.eat("SYM", "}")
+            return TypeGroupDecl(name=name, members=members)
         self.eat("SYM", "=")
         members: List[TypeRef] = [self.parse_type()]
         while self.match("SYM", "|"):
@@ -397,9 +410,11 @@ class Parser:
                         if f == "Never":
                             raise SyntaxError("Never cannot have a failure condition")
                         type_var = self.eat("IDENT").text
-                        self.eat("KW", "guarantees")
-                        guarantee = self.eat("IDENT").text
-                        clause = ConditionalFailureDecl(f, type_var, guarantee)
+                        if self.match("KW", "guarantees"):
+                            raise SyntaxError("use 'when T in Group' for failure conditions")
+                        self.eat("KW", "in")
+                        group = self.eat("IDENT").text
+                        clause = ConditionalFailureDecl(f, type_var, group)
                     if clause in failures:
                         raise SyntaxError(f"duplicate failure '{f}'")
                     if failures and (f == "Never" or "Never" in failures):

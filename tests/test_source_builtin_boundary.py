@@ -79,8 +79,8 @@ class SourceBuiltinBoundaryTests(unittest.TestCase):
 
     def test_standard_catalog_and_generic_dispatch_through_public_source(self):
         result = run('sig twice(T) -> T { require T guarantees Addable\n'
-                     'failure { IntegerOverflow when T guarantees BoundedArithmetic }\n'
-                     'failure { FloatOverflow when T guarantees FiniteArithmetic } }\n'
+                     'failure { IntegerOverflow when T in BoundedArithmetic }\n'
+                     'failure { FloatOverflow when T in FiniteArithmetic } }\n'
                      'func twice(x: T) { return add(x,x) }\n'
                      'var a: Int = add(1,2)\nvar b: Float = add(1.0,2.0)\n'
                      'var c: Int = sub(7,2)\nvar d: Int = mul(3,4)\n'

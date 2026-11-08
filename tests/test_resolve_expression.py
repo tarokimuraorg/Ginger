@@ -111,7 +111,7 @@ print(add(calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
 
     def test_generic_return(self):
         _, context, out = self.run_source('sig f(T,T) -> T { require T guarantees Addable '
-            'failure { IntegerOverflow when T guarantees BoundedArithmetic, FloatOverflow when T guarantees FiniteArithmetic } }\n'
+            'failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic } }\n'
             'func f(a: T,b: T) { return resolve add(a,b) { IntegerOverflow { return a } FloatOverflow { return b } } }\n'
             'print(f(9007199254740991,1))')
         self.assertEqual(out, '9007199254740991\n')

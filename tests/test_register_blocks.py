@@ -50,7 +50,7 @@ class RegisterBlockTests(unittest.TestCase):
                 compile('guarantee Mark {}\n' + blocks)
 
     def test_unknown_guarantee(self):
-        with self.assertRaisesRegex(TypecheckError, "unknown guarantee 'Missing'"):
+        with self.assertRaisesRegex(TypecheckError, "unknown register target 'Missing'"):
             compile('register Missing { Int }')
 
     def test_forward_reference(self):

@@ -15,4 +15,4 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig f(T) -> T { failure { Never when T guarantees BoundedArithmetic } }
+sig f(T) -> T { failure { Never when T in BoundedArithmetic } }

@@ -105,7 +105,7 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
         type_expr(call, None, env, syms)
     resolved = syms.resolved_calls[id(call)]
     callee_eff = substitute_contract(signature_contract(syms, call.callee),
-                                     resolved.type_bindings, syms.type_guarantees)
+                                     resolved.type_bindings, syms.typegroups)
     # Conditional declarations are the caller-visible contract. Runtime impl
     # validation remains separate. Include managed implementation failures not
     # covered by conditional declarations, unioning matching impls for deferred calls.
@@ -129,13 +129,13 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
 # Type inference helpers
 # =====================
 
-def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], type_guarantees=None) -> TypeRef:
+def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], typegroups=None) -> TypeRef:
     if is_typevar(t.name):
         if t.name not in tmap:
             raise TypecheckError(f"cannot determine type variable '{t.name}'")
         return tmap[t.name]
-    latent = substitute_contract(latent_contract(t), tmap, type_guarantees or {})
-    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, type_guarantees) for a in t.args),
+    latent = substitute_contract(latent_contract(t), tmap, typegroups or {})
+    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, typegroups) for a in t.args),
                    latent_failures=latent.unconditional if t.latent_failures is not None else None,
                    latent_conditions=latent.conditional)
 
@@ -424,7 +424,7 @@ def typecheck_func_failures(syms) -> None:
         if missing.potential_failures():
             def describe(contract):
                 names = [f.value for f in contract.unconditional]
-                names += [f"{c.failure_id.value} when {c.type_var} guarantees {c.guarantee_name}"
+                names += [f"{c.failure_id.value} when {c.type_var} in {c.group_name}"
                           for c in contract.conditional]
                 return ", ".join(sorted(names)) or "Never"
             names = describe(missing)
@@ -622,8 +622,8 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             raise
     tmap = {name: reconcile_type_evidence(name, candidates)
             for name, candidates in evidence.items()}
-    parameter_types = tuple(resolve_typeref(t, tmap, syms.type_guarantees) for t in sig.params)
-    return_type = resolve_typeref(sig.ret, tmap, syms.type_guarantees)
+    parameter_types = tuple(resolve_typeref(t, tmap, syms.typegroups) for t in sig.params)
+    return_type = resolve_typeref(sig.ret, tmap, syms.typegroups)
 
     # =====================
     # ③ requireチェック

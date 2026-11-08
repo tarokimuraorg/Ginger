@@ -17,16 +17,16 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-guarantee TaggedFailure {}
+typegroup TaggedFailure {}
 register TaggedFailure { Float }
 
-sig marked(T) -> T { failure { IOErr when T guarantees TaggedFailure } }
+sig marked(T) -> T { failure { IOErr when T in TaggedFailure } }
 func marked(x: T) { return x }
 
 print(marked(1))
 print(marked(1.0))
 
-sig optional(T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }
+sig optional(T) -> T { failure { IOErr when T in BoundedArithmetic } }
 func optional(x: T) { return x }
 
 print(optional(2.0))

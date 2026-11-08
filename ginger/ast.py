@@ -123,7 +123,7 @@ class TypeGroupDecl:
 @dataclass(frozen=True)
 class RegisterDecl:
     typ: TypeRef
-    guarantee: str
+    guarantee: str  # Destination name; declaration lookup selects guarantee or typegroup.
 
 
 # ---- impl (builtin mapping) ----
@@ -161,7 +161,7 @@ class RequireGuarantees:
 class ConditionalFailureDecl:
     failure_name: str
     type_var: str
-    guarantee_name: str
+    group_name: str
 
 
 @dataclass(frozen=True)

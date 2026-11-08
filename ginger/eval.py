@@ -82,7 +82,7 @@ def instantiated_type(typ, env, syms):
     frame_id = getattr(env, "call_frame_id", None)
     bindings = (_active_runtime.get().get_call(frame_id).type_bindings
                 if frame_id is not None else getattr(env, "type_bindings", {}))
-    return resolve_typeref(typ, bindings, syms.type_guarantees)
+    return resolve_typeref(typ, bindings, syms.typegroups)
 
 
 @dataclass

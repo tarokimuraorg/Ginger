@@ -12,7 +12,7 @@ from ginger.errors import TypecheckError
 class ConditionalFailure:
     failure_id: FailureId
     type_var: str
-    guarantee_name: str
+    group_name: str
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ def union_contracts(*contracts: FailureContract) -> FailureContract:
     return FailureContract(unconditional, conditional)
 
 
-def substitute_contract(contract: FailureContract, bindings, type_guarantees) -> FailureContract:
+def substitute_contract(contract: FailureContract, bindings, typegroups) -> FailureContract:
     unconditional = set(contract.unconditional)
     conditional = set()
     for clause in contract.conditional:
@@ -44,8 +44,8 @@ def substitute_contract(contract: FailureContract, bindings, type_guarantees) ->
         if typ is None:
             raise TypecheckError(f"cannot determine type variable '{clause.type_var}' in failure condition")
         if is_typevar(typ.name):
-            conditional.add(ConditionalFailure(clause.failure_id, typ.name, clause.guarantee_name))
-        elif clause.guarantee_name in type_guarantees.get(type_identity_key(typ), set()):
+            conditional.add(ConditionalFailure(clause.failure_id, typ.name, clause.group_name))
+        elif type_identity_key(typ) in typegroups.get(clause.group_name, set()):
             unconditional.add(clause.failure_id)
     return union_contracts(FailureContract(frozenset(unconditional), frozenset(conditional)))
 

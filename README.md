@@ -53,7 +53,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
 | `guarantee` | 型に要求する保証とメソッドの宣言 |
-| `register` | メソッドを持たない guarantee への型の登録 |
+| `register` | typegroup またはメソッドを持たない guarantee への型の登録 |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
 | `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
@@ -116,7 +116,7 @@ resolve x {
 print(x) // 0.0（静的には未処理 FloatOverflow の警告が残る）
 ```
 
-**generic 演算の failure 契約:** add / sub / mul は `failure { IntegerOverflow when T guarantees BoundedArithmetic }` と `failure { FloatOverflow when T guarantees FiniteArithmetic }` を公開し、mul だけが `failure { FloatUnderflow when T guarantees FiniteArithmetic }` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。既存の FiniteArithmetic / BoundedArithmetic marker と conditional failure の仕組みを維持します。marker はメソッドを持たず、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
+**generic 演算の failure 契約:** add / sub / mul は `failure { IntegerOverflow when T in BoundedArithmetic }` と `failure { FloatOverflow when T in FiniteArithmetic }` を公開し、mul だけが `failure { FloatUnderflow when T in FiniteArithmetic }` を追加します。T = Int なら `{IntegerOverflow}`、T = Float の add / sub は `{FloatOverflow}`、mul は `{FloatOverflow, FloatUnderflow}` です。div は `{DivideByZero, FloatOverflow, FloatUnderflow}` を公開します。引数式の failure は別途合算します。FiniteArithmetic / BoundedArithmetic は TypeGroup であり、演算能力とは独立し、標準登録は Float / Int のみです。Int64 算術は未対応です。
 
 `ginger/builtin.py` の `INT_ARITHMETIC_FAILURES`・`FLOAT_ARITHMETIC_FAILURES` と `builtin_failure_contract` は、`core.int.add/sub/mul` と `core.float.add/sub/mul/div` が実際に送出する failure の runtime 検証に引き続き使用します。caller-visible な条件付き宣言と Python 実装の契約は別に保持します。条件付き宣言に表現されていない実装由来 failure は、選択された具体実装から静的 effect に合算し、generic 本体では同じ guarantee / method に登録された実装だけを保守的に合算します。式全体の effect には引数評価の failure も含むため、Float binding の initializer でも、その引数が IntegerOverflow を起こす式なら resolve の対象に指定できます。
 
@@ -385,6 +385,12 @@ print(result)
 
 ## guarantee と標準 catalog
 
+TypeGroup は `typegroup Number = Int | Float` または `typegroup Number { Int, Float }` で宣言できます。ブロックでは改行区切りも使用でき、`typegroup CustomTypes {}` は空集合です。`register Number { Int64 }` で明示的に拡張できます。全宣言と追加登録を収集して所属を確定し、同一 concrete type identity の重複は初期宣言との重複も含めて拒否します。guarantee と typegroup の同名宣言は標準catalogを含め禁止します。
+
+標準TypeGroupも `register BoundedArithmetic { Float }` で拡張できます。この場合Floatのadd / sub / mulの静的契約にIntegerOverflowが加わりますが、演算能力・builtin dispatch・実際のfailure発生規則は変わりません。登録は処理対象プログラム内で完結します。
+
+旧条件式 `when T guarantees Group` は拒否し、`when T in Group` への移行を案内します。通常の `require T guarantees Guarantee` は変更ありません。failureブロックは従来どおりカンマ区切り・末尾カンマ許可で、空ブロックやNeverとの混在は拒否します。静的契約は発生可能性を表し、resolveで回復するfailureも残します。runtimeイベントの発生記録と解決状態は別に管理します。
+
 `register Mark { Int, Float }` は、メソッドを持たない `guarantee Mark {}` に具体型を登録します。改行と末尾カンマを許可し、空ブロック・同じ型と保証の重複登録・typegroup 名の登録は拒否します。guarantee は後方に宣言でき、全宣言の収集後に検証します。旧ソース構文 `register Int guarantees Mark` は拒否します。内部 JSON catalog の登録形式は変更ありません。
 
 `guarantee` method は capability method の型契約の canonical source、`sig` は public generic call surface と public failure/effect contract を定義します。guarantee 経由で dispatch する sig は、method の `Self` を require が指定する型変数へ再帰的に projection し、引数数・引数型・戻り値型を照合します。Thunk の潜在契約も正規化後に一致する必要があり、widening では代用しません。この照合は、func / 直接 builtin を持たず、guarantee requirement が1個で同名 method に対応する sig が対象です。
@@ -399,8 +405,8 @@ requirement は型変数を宣言・推論するものではなく、すでに s
 sig addTwo(T, T) -> T {
     require T guarantees Addable
     failure {
-        IntegerOverflow when T guarantees BoundedArithmetic,
-        FloatOverflow when T guarantees FiniteArithmetic
+        IntegerOverflow when T in BoundedArithmetic,
+        FloatOverflow when T in FiniteArithmetic
     }
 }
 func addTwo(a: T, b: T) {
@@ -412,11 +418,11 @@ print(addTwo(1.0, 2.0))
 
 この例は `3` と `3.0` を出力し、Int の call には IntegerOverflow、Float の call には FloatOverflow の未処理警告が出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
 
-能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。メソッドを持つ guarantee には `impl` が必要で、`register` はメソッドを持たない保証に使います。guarantee 間の継承・包含は導入していません。
+能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。メソッドを持つ guarantee には `impl` が必要で、guarantee への `register` はメソッドを持たない保証に使います。guarantee 間の継承・包含は導入していません。
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
 
-catalog の `failures` は従来の文字列と条件付き object を混在できます。object は以下の形式だけを許可します。Float の marker 登録は `"registers": [{"type": {"ref": "Float"}, "guarantee": "FiniteArithmetic"}]`、Int は `"registers": [{"type": {"ref": "Int"}, "guarantee": "BoundedArithmetic"}]` と記述します。
+catalog の `failures` は従来の文字列と条件付き object を混在できます。object は以下の形式だけを許可します。標準所属は `"typegroups": [{"name": "FiniteArithmetic", "members": ["Float"]}, {"name": "BoundedArithmetic", "members": ["Int"]}]` と記述します。
 
 ```json
 {
@@ -424,11 +430,11 @@ catalog の `failures` は従来の文字列と条件付き object を混在で�
     "DivideByZero",
     {
       "failure": "IntegerOverflow",
-      "when": {"typevar": "T", "guarantees": "BoundedArithmetic"}
+      "when": {"typevar": "T", "in": "BoundedArithmetic"}
     },
     {
       "failure": "FloatOverflow",
-      "when": {"typevar": "T", "guarantees": "FiniteArithmetic"}
+      "when": {"typevar": "T", "in": "FiniteArithmetic"}
     }
   ]
 }
@@ -456,7 +462,7 @@ sig 本体に `failure { DivideByZero, FloatOverflow, FloatUnderflow }` のよ�
 - failure 名に型引数は付けられません。
 - JSON catalog とソースで、Never と重複の扱いを揃えています。
 
-条件付き宣言の構文は `failure { <FailureId> when <TypeVariable> guarantees <Guarantee> }` です。条件の型変数はその sig の有効な型変数、guarantee は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T guarantees BoundedArithmetic` のために `require T guarantees BoundedArithmetic` を追加する必要はありません。
+条件付き宣言の構文は `failure { <FailureId> when <TypeVariable> in <TypeGroup> }` です。条件の型変数はその sig の有効な型変数、typegroup は宣言済みである必要があります。条件は require とは独立した optional property なので、`when T in BoundedArithmetic` のために `require T in BoundedArithmetic` を追加する必要はありません。
 
 内部の `FailureContract` は無条件の FailureSet と、`ConditionalFailure(FailureId, 型変数, guarantee)` の集合を保持します。generic 本体では条件を保存し、nested generic call は通常の型 binding で条件内の変数も置換します。
 
@@ -464,8 +470,8 @@ sig 本体に `failure { DivideByZero, FloatOverflow, FloatUnderflow }` のよ�
 sig relay(U, U) -> U {
     require U guarantees Addable
     failure {
-        IntegerOverflow when U guarantees BoundedArithmetic,
-        FloatOverflow when U guarantees FiniteArithmetic
+        IntegerOverflow when U in BoundedArithmetic,
+        FloatOverflow when U in FiniteArithmetic
     }
 }
 func relay(a: U, b: U) {
@@ -473,7 +479,7 @@ func relay(a: U, b: U) {
 }
 ```
 
-先の addTwo と組み合わせると、callee の `T guarantees BoundedArithmetic` は caller の `U guarantees BoundedArithmetic` に置換されます。FiniteArithmetic の条件も同じく T から U に置換します。具体型が決まった call-site では marker の登録を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{FloatOverflow}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
+先の addTwo と組み合わせると、callee の `T in BoundedArithmetic` は caller の `U in BoundedArithmetic` に置換されます。FiniteArithmetic の条件も同じく T から U に置換します。具体型が決まった call-site では TypeGroup の所属を評価し、`relay(1,2)` は `{IntegerOverflow}`、`relay(1.0,2.0)` は `{FloatOverflow}` に具体化します。この集合を effect・未処理警告・resolve 資格・user function の runtime 契約・`CallFrame.declared_failure_contract` に使います。CallFrame に symbolic contract は保持しません。
 
 上限検査では、FailureId・型変数・guarantee の3要素が完全一致する条件だけを同一視します。無条件の `failure { IntegerOverflow }` は同じ failure の conditional effect を cover できます。逆に、無条件で推論された IntegerOverflow を conditional declaration だけで cover することはできません。`failure { Never }` は conditional effect も cover しません。余分な無条件 failure を宣言する既存コードは有効で、Float の call にもその公開契約を残します。
 
@@ -489,7 +495,7 @@ var floating: Float = addTwo(1.0, 2.0)
 
 integer の resolve は許可され、実際の overflow を回復できます。floating の initializer は IntegerOverflow を持たないため、floating に対する同じ handler は静的エラーです。floating は FloatOverflow を持つので、その handler は許可されます。`thunk(addTwo(...))` の潜在契約も concrete binding で既存の FailureSet に具体化し、runtime ThunkValue に symbolic contract は追加しません。
 
-conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・typegroup 条件・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
+conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
 通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で確実に回復する failure は合算から除外します。handled による上限検証の保留は廃止しました。
 

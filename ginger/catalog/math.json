@@ -50,25 +50,11 @@
           "ret": { "ref": "Self" }
         }
       ]
-    },
-    {
-      "name": "FiniteArithmetic",
-      "methods": []
-    },
-    {
-      "name": "BoundedArithmetic",
-      "methods": []
     }
   ],
-  "registers": [
-    {
-      "type": { "ref": "Float" },
-      "guarantee": "FiniteArithmetic"
-    },
-    {
-      "type": { "ref": "Int" },
-      "guarantee": "BoundedArithmetic"
-    }
+  "typegroups": [
+    { "name": "FiniteArithmetic", "members": [{ "ref": "Float" }] },
+    { "name": "BoundedArithmetic", "members": [{ "ref": "Int" }] }
   ],
   "impls": [
     {
@@ -135,11 +121,11 @@
       "failures": [
         {
           "failure": "IntegerOverflow",
-          "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+          "when": { "typevar": "T", "in": "BoundedArithmetic" }
         },
         {
           "failure": "FloatOverflow",
-          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
+          "when": { "typevar": "T", "in": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -155,11 +141,11 @@
       "failures": [
         {
           "failure": "IntegerOverflow",
-          "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+          "when": { "typevar": "T", "in": "BoundedArithmetic" }
         },
         {
           "failure": "FloatOverflow",
-          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
+          "when": { "typevar": "T", "in": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
@@ -175,15 +161,15 @@
       "failures": [
         {
           "failure": "IntegerOverflow",
-          "when": { "typevar": "T", "guarantees": "BoundedArithmetic" }
+          "when": { "typevar": "T", "in": "BoundedArithmetic" }
         },
         {
           "failure": "FloatOverflow",
-          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
+          "when": { "typevar": "T", "in": "FiniteArithmetic" }
         },
         {
           "failure": "FloatUnderflow",
-          "when": { "typevar": "T", "guarantees": "FiniteArithmetic" }
+          "when": { "typevar": "T", "in": "FiniteArithmetic" }
         }
       ],
       "attrs": [],
