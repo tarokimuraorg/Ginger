@@ -22,9 +22,42 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var x: Int = add(9007199254740991,1)
-resolve x { IntegerOverflow { print(div(1.0,0.0)) x = 4 } }
+
+resolve x { 
+    IntegerOverflow { 
+        print(div(1.0,0.0)) 
+        x = 4 
+    } 
+}
+
 print(x)
-resolve x { IntegerOverflow { print(999) x = 9 } }
+
+// すでに解決済みの為xは更新されない
+//resolve x { 
+//    IntegerOverflow { 
+//        print(999) 
+//        x = 9 
+//    } 
+//}
+
+//print(x)
+
 var y: Int = add(9007199254740991,1)
-resolve y { IntegerOverflow { y = 5 y = add(9007199254740991,1) } }
+
+resolve y { 
+    IntegerOverflow { 
+        y = 5 
+        y = add(9007199254740991,1) 
+    } 
+}
+
+// resolve内で新たな IntegerOverflow が発生したためエラー
+//print(y)
+
+resolve y {
+    IntegerOverflow {
+        y = 6
+    }
+}
+
 print(y)

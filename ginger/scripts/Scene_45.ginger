@@ -25,15 +25,43 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig capture(T) -> Thunk[Thunk[T]<Never>]<Never> {}
-func capture(a: T) { return thunk(thunk(a)) }
+
+func capture(a: T) { 
+    return thunk(thunk(a)) 
+}
+
 sig unwrap(Thunk[T]<Never>) -> T {}
-func unwrap(t: Thunk[T]<Never>) { return force(t) }
+
+func unwrap(t: Thunk[T]<Never>) { 
+    return force(t) 
+}
+
 print(unwrap(unwrap(capture(1))))
 print(unwrap(unwrap(capture(2.0))))
 print(unwrap(unwrap(capture(3i64))))
+
+// 外側のThunkを生成する。この時点ではdivは実行されない。
 var outer: Thunk[Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>]<Never> = thunk(thunk(div(1.0,0.0)))
+
+// 外側を評価して内側のThunkを取得する。
+// divはまだ実行されないため、ここではfailureは発生しない。
 var inner: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = force(outer)
+
 print(4)
+
+// 内側を評価する。ここで初めてdivが実行され、DivideByZeroが発生する。
+// xは正常値を取得できず、失敗状態になる。
 var x: Float = force(inner)
-resolve x { DivideByZero { x = 5 } FloatOverflow { x = 99 } }
+
+// 失敗状態のxに対して、発生したfailureを解決する。
+resolve x { 
+    DivideByZero { 
+        x = 5 
+    } 
+    FloatOverflow { 
+        x = 99 
+    } 
+}
+
+// DivideByZeroが解決されたため、xを正常に読み出せる。
 print(x)
