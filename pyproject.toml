@@ -8,3 +8,9 @@ version = "0.1.0"
 
 [project.scripts]
 ginger = "ginger.cli:main"
+
+[project.optional-dependencies]
+security = ["bandit[toml]==1.9.4"]
+
+[tool.bandit]
+exclude_dirs = [".venv", "tests", "build", "dist"]
