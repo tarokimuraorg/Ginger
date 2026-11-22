@@ -10,7 +10,10 @@ version = "0.1.0"
 ginger = "ginger.cli:main"
 
 [project.optional-dependencies]
-security = ["bandit[toml]==1.9.4"]
+security = [
+    "bandit[toml]==1.9.4",
+    "pip-audit",
+]
 
 [tool.bandit]
 exclude_dirs = [".venv", "tests", "build", "dist"]

@@ -24,7 +24,10 @@ jobs:
       - run: python -B -m unittest discover -s tests -v
 
       - name: Install security tools
-        run: python -m pip install ".[security]"
+        run: python -m pip install -e ".[security]"
 
       - name: Run Bandit security scan
         run: bandit -c pyproject.toml -r ginger
+
+      - name: Run dependency audit
+        run: pip-audit --skip-editable
