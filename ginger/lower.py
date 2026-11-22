@@ -2,6 +2,7 @@ from dataclasses import replace
 from typing import List
 
 from .ast import (
+    ResolveExpr, HandlerReturnStmt,
     Program, TopLevel,
     ExprStmt, ResolveStmt, ResolveHandler, VarDecl, AssignStmt,
     FuncDecl, BlockStmt, ReturnStmt,
@@ -56,8 +57,8 @@ def lower_block(b: BlockStmt) -> BlockStmt:
     
     for st in b.stmts:
     
-        if isinstance(st, ReturnStmt):
-            out.append(ReturnStmt(expr=lower_expr(st.expr)))
+        if isinstance(st, (ReturnStmt, HandlerReturnStmt)):
+            out.append(type(st)(expr=lower_expr(st.expr)))
         elif isinstance(st, ResolveStmt):
             out.append(lower_toplevel(st))
         elif isinstance(st, ExprStmt):
@@ -72,6 +73,9 @@ def lower_block(b: BlockStmt) -> BlockStmt:
     return BlockStmt(stmts=out)
 
 def lower_expr(e: Expr) -> Expr:
+    if isinstance(e, ResolveExpr):
+        return ResolveExpr(lower_expr(e.expr), [
+            ResolveHandler(h.failure_name, lower_block(h.body)) for h in e.handlers])
     if isinstance(e, UnaryMinusExpr):
         return CallExpr(
             callee="neg",

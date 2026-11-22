@@ -228,6 +228,8 @@ def build_symbols(prog: Program) -> Symbols:
                 raise TypecheckError(f"duplicate typegroup '{item.name}'")
             
             members = {type_identity_key(t) for t in item.members}
+            if len(members) != len(item.members):
+                raise TypecheckError(f"duplicate register in typegroup '{item.name}'")
             typegroups[item.name] = members
 
         elif isinstance(item, SigDecl):
@@ -296,14 +298,7 @@ def build_symbols(prog: Program) -> Symbols:
             
         elif isinstance(item, RegisterDecl):
 
-            _validate_concrete_identity(item.typ, "register target")
-            t = type_identity_key(item.typ)
-            g = item.guarantee
-
-            if g in type_guarantees.get(t, set()):
-                raise TypecheckError(f"duplicate register: '{t}' guarantees '{g}'")
-            
-            type_guarantees.setdefault(t, set()).add(g)
+            pass  # Resolve registration destinations after collecting declarations.
 
         elif isinstance(item, ImplDecl):
             _validate_concrete_identity(item.typ, "impl target")
@@ -324,21 +319,31 @@ def build_symbols(prog: Program) -> Symbols:
         elif isinstance(item, VarDecl):
             pass  # checked later
 
-    # Validate registration references only after all declarations are collected.
+    # Names share a namespace; membership and capability remain independent.
+    for name in guarantees.keys() & typegroups.keys():
+        raise TypecheckError(f"guarantee/typegroup name conflict '{name}'")
+
     for item in items:
         if not isinstance(item, RegisterDecl):
             continue
-        gdecl = guarantees.get(item.guarantee)
-        if gdecl is None:
-            raise TypecheckError(f"unknown guarantee '{item.guarantee}'")
-        if gdecl.methods:
-            raise TypecheckError(
-                f"'{item.guarantee}' requires implementations; use impl, not register"
-            )
+        _validate_concrete_identity(item.typ, "register target")
+        target = item.guarantee
+        key = type_identity_key(item.typ)
         if item.typ.name in typegroups:
-            raise TypecheckError(
-                f"typegroup '{item.typ.name}' is not a concrete register target"
-            )
+            raise TypecheckError(f"typegroup '{item.typ.name}' is not a concrete register target")
+        if target in typegroups:
+            if key in typegroups[target]:
+                raise TypecheckError(f"duplicate register in typegroup '{target}': '{key}'")
+            typegroups[target].add(key)
+            continue
+        gdecl = guarantees.get(target)
+        if gdecl is None:
+            raise TypecheckError(f"unknown register target '{target}'; expected typegroup or guarantee")
+        if gdecl.methods:
+            raise TypecheckError(f"'{target}' requires implementations; use impl, not register")
+        if target in type_guarantees.get(key, set()):
+            raise TypecheckError(f"duplicate register: '{key}' guarantees '{target}'")
+        type_guarantees.setdefault(key, set()).add(target)
 
     syms = Symbols(
         guarantees=guarantees,
@@ -411,9 +416,9 @@ def _validate_catalog(syms: Symbols) -> None:
                 raise TypecheckError(f"unknown failure '{failure.failure_name}' in sig '{name}'") from None
             if failure.type_var not in variables:
                 raise TypecheckError(f"unknown type variable '{failure.type_var}' in failure condition of sig '{name}'")
-            if failure.guarantee_name not in syms.guarantees:
-                raise TypecheckError(f"unknown guarantee '{failure.guarantee_name}' in failure condition of sig '{name}'")
-            clause = ConditionalFailure(fid, failure.type_var, failure.guarantee_name)
+            if failure.group_name not in syms.typegroups:
+                raise TypecheckError(f"unknown typegroup '{failure.group_name}' in failure condition of sig '{name}'")
+            clause = ConditionalFailure(fid, failure.type_var, failure.group_name)
             if clause in clauses:
                 raise TypecheckError(f"duplicate conditional failure in sig '{name}'")
             if fid in syms.sig_failures[name]:
@@ -493,4 +498,4 @@ def signature_contract(syms: Symbols, name: str) -> FailureContract:
 
 def instantiated_signature_failures(syms: Symbols, name: str, bindings) -> FailureSet:
     return substitute_contract(signature_contract(syms, name), bindings,
-                               syms.type_guarantees).concrete_failures()
+                               syms.typegroups).concrete_failures()

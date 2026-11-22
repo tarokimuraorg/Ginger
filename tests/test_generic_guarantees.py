@@ -39,8 +39,8 @@ class GenericGuaranteeTests(unittest.TestCase):
                 for conditional in [False, True]:
                     contract = 'failure { IntegerOverflow }'
                     if conditional:
-                        contract = ('failure { IntegerOverflow when T guarantees BoundedArithmetic, '
-                                    'FloatOverflow when T guarantees FiniteArithmetic }')
+                        contract = ('failure { IntegerOverflow when T in BoundedArithmetic, '
+                                    'FloatOverflow when T in FiniteArithmetic }')
                     else:
                         contract += ' failure { FloatOverflow }'
                     for typ, args, expected in [('Int', '1,2', '3\n'),

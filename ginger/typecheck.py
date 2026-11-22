@@ -13,6 +13,7 @@ from ginger.core.failure_contract import (
 from .diagnostics import Diagnostics
 
 from .ast import (
+    ResolveExpr, HandlerReturnStmt,
     VarDecl,
     AssignStmt,
     RequireIn,
@@ -60,6 +61,10 @@ def latent_contract(typ: TypeRef) -> FailureContract:
 def symbolic_effect_expr(expr: Expr, env: Dict[str, Binding], syms) -> FailureContract:
     if isinstance(expr, (IntLit, Int64Lit, FloatLit, IdentExpr)):
         return FailureContract()
+    if isinstance(expr, ResolveExpr):
+        return union_contracts(symbolic_effect_expr(expr.expr, env, syms), *(
+            analyze_local_statements(h.body.stmts, env.copy(), syms,
+                                     preserve_occurrences=True) for h in expr.handlers))
     if isinstance(expr, CallExpr):
         return symbolic_effect_call(expr, env, syms)
 
@@ -100,7 +105,7 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
         type_expr(call, None, env, syms)
     resolved = syms.resolved_calls[id(call)]
     callee_eff = substitute_contract(signature_contract(syms, call.callee),
-                                     resolved.type_bindings, syms.type_guarantees)
+                                     resolved.type_bindings, syms.typegroups)
     # Conditional declarations are the caller-visible contract. Runtime impl
     # validation remains separate. Include managed implementation failures not
     # covered by conditional declarations, unioning matching impls for deferred calls.
@@ -124,13 +129,13 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
 # Type inference helpers
 # =====================
 
-def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], type_guarantees=None) -> TypeRef:
+def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], typegroups=None) -> TypeRef:
     if is_typevar(t.name):
         if t.name not in tmap:
             raise TypecheckError(f"cannot determine type variable '{t.name}'")
         return tmap[t.name]
-    latent = substitute_contract(latent_contract(t), tmap, type_guarantees or {})
-    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, type_guarantees) for a in t.args),
+    latent = substitute_contract(latent_contract(t), tmap, typegroups or {})
+    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, typegroups) for a in t.args),
                    latent_failures=latent.unconditional if t.latent_failures is not None else None,
                    latent_conditions=latent.conditional)
 
@@ -314,6 +319,8 @@ def may_leave_independent_pending(expr, syms, sources, visiting=frozenset()):
     Return-only callees preserve direct causes. Without a path proof for a
     multi-statement callee (or an opaque thunk), keep its contract conservative.
     """
+    if isinstance(expr, ResolveExpr):
+        return True
     if not isinstance(expr, CallExpr) or expr.callee == "thunk":
         return False
     if expr.callee == "force":
@@ -333,7 +340,7 @@ def may_leave_independent_pending(expr, syms, sources, visiting=frozenset()):
     return False
 
 
-def analyze_local_statements(statements, env, syms, check=None):
+def analyze_local_statements(statements, env, syms, check=None, *, preserve_occurrences=False):
     """Retain statement history and merge incoming/handler latest-write paths.
 
     Effects keep their symbolic clauses. Only a failure-free final target write
@@ -363,7 +370,7 @@ def analyze_local_statements(statements, env, syms, check=None):
     for st in statements:
         if not isinstance(st, ResolveStmt):
             statement(st)
-            if isinstance(st, ReturnStmt) and not check:
+            if isinstance(st, (ReturnStmt, HandlerReturnStmt)) and not check:
                 break
             continue
         resolve_failure_ids(st, env)
@@ -385,7 +392,7 @@ def analyze_local_statements(statements, env, syms, check=None):
                         raise TypecheckError(f"only Unit expression are allowed as statements, got '{typ}'")
             # No target write is not recovery, even when the incoming path
             # could have succeeded. Require a new, failure-free final write.
-            if (latest[st.target] != incoming_latest[st.target]
+            if (not preserve_occurrences and latest[st.target] != incoming_latest[st.target]
                     and not env[st.target].latest_write_failures):
                 fid = FailureId(handler.failure_name)
                 # A merged latest write may be an older event on another path.
@@ -417,7 +424,7 @@ def typecheck_func_failures(syms) -> None:
         if missing.potential_failures():
             def describe(contract):
                 names = [f.value for f in contract.unconditional]
-                names += [f"{c.failure_id.value} when {c.type_var} guarantees {c.guarantee_name}"
+                names += [f"{c.failure_id.value} when {c.type_var} in {c.group_name}"
                           for c in contract.conditional]
                 return ", ".join(sorted(names)) or "Never"
             names = describe(missing)
@@ -438,6 +445,29 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
 
     if tv_guars is None:
         tv_guars = {}
+
+    if isinstance(expr, ResolveExpr):
+        typ = type_expr(expr.expr, None, env, syms, tv_guars)
+        seen = set()
+        for handler in expr.handlers:
+            try:
+                fid = FailureId(handler.failure_name)
+            except ValueError:
+                raise TypecheckError(f"unknown failure '{handler.failure_name}' in resolve") from None
+            if fid in seen:
+                raise TypecheckError(f"duplicate failure '{handler.failure_name}' in resolve")
+            seen.add(fid)
+            def check_handler(st, local):
+                if isinstance(st, HandlerReturnStmt):
+                    type_expr(st.expr, typ, local, syms, tv_guars)
+                else:
+                    typecheck_binding_or_expression(st, local, syms, tv_guars)
+            local = env.copy()
+            analyze_local_statements(handler.body.stmts, local, syms, check_handler)
+            for name, binding in env.copy().items():
+                env[name] = Binding(binding.ty, binding.mutable, union_failures(
+                    binding.latest_write_failures, local[name].latest_write_failures))
+        return typ
 
     # literals
     if isinstance(expr, (IntLit, Int64Lit)):
@@ -592,8 +622,8 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             raise
     tmap = {name: reconcile_type_evidence(name, candidates)
             for name, candidates in evidence.items()}
-    parameter_types = tuple(resolve_typeref(t, tmap, syms.type_guarantees) for t in sig.params)
-    return_type = resolve_typeref(sig.ret, tmap, syms.type_guarantees)
+    parameter_types = tuple(resolve_typeref(t, tmap, syms.typegroups) for t in sig.params)
+    return_type = resolve_typeref(sig.ret, tmap, syms.typegroups)
 
     # =====================
     # ③ requireチェック

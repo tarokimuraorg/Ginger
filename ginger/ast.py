@@ -35,7 +35,9 @@ Stmt = Union[
     "VarDecl", 
     "AssignStmt",
     "ExprStmt", 
-    "ReturnStmt", 
+    "ReturnStmt",
+    "HandlerReturnStmt",
+    "ResolveStmt",
     ]
 
 @dataclass(frozen=True)
@@ -45,6 +47,17 @@ class BlockStmt:
 @dataclass(frozen=True)
 class ReturnStmt:
     expr: "Expr"
+
+@dataclass(frozen=True)
+class HandlerReturnStmt:
+    expr: "Expr"
+
+
+@dataclass(frozen=True)
+class ResolveExpr:
+    expr: "Expr"
+    handlers: List["ResolveHandler"]
+
 
 @dataclass(frozen=True)
 class ResolveHandler:
@@ -110,7 +123,7 @@ class TypeGroupDecl:
 @dataclass(frozen=True)
 class RegisterDecl:
     typ: TypeRef
-    guarantee: str
+    guarantee: str  # Destination name; declaration lookup selects guarantee or typegroup.
 
 
 # ---- impl (builtin mapping) ----
@@ -148,7 +161,7 @@ class RequireGuarantees:
 class ConditionalFailureDecl:
     failure_name: str
     type_var: str
-    guarantee_name: str
+    group_name: str
 
 
 @dataclass(frozen=True)
@@ -187,6 +200,7 @@ class AssignStmt:
 # ---- expressions ----
 
 Expr = Union[
+    "ResolveExpr",
     "BinaryExpr",
     "UnaryMinusExpr",
     "CallExpr", 

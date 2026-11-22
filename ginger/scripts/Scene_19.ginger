@@ -24,8 +24,8 @@
 
 sig addTwo(T, T) -> T {
     require T guarantees Addable
-    failure { IntegerOverflow when T guarantees BoundedArithmetic }
-    failure { FloatOverflow when T guarantees FiniteArithmetic, FloatUnderflow when T guarantees FiniteArithmetic }
+    failure { IntegerOverflow when T in BoundedArithmetic }
+    failure { FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic }
 }
 
 func addTwo(a:T, b:T) {

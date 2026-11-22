@@ -71,7 +71,7 @@ func g() { return f() }
                 build_symbols(parse(f'failureset {name} {{ DivideByZero }}'))
         syms = build_symbols(parse('''
 guarantee Shared {}
-typegroup Shared = Int
+typegroup SharedGroup = Int
 failureset Shared { IOErr }
 sig Shared() -> Unit { failure { Shared } }
 func Shared() {}

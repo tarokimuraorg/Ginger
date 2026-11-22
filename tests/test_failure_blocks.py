@@ -21,7 +21,7 @@ class FailureBlockTests(unittest.TestCase):
             ('\nIntegerOverflow,\nFloatOverflow,\n', ['IntegerOverflow', 'FloatOverflow']),
             ('Never', ['Never']),
             ('Never,', ['Never']),
-            ('IOErr, FloatOverflow when T guarantees FiniteArithmetic,',
+            ('IOErr, FloatOverflow when T in FiniteArithmetic,',
              ['IOErr', ConditionalFailureDecl('FloatOverflow', 'T', 'FiniteArithmetic')]),
         ]:
             with self.subTest(contents=contents):
@@ -37,21 +37,21 @@ class FailureBlockTests(unittest.TestCase):
         for declaration in [
             'failure {}', 'failure {\n}',
             'failure IntegerOverflow',
-            'failure IntegerOverflow when T guarantees BoundedArithmetic',
+            'failure IntegerOverflow when T in BoundedArithmetic',
             'failure { IntegerOverflow FloatOverflow }',
             'failure { IntegerOverflow\nFloatOverflow }',
             'failure { ,IntegerOverflow }',
             'failure { IntegerOverflow,, FloatOverflow }',
-            'failure { IntegerOverflow } when T guarantees BoundedArithmetic',
+            'failure { IntegerOverflow } when T in BoundedArithmetic',
             'failure { IntegerOverflow',
-            'failure { Never when T guarantees BoundedArithmetic }',
+            'failure { Never when T in BoundedArithmetic }',
             'failure { IOErr[Int] }', 'failure { IntegerOverflow<Never> }',
         ]:
             with self.subTest(declaration=declaration), self.assertRaises(SyntaxError):
                 parse(self.signature(declaration))
 
     def test_conflicts_within_and_across_blocks(self):
-        conditional = 'FloatOverflow when T guarantees FiniteArithmetic'
+        conditional = 'FloatOverflow when T in FiniteArithmetic'
         for entries, message in [
             (['Never', 'IntegerOverflow'], "cannot combine 'Never'"),
             (['FloatOverflow', 'Never'], "cannot combine 'Never'"),
@@ -70,23 +70,23 @@ class FailureBlockTests(unittest.TestCase):
     def test_semantic_validation(self):
         for entry, message in [
             ('MissingFailure', 'unknown failure'),
-            ('MissingFailure when T guarantees FiniteArithmetic', 'unknown failure'),
-            ('IOErr when T guarantees MissingGuarantee', 'unknown guarantee'),
-            ('IOErr when U guarantees FiniteArithmetic', 'unknown type variable'),
+            ('MissingFailure when T in FiniteArithmetic', 'unknown failure'),
+            ('IOErr when T in MissingGroup', 'unknown typegroup'),
+            ('IOErr when U in FiniteArithmetic', 'unknown type variable'),
         ]:
             with self.subTest(entry=entry), self.assertRaisesRegex(TypecheckError, message):
                 compile(self.signature('failure { ' + entry + ' }'))
         with self.assertRaisesRegex(TypecheckError, 'not inferable'):
             compile('sig f() -> T { require T guarantees Addable '
-                    'failure { IOErr when T guarantees BoundedArithmetic } }')
+                    'failure { IOErr when T in BoundedArithmetic } }')
 
     def test_representative_addition_value_and_specialized_warnings(self):
         source = '''sig addBoth(T, T) -> T {
     require T guarantees Addable
     failure {
-        IntegerOverflow when T guarantees BoundedArithmetic,
-        FloatOverflow when T guarantees FiniteArithmetic,
-        FloatUnderflow when T guarantees FiniteArithmetic
+        IntegerOverflow when T in BoundedArithmetic,
+        FloatOverflow when T in FiniteArithmetic,
+        FloatUnderflow when T in FiniteArithmetic
     }
 }
 func addBoth(a: T, b: T) { return a + b }

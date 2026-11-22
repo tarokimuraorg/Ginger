@@ -15,5 +15,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig f(T,U) -> T { require T guarantees Addable failure { IntegerOverflow when U guarantees BoundedArithmetic, FloatOverflow when U guarantees FiniteArithmetic, FloatUnderflow when U guarantees FiniteArithmetic } }
+sig f(T,U) -> T { require T guarantees Addable failure { IntegerOverflow when U in BoundedArithmetic, FloatOverflow when U in FiniteArithmetic, FloatUnderflow when U in FiniteArithmetic } }
 func f(a: T,b: U) { return add(a,a) }

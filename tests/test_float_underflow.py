@@ -90,9 +90,9 @@ class FloatUnderflowTests(unittest.TestCase):
 
     def test_generic_thunk_and_function_local_resolve(self):
         source = ('sig inner(U,U) -> U { require U guarantees Multipliable '
-                  'failure { IntegerOverflow when U guarantees BoundedArithmetic } '
-                  'failure { FloatOverflow when U guarantees FiniteArithmetic } '
-                  'failure { FloatUnderflow when U guarantees FiniteArithmetic } }\n'
+                  'failure { IntegerOverflow when U in BoundedArithmetic } '
+                  'failure { FloatOverflow when U in FiniteArithmetic } '
+                  'failure { FloatUnderflow when U in FiniteArithmetic } }\n'
                   'func inner(a: U,b: U) { return force(thunk(mul(a,b))) }\n'
                   'sig safe(T,T) -> T { require T guarantees Multipliable failure { Never } }\n'
                   'func safe(a: T,b: T) { var x: T = inner(a,b)\n'
@@ -115,8 +115,8 @@ class FloatUnderflowTests(unittest.TestCase):
             'var t: Thunk[Float]<FloatOverflow> = thunk(mul(1.0,2.0))',
             'var x: Float = neg(1.0)\nresolve x { FloatUnderflow { x = 0.0 } }',
             'sig f(T,T) -> T { require T guarantees Multipliable '
-            'failure { IntegerOverflow when T guarantees BoundedArithmetic } '
-            'failure { FloatOverflow when T guarantees FiniteArithmetic } }\n'
+            'failure { IntegerOverflow when T in BoundedArithmetic } '
+            'failure { FloatOverflow when T in FiniteArithmetic } }\n'
             'func f(a: T,b: T) { return mul(a,b) }']:
             with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'FloatUnderflow|contract|cannot resolve'):
                 checked(source)
@@ -182,8 +182,8 @@ class FloatUnderflowTests(unittest.TestCase):
         for op in ['add', 'sub']:
             source = ('sig f(T,T) -> T { require T guarantees ' +
                       ('Addable' if op == 'add' else 'Subtractable') +
-                      ' failure { IntegerOverflow when T guarantees BoundedArithmetic } '
-                      'failure { FloatOverflow when T guarantees FiniteArithmetic } }\n' +
+                      ' failure { IntegerOverflow when T in BoundedArithmetic } '
+                      'failure { FloatOverflow when T in FiniteArithmetic } }\n' +
                       f'func f(a: T,b: T) {{ return force(thunk({op}(a,b))) }}\n')
             result, diagnostics, _ = self.execute(source + 'var x: Float = f(5e-324,5e-324)')
             self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatOverflow'])

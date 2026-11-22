@@ -4,6 +4,7 @@ from typing import Any, List, Union
 
 from ginger.ast import (
     GuaranteeDecl,
+    TypeGroupDecl,
     FuncSig,
     Param,
     TypeRef,
@@ -67,12 +68,12 @@ def _failure(obj: Any) -> str | ConditionalFailureDecl:
         raise ValueError(f"Invalid conditional failure: {obj!r}")
     condition = obj["when"]
     if (not isinstance(condition, dict)
-            or set(condition) != {"typevar", "guarantees"}
+            or set(condition) != {"typevar", "in"}
             or not isinstance(obj["failure"], str)
             or not isinstance(condition["typevar"], str)
-            or not isinstance(condition["guarantees"], str)):
+            or not isinstance(condition["in"], str)):
         raise ValueError(f"Invalid conditional failure: {obj!r}")
-    return ConditionalFailureDecl(obj["failure"], condition["typevar"], condition["guarantees"])
+    return ConditionalFailureDecl(obj["failure"], condition["typevar"], condition["in"])
 
 
 def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
@@ -108,6 +109,12 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
             methods.append(FuncSig(name=mname, params=params, ret=ret))
 
         out.append(GuaranteeDecl(name=gname, methods=methods))
+
+    for group in data.get("typegroups", []):
+        if (not isinstance(group, dict) or not isinstance(group.get("name"), str)
+                or not isinstance(group.get("members"), list)):
+            raise ValueError(f"Invalid typegroup: {group!r}")
+        out.append(TypeGroupDecl(group["name"], [_type_ref(t) for t in group["members"]]))
 
     # --- marker guarantee registrations ---
     for registration in data.get("registers", []):
