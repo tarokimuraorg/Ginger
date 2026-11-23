@@ -1,5 +1,5 @@
 // Purpose:
-// forward requirement・marker register・typegroup・複数 requirement
+// forward requirement・TypeGroup register・typegroup・複数 requirement
 // Based on tests (source-visible behavior; host/internal assertions remain unit tests):
 // tests/test_call_implementation.py::test_unused_declaration_only_sig_is_accepted
 // tests/test_requirement_references.py::test_forward_guarantee
@@ -23,8 +23,8 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig keep(T) -> T { 
-    require T guarantees Mark
-    require T guarantees Mark 
+    require T in Mark
+    require T in Mark
     require T in Numbers
 }
 
@@ -33,12 +33,12 @@ func keep(x: T) { return x }
 register Mark { Int }
 register Mark { Float }
 
-guarantee Mark {}
+typegroup Mark {}
 
 typegroup Numbers { Int, Float }
 
 sig unused(Box[Box[T]]) -> T { 
-    require T guarantees Mark 
+    require T in Mark
 }
 
 sig missing(Int) -> Int {}

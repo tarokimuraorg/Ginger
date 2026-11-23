@@ -17,7 +17,7 @@ def declaration(kind, typ):
         return (f'guarantee G {{ op(self: Self) -> Self }}\n'
                 f'impl {typ} guarantees G {{ op = builtin test.op }}')
     if kind == 'register':
-        return f'guarantee Marker {{}}\nregister Marker {{ {typ} }}'
+        return f'typegroup Marker {{}}\nregister Marker {{ {typ} }}'
     return f'typegroup Group {{ {typ} }}'
 
 
@@ -68,7 +68,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
                     if kind == 'impl':
                         self.assertEqual(syms.impls[(key, 'G', 'op')], 'test.op')
                     elif kind == 'register':
-                        self.assertIn('Marker', syms.type_guarantees[key])
+                        self.assertIn(key, syms.typegroups['Marker'])
                     else:
                         self.assertEqual(syms.typegroups['Group'], {key})
 

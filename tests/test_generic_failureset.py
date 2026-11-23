@@ -97,6 +97,24 @@ class GenericFailureSetTests(unittest.TestCase):
         frames = [f for f in context.call_frames.values() if f.function_name == 'inner']
         self.assertEqual([f.declared_failure_contract for f in frames], [INTEGER, FLOAT])
 
+    def test_delayed_inner_outer_acceptance(self):
+        source = DEFINITION + DELAYED + INNER + """
+sig outer(T,T) -> T {
+    require T guarantees Addable
+    failure { AddFailures(T) }
+}
+func outer(a: T,b: T) { return inner(a,b) }
+print(outer(6,4))
+print(outer(2.5,7.4))
+"""
+        program, syms, _, _ = annotated(source)
+        self.assertEqual(signature_contract(syms, 'outer'), symbolic('T'))
+        _, context, stdout = recorded(program)
+        self.assertEqual(stdout, '10\n9.9\n')
+        self.assertFalse(context.failure_history)
+        self.assertEqual([f.declared_failure_contract for f in context.call_frames.values()
+                          if f.function_name == 'outer'], [INTEGER, FLOAT])
+
     def test_delayed_force_keeps_conditions_and_creation_has_no_effect(self):
         program, syms, env, _ = annotated(DEFINITION + DELAYED + INNER +
             'var a: Thunk[Int]<AddFailures(Int)> = delayed(1,2)\n'

@@ -87,8 +87,8 @@ class RequirementReferenceTests(unittest.TestCase):
                     'func op(x: T) { return x }', diagnostic)
 
     def test_user_function_with_valid_requirement(self):
-        source = ('guarantee G {}\nregister G { Int }\n'
-                  'sig op(T) -> T { require T guarantees G }\n'
+        source = ('typegroup G {}\nregister G { Int }\n'
+                  'sig op(T) -> T { require T in G }\n'
                   'func op(x: T) { return x }\n')
         compile(source)
         self.assertEqual(run(source + 'var x: Int = op(1)').environment['x'].value, 1)

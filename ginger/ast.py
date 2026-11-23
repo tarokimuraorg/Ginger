@@ -132,7 +132,7 @@ class TypeGroupDecl:
 @dataclass(frozen=True)
 class RegisterDecl:
     typ: TypeRef
-    guarantee: str  # Destination name; declaration lookup selects guarantee or typegroup.
+    guarantee: str  # TypeGroup destination; legacy field name retained for internal callers.
 
 
 # ---- impl (builtin mapping) ----

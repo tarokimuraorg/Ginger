@@ -428,19 +428,15 @@ def build_symbols(prog: Program) -> Symbols:
             continue
         _validate_concrete_identity(item.typ, "register target")
         target = item.guarantee
-        key = type_identity_key(item.typ)
         if item.typ.name in typegroups:
             raise TypecheckError(f"typegroup '{item.typ.name}' is not a concrete register target")
         if target in typegroups:
             continue  # Already validated and registered before normalization.
-        gdecl = guarantees.get(target)
-        if gdecl is None:
-            raise TypecheckError(f"unknown register target '{target}'; expected typegroup or guarantee")
-        if gdecl.methods:
-            raise TypecheckError(f"'{target}' requires implementations; use impl, not register")
-        if target in type_guarantees.get(key, set()):
-            raise TypecheckError(f"duplicate register: '{key}' guarantees '{target}'")
-        type_guarantees.setdefault(key, set()).add(target)
+        if target in guarantees:
+            raise TypecheckError(
+                f"register target must be a typegroup: {target} is a guarantee"
+            )
+        raise TypecheckError(f"unknown register target '{target}'; expected typegroup")
 
     syms = Symbols(
         guarantees=guarantees,
@@ -525,7 +521,7 @@ def _validate_catalog(syms: Symbols) -> None:
             clauses.add(clause)
         syms.sig_conditional_failures[name] = frozenset(clauses)
 
-    # 1) impl/register が参照する guarantee は存在するか
+    # 1) impl が参照する guarantee は存在するか
     for t, gs in syms.type_guarantees.items():
         for g in gs:
             if g not in syms.guarantees:

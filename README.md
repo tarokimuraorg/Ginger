@@ -52,8 +52,9 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Int / Float | 数値リテラル、加減乗算、Float 除算、`neg`、`toFloat` |
 | Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
-| `guarantee` | 型に要求する保証とメソッドの宣言 |
-| `register` | typegroup またはメソッドを持たない guarantee への型の登録 |
+| `guarantee` | 型が満たす操作能力の契約とメソッドの宣言 |
+| `impl` | 操作能力の実装と契約検証（現在は内部 catalog / AST 専用） |
+| `register` | TypeGroupへの所属型の追加（演算能力は追加しない） |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
 | `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
@@ -63,7 +64,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 
 `builtin` は処理系内部専用で、Ginger ソースから直接指定できません。`sig` 内の `builtin` 節、および現在 builtin 対応付けのみを扱う `impl` 宣言は、実行前の構文解析で拒否します。`guarantee`、`register`、`require` と builtin 指定のない `sig` は引き続き利用できます。ユーザー定義 impl の将来の仕様は未決定です。
 
-JSON catalog の guarantees / registers / impls / sigs と builtin ID は維持し、標準演算・型推論・generic dispatch・failure 契約は従来どおり機能します。catalog loader と内部生成 AST は共通の宣言登録・検証経路を利用します。Python からの AST 直接構築や宣言登録 API は信頼された処理系内部の入口であり、ソースの禁止規則の対象ではありません。以下の custom builtin / 独自 builtin sig / impl に関する記述も、この内部機構の契約を説明するもので、Ginger の公開構文や builtin ID の公開 API を定めるものではありません。
+JSON catalog の guarantees / impls / sigs と builtin ID は維持し、標準演算・型推論・generic dispatch・failure 契約は従来どおり機能します。catalog loader と内部生成 AST は共通の宣言登録・検証経路を利用します。Python からの AST 直接構築や宣言登録 API は信頼された処理系内部の入口であり、ソースの builtin / impl 禁止規則の対象ではありません。ただし register の登録先は内部 AST / catalog でもTypeGroupに限定します。以下の custom builtin / 独自 builtin sig / impl に関する記述も、この内部機構の契約を説明するもので、Ginger の公開構文や builtin ID の公開 API を定めるものではありません。
 
 ## 型・変数・式
 
@@ -402,7 +403,7 @@ typegroup Number {
     Int,
     Float,
 }
-guarantee Mark {}
+typegroup Mark {}
 register Mark {
     Int,
     Float,
@@ -423,7 +424,23 @@ TypeGroup の宣言は `typegroup Number { Int, Float }` のブロック形式�
 
 旧条件式 `when T guarantees Group` は拒否し、`when T in Group` への移行を案内します。通常の `require T guarantees Guarantee` は変更ありません。failureブロックはカンマ区切りで、Never単独宣言を除き末尾カンマを許可し、空ブロックやNeverとの混在は拒否します。静的契約は発生可能性を表し、resolveで回復するfailureも残します。runtimeイベントの発生記録と解決状態は別に管理します。
 
-`register Mark { Int, Float }` は、メソッドを持たない `guarantee Mark {}` に具体型を登録します。改行と末尾カンマを許可し、空ブロック・同じ型と保証の重複登録・typegroup 名の登録は拒否します。guarantee は後方に宣言でき、全宣言の収集後に検証します。旧ソース構文 `register Int guarantees Mark` は拒否します。内部 JSON catalog の登録形式は変更ありません。
+`register Mark { Int, Float }` は `typegroup Mark {}` に所属型を追加します。登録先はTypeGroupのみで、メソッドの有無を問わずguaranteeへのregisterは禁止です（`register target must be a typegroup: Mark is a guarantee`）。改行・末尾カンマ・前方参照を許可し、空ブロック・初期宣言を含む重複登録・TypeGroup名の要素指定は拒否します。未定義の登録先は `unknown register target` です。旧ソース構文 `register Int guarantees Mark` も拒否します。内部 JSON catalog の `registers` は既存フィールド名 `guarantee` を保持しますが、参照先にはTypeGroupを指定し、共通の検証経路でguaranteeへの登録を拒否します。
+
+今回のregister移行では、変更前に次の用途を調査しました。同じ名前でも各テスト・サンプルは独立したプログラムです。
+
+| 宣言・参照箇所 | 分類と移行結果 |
+| --- | --- |
+| `catalog/math.json`: Addable / Subtractable / Multipliable / Negatable | 操作能力。各々 add / sub / mul / neg メソッドを持ち、既存implとsigのguarantees要件でdispatchする。register依存なし、変更なし。 |
+| `catalog/ordering.json`: Ord、`catalog/io.json`: Printable | 操作能力。cmp / print メソッドと既存impl・sig要件を維持。標準catalog全体に空guarantee・registerによる能力登録なし。 |
+| README、`test_register_blocks.py`・`test_enumeration_blocks.py`: Mark | 型分類。TypeGroup宣言、register、`require T in Mark`へ移行。Int / Float / Int64等の所属と重複検査を維持。 |
+| `test_parameterized_type_identity.py`・`test_concrete_identity_positions.py`: Marker | 型分類。TypeGroupへ移行。Box・Pair・Thunkの完全な型identity、所属の分離、latent failureとは独立したidentityを維持。 |
+| `test_requirement_typevars.py`・`test_requirement_references.py`: registerを伴うG | 型分類。IntまたはFloatの集合とrequireをTypeGroupへ移行。操作・builtin dispatchとの結び付きなし。 |
+| `scripts/Scene_33,34,81,83,84,153,156.ginger`: Mark / G | 型分類。公開名・全register要素を保持してTypeGroupへ移行。対応するrequireと所属拒否の期待診断も更新。 |
+| `test_guarantee_method_arity.py`・`Scene_92.ginger`: H | 複数guarantee要件でdispatchしないことを検査する空の契約。分類制約へ変えると検査対象が変わるためguaranteeを保持し、テスト用registerを既存の空implへ置換。 |
+| requirement / guarantee method検査のG・A・B・H、failure / namespace検査のG・Shared・Example・BoundedArithmetic・Marker | 空guarantee宣言の受理、推論、未実装契約の拒否、名前空間の区別を検査するfixture。登録による分類用途ではなく、検査対象として保持。標準catalog・演算子との結び付きなし。 |
+| `Scene_50,74,75,76,79,80,151.ginger`: Shared / G / Mark | 上記の宣言・推論・未実装・impl位置検査に対応。registerなし、既存のguaranteeを保持。 |
+
+標準の型分類 `BoundedArithmetic` / `FiniteArithmetic` はすでにTypeGroupです。所属は条件付きfailureの具体化に使われ、演算能力を生成しません。parser / ASTのブロック展開、宣言収集、typecheckの能力検査、lowerの演算子変換、evalのdispatch、failure契約比較とruntimeは維持します。分類用の旧guarantee登録は有効例から除去し、拒否テストだけに残します。既存のopen-world規則により未知の具体型名は許可されますが、型変数・Selfなどの非具体identityは拒否します。
 
 `guarantee` method は capability method の型契約の canonical source、`sig` は public generic call surface と public failure/effect contract を定義します。guarantee 経由で dispatch する sig は、method の `Self` を require が指定する型変数へ再帰的に projection し、引数数・引数型・戻り値型を照合します。Thunk の潜在契約も正規化後に一致する必要があり、widening では代用しません。この照合は、func / 直接 builtin を持たず、guarantee requirement が1個で同名 method に対応する sig が対象です。
 
@@ -450,7 +467,7 @@ print(addTwo(1.0, 2.0))
 
 この例は `3` と `3.0` を出力し、Int の call には IntegerOverflow、Float の call には FloatOverflow の未処理警告が出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
 
-能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。メソッドを持つ guarantee には `impl` が必要で、guarantee への `register` はメソッドを持たない保証に使います。guarantee 間の継承・包含は導入していません。
+能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。操作能力の実装には既存の `impl` を使用し、要求メソッドと型契約を検証します。空のguaranteeの宣言と内部の空implは引き続き許可しますが、guaranteeへのregisterはできません。TypeGroup所属は能力証明になりません。guarantee 間の継承・包含は導入していません。
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
 

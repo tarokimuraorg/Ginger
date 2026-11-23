@@ -9,7 +9,7 @@ class EnumerationBlockTests(unittest.TestCase):
     def source(self, kind, contents):
         if kind == 'failure':
             return 'sig f(T) -> T { failure {' + contents + '} }'
-        prefix = 'guarantee Mark {}\n' if kind == 'register' else ''
+        prefix = 'typegroup Mark {}\n' if kind == 'register' else ''
         return prefix + kind + ' Mark {' + contents + '}'
 
     def test_comma_forms(self):
