@@ -23,17 +23,63 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow, FloatUnderflow> { require T guarantees Addable }
-func delayed(a: T,b: T) { return thunk(a + b) }
+failureset AddFailures(T) {
+    IntegerOverflow when T in BoundedArithmetic, 
+    FloatOverflow when T in FiniteArithmetic, 
+    FloatUnderflow when T in FiniteArithmetic 
+}
+
+sig delayed(T,T) -> Thunk[T]<AddFailures(T)> { 
+    require T guarantees Addable 
+}
+
+func delayed(a: T,b: T) { 
+    return thunk(a + b) 
+}
+
 print(force(delayed(1,2)))
 print(force(delayed(1.0,2.0)))
-sig inner(U,U) -> U { require U guarantees Addable failure { IntegerOverflow when U in BoundedArithmetic, FloatOverflow when U in FiniteArithmetic, FloatUnderflow when U in FiniteArithmetic } }
-func inner(a: U,b: U) { return force(thunk(add(a,b))) }
-sig outer(T,T) -> T { require T guarantees Addable failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic } }
-func outer(a: T,b: T) { return inner(a,b) }
+
+sig inner(U,U) -> U { 
+    require U guarantees Addable 
+    failure { 
+        AddFailures(U)
+    } 
+}
+
+func inner(a:U, b:U) {
+    return force(delayed(a,b))
+}
+
+sig outer(T,T) -> T { 
+    require T guarantees Addable 
+    failure { 
+        AddFailures(T)
+    } 
+}
+
+func outer(a: T,b: T) { 
+    return inner(a,b)
+}
+
+print(outer(6,4))
+print(outer(2.5,7.4))
+
 var i: Int = outer(9007199254740991,1)
-resolve i { IntegerOverflow { i = 7 } }
+
+resolve i { 
+    IntegerOverflow { 
+        i = 7 
+    } 
+}
+
 var f: Float = outer(179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0,179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0)
-resolve f { FloatOverflow { f = 8 } }
+
+resolve f { 
+    FloatOverflow { 
+        f = 8 
+    } 
+}
+
 print(i)
 print(f)

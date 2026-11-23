@@ -26,7 +26,7 @@ guarantee Projection {
 }
 sig project(T,Thunk[Thunk[T]<Overflow>]<Never>) -> Thunk[Thunk[T]<Overflow>]<Never> { require T guarantees Projection }
 sig unused(Box[Box[T]]) -> T { require T guarantees Mark }
-guarantee Mark {}
+guarantee Mark { witness(self: Self) -> Self }
 sig make() -> T {}
 sig recur() -> Unit {}
 func recur() { recur() }

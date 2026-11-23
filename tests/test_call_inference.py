@@ -240,7 +240,7 @@ class CallInferenceTests(unittest.TestCase):
                 checked(source)
 
     def test_independent_variables_and_typegroup_requirements(self):
-        source = ('typegroup Floating = Float\n'
+        source = ('typegroup Floating { Float }\n'
                   'sig choose(T,U) -> U { require U in Floating }\n'
                   'func choose(a: T,b: U) { return b }\nprint(choose(1i64,2.0))')
         self.assertEqual(output(checked(source)[0]), '2.0\n')

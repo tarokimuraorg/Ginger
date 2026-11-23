@@ -8,7 +8,7 @@ from ginger.diagnostics import Diagnostics
 from ginger.errors import TypecheckError
 from ginger.typecheck import typecheck_program, same_type
 
-SET = 'failureset CalculationFailure { DivideByZero FloatOverflow FloatUnderflow IOErr }\n'
+SET = 'failureset CalculationFailure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }\n'
 
 
 class ThunkContractTests(unittest.TestCase):

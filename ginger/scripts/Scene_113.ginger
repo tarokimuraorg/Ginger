@@ -15,5 +15,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-typegroup Numeric = Int | Float
+typegroup Numeric { Int, Float }
 sig f(T) -> T { failure { IntegerOverflow when T in Numeric } }

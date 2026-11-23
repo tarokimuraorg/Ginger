@@ -21,14 +21,40 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig effect() -> Int {}
-func effect() { print(7) return 3 }
+
+func effect() { 
+    print(7) 
+    return 3 
+}
+
 var t: Thunk[Int]<Never> = thunk(effect())
+
 print(0)
 print(force(t))
 print(force(t))
+
 sig snapshot() -> Int {}
-func snapshot() { var x: Int = 1 let saved: Thunk[Int]<Never> = thunk(x) x = 2 return force(saved) }
+
+func snapshot() {
+
+    var x: Int = 1
+
+    // thunk(x) は生成時点の値を保持するため、
+    // x を再代入しても force(saved) は 1 を返す
+    let saved: Thunk[Int]<Never> = thunk(x)
+
+    // xは2に更新されるが、savedは1を保持する
+    x = 2
+
+    print(x)
+    return force(saved)
+
+}
+
 print(snapshot())
+
 var replaceable: Thunk[Int]<Never> = thunk(1)
+
 replaceable = thunk(2)
+
 print(force(replaceable))

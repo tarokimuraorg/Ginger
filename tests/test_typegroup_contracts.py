@@ -16,8 +16,8 @@ class TypeGroupContractTests(unittest.TestCase):
         return build_symbols(checked(source)[0])
 
     def test_empty_block_and_equivalent_membership(self):
-        syms = self.symbols('typegroup Empty {}\ntypegroup Block {\nInt\nFloat\n}\n'
-                            'typegroup Union = Int | Float')
+        syms = self.symbols('typegroup Empty {}\ntypegroup Block {\nInt,\nFloat\n}\n'
+                            'typegroup Union { Int, Float }')
         self.assertEqual(syms.typegroups['Empty'], set())
         self.assertEqual(syms.typegroups['Block'], syms.typegroups['Union'])
 
@@ -37,7 +37,7 @@ class TypeGroupContractTests(unittest.TestCase):
                 self.assertNotIn('Group', syms.type_guarantees['Float'])
 
     def test_duplicates_and_unknown_destination(self):
-        for source in ['typegroup Group { Int, Int }', 'typegroup Group = Int | Int',
+        for source in ['typegroup Group { Int, Int }',
                        'typegroup Group {}\nregister Group { Int, Int }',
                        'register Group { Int }\ntypegroup Group { Int }',
                        'typegroup Group {}\nregister Group { Int }\nregister Group { Int }',
@@ -48,16 +48,16 @@ class TypeGroupContractTests(unittest.TestCase):
             self.symbols('register Missing { Int }')
 
     def test_shared_namespace_including_catalog(self):
-        for source in ['guarantee Example {}\ntypegroup Example {}',
-                       'typegroup Example {}\nguarantee Example {}',
-                       'guarantee BoundedArithmetic {}', 'typegroup Addable {}',
+        for source in ['guarantee Example { witness(self: Self) -> Self }\ntypegroup Example {}',
+                       'typegroup Example {}\nguarantee Example { witness(self: Self) -> Self }',
+                       'guarantee BoundedArithmetic { witness(self: Self) -> Self }', 'typegroup Addable {}',
                        'typegroup Example {}\ntypegroup Example {}']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 self.symbols(source)
 
     def test_guarantee_is_not_a_failure_group(self):
         with self.assertRaisesRegex(TypecheckError, 'unknown typegroup'):
-            self.symbols('guarantee Marker {}\nsig keep(T) -> T { failure { IOErr when T in Marker } }')
+            self.symbols('guarantee Marker { witness(self: Self) -> Self }\nsig keep(T) -> T { failure { IOErr when T in Marker } }')
         with self.assertRaisesRegex(SyntaxError, 'when T in Group'):
             self.symbols('sig keep(T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }')
 

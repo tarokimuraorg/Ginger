@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from ginger.ast import Program, RegisterDecl
+from ginger.ast import GuaranteeDecl, ImplDecl, Program, RegisterDecl, TypeRef
 from ginger.core.catalog_loader import load_core_catalog_json
 from ginger.errors import TypecheckError
 from ginger.parser import parse
@@ -24,14 +24,15 @@ class RegisterBlockTests(unittest.TestCase):
             ('Int64', ['Int64']),
         ]:
             with self.subTest(block=block):
-                source = 'guarantee Mark {}\nregister Mark {' + block + '}'
+                source = 'typegroup Mark {}\nregister Mark {' + block + '}'
                 program = parse(source)
                 declarations = program.items[1:]
                 self.assertTrue(all(isinstance(d, RegisterDecl) for d in declarations))
                 self.assertEqual([d.typ.name for d in declarations], names)
                 symbols = build_symbols(program)
+                self.assertEqual(symbols.typegroups['Mark'], set(names))
                 for name in names:
-                    self.assertIn('Mark', symbols.type_guarantees[name])
+                    self.assertNotIn('Mark', symbols.type_guarantees.get(name, set()))
                 compile(source)
 
     def test_invalid_syntax(self):
@@ -47,38 +48,65 @@ class RegisterBlockTests(unittest.TestCase):
                        'register Mark { Box[Int], Box[Int] }',
                        'register Mark { Thunk[Int]<Never>, Thunk[Int]<IntegerOverflow> }']:
             with self.subTest(blocks=blocks), self.assertRaisesRegex(TypecheckError, 'duplicate register'):
-                compile('guarantee Mark {}\n' + blocks)
+                compile('typegroup Mark {}\n' + blocks)
 
-    def test_unknown_guarantee(self):
+    def test_unknown_destination(self):
         with self.assertRaisesRegex(TypecheckError, "unknown register target 'Missing'"):
             compile('register Missing { Int }')
 
     def test_forward_reference(self):
-        compile('register Mark { Int, Float }\nguarantee Mark {}')
+        compile('register Mark { Int, Float }\ntypegroup Mark {}')
 
     def test_method_guarantee_rejected_in_either_order(self):
         declaration = 'guarantee CustomNegatable { neg(self: Self) -> Self }\n'
         registration = 'register CustomNegatable { Int }\n'
         for source in [declaration + registration, registration + declaration]:
-            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'requires implementations'):
+            with self.subTest(source=source), self.assertRaisesRegex(
+                    TypecheckError, 'register target must be a typegroup: CustomNegatable is a guarantee'):
                 compile(source)
 
+    def test_empty_guarantee_rejected_in_either_order(self):
+        declaration = 'guarantee Mark {}\n'
+        registration = 'register Mark { Int, Float }\n'
+        for source in [declaration + registration, registration + declaration]:
+            with self.subTest(source=source), self.assertRaisesRegex(
+                    TypecheckError, 'guarantee Mark must declare at least one method or capability requirement'):
+                compile(source)
+
+    def test_catalog_guarantee_registration_is_rejected(self):
+        for methods in [[], [{'name': 'op', 'params': [], 'ret': 'Int'}]]:
+            data = {'guarantees': [{'name': 'Mark', 'methods': methods}],
+                    'registers': [{'type': 'Int', 'guarantee': 'Mark'}]}
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'catalog.json'
+                path.write_text(json.dumps(data))
+                declarations = load_core_catalog_json(path)
+            with self.assertRaisesRegex(TypecheckError,
+                                        'Mark is a guarantee' if methods else
+                                        'guarantee Mark must declare at least one method'):
+                build_symbols(Program(declarations))
+
+    def test_empty_guarantee_impl_is_rejected(self):
+        with self.assertRaisesRegex(TypecheckError, 'guarantee Mark must declare at least one method'):
+            build_symbols(Program([
+                GuaranteeDecl('Mark', []), ImplDecl(TypeRef('Int'), 'Mark', [])]))
+
     def test_typegroup_rejected_in_either_order(self):
-        group = 'typegroup Numbers = Int | Float\n'
-        registration = 'guarantee Mark {}\nregister Mark { Numbers }\n'
+        group = 'typegroup Numbers { Int, Float }\n'
+        registration = 'typegroup Mark {}\nregister Mark { Numbers }\n'
         for source in [group + registration, registration + group]:
             with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'not a concrete register target'):
                 compile(source)
 
     def test_existing_catalog_format_and_duplicate_with_source(self):
-        data = {'guarantees': [{'name': 'Mark', 'methods': []}],
+        data = {'typegroups': [{'name': 'Mark', 'members': []}],
                 'registers': [{'type': {'ref': 'Int'}, 'guarantee': 'Mark'}]}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'catalog.json'
             path.write_text(json.dumps(data))
             declarations = load_core_catalog_json(path)
         symbols = build_symbols(Program(declarations))
-        self.assertIn('Mark', symbols.type_guarantees['Int'])
+        self.assertEqual(symbols.typegroups['Mark'], {'Int'})
         with self.assertRaisesRegex(TypecheckError, 'duplicate register'):
             build_symbols(Program(declarations + parse('register Mark { Int }').items))
         # The shipped JSON catalog also participates in duplicate detection.
@@ -87,13 +115,13 @@ class RegisterBlockTests(unittest.TestCase):
 
     def test_generic_require_and_typegroup(self):
         source = '''sig keep(T) -> T {
-    require T guarantees Mark
+    require T in Mark
     require T in Numbers
 }
 func keep(x: T) { return x }
-guarantee Mark {}
+typegroup Mark {}
 register Mark { Int, Float }
-typegroup Numbers = Int | Float
+typegroup Numbers { Int, Float }
 print(keep(1))
 print(keep(2.0))
 '''
@@ -101,6 +129,8 @@ print(keep(2.0))
         with redirect_stdout(stdout):
             run(source)
         self.assertEqual(stdout.getvalue(), '1\n2.0\n')
+        with self.assertRaisesRegex(TypecheckError, 'T in Mark required'):
+            compile(source + 'keep(1i64)')
 
 
 if __name__ == '__main__':

@@ -77,9 +77,9 @@ class GuaranteeMethodArityTests(unittest.TestCase):
     def test_multiple_guarantee_requirements_are_not_arity_validated(self):
         source = (
             'guarantee G { op(self: Self, other: Self) -> Self }\n'
-            'guarantee H {}\n'
+            'guarantee H { witness(self: Self) -> Self }\n'
             'impl Int guarantees G { op = builtin test.op }\n'
-            'register H { Int }\n'
+            'impl Int guarantees H { witness = builtin core.int.neg }\n'
             'sig op(T) -> T { require T guarantees G require T guarantees H }\n')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: a + b}):
             compile(source)

@@ -17,11 +17,45 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig risky() -> Float { failure { IntegerOverflow, DivideByZero, FloatOverflow, FloatUnderflow } }
-func risky() { return div(1.0,0.0) }
+sig risky() -> Float { 
+    failure { 
+        IntegerOverflow, 
+        DivideByZero, 
+        FloatOverflow, 
+        FloatUnderflow 
+    } 
+}
+
+func risky() { 
+    return div(1.0,0.0) 
+}
+
 var x: Float = risky()
-resolve x { IntegerOverflow { print(999) x = 0 } }
+
+resolve x { 
+    IntegerOverflow { 
+        print(999) 
+        x = 0 
+    } 
+}
+
+//print(x)
 print(1)
-resolve x { DivideByZero { print(2) x = 1 } }
-resolve x { FloatOverflow { print(999) x = 2 } }
+
+resolve x { 
+    DivideByZero { 
+        print(2) 
+        x = 3
+    } 
+}
+
+print(x)
+
+resolve x { 
+    FloatOverflow { 
+        print(999) 
+        x = 4 
+    } 
+}
+
 print(x)

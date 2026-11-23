@@ -20,7 +20,6 @@ class FailureBlockTests(unittest.TestCase):
             ('IntegerOverflow,', ['IntegerOverflow']),
             ('\nIntegerOverflow,\nFloatOverflow,\n', ['IntegerOverflow', 'FloatOverflow']),
             ('Never', ['Never']),
-            ('Never,', ['Never']),
             ('IOErr, FloatOverflow when T in FiniteArithmetic,',
              ['IOErr', ConditionalFailureDecl('FloatOverflow', 'T', 'FiniteArithmetic')]),
         ]:
@@ -35,6 +34,7 @@ class FailureBlockTests(unittest.TestCase):
 
     def test_invalid_syntax_and_removed_legacy_forms(self):
         for declaration in [
+            'failure { Never, }', 'failure { Never,\n}',
             'failure {}', 'failure {\n}',
             'failure IntegerOverflow',
             'failure IntegerOverflow when T in BoundedArithmetic',

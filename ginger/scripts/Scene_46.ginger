@@ -25,7 +25,33 @@
 var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
 var x: Float = force(t)
 var y: Float = force(t)
-resolve x { DivideByZero { x = 0 } }
+
+resolve x { 
+    DivideByZero { 
+        x = 0 
+    } 
+}
+
 print(x)
-resolve y { DivideByZero { y = force(t) } }
+
+resolve y {
+
+    DivideByZero { 
+        y = force(t) 
+    }
+
+    // 一つのresolve内に同じ failure contract は使用不可
+    //DivideByZero {
+    //    y = 9.8
+    //}
+
+}
+
+resolve y {
+    DivideByZero {
+        y = 9.9
+    }
+}
+
+print(y)
 print(3)

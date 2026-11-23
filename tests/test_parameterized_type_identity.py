@@ -69,7 +69,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
     def test_parser_and_lowering_preserve_targets(self):
         source = (implementation('Box[Int]') +
                   'register Marker { Box[Float] }\n'
-                  'typegroup Boxes = Box[Int] | Box[Float]')
+                  'typegroup Boxes { Box[Int], Box[Float] }')
         parsed = parse(source)
         lowered = lower_program(parsed)
         for program in [parsed, lowered]:
@@ -154,25 +154,25 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         self.assertEqual(self.seen, [])
 
     def test_register_isolation(self):
-        prefix = ('guarantee Marker {}\nregister Marker { Box[Int] }\n'
-                  'sig take(T) -> T { require T guarantees Marker }\n'
+        prefix = ('typegroup Marker {}\nregister Marker { Box[Int] }\n'
+                  'sig take(T) -> T { require T in Marker }\n'
                   'func take(x: T) { return x }\n')
         program, _, _ = annotated(prefix + use('Box[Int]', 'take'))
         self.assertIs(eval_program(program).environment['result'].value, self.payload)
         for typ in ['Box[Float]', 'Box[MissingType]', 'Box']:
-            with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'does not guarantee Marker'):
+            with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
                 annotated(prefix + use(typ, 'take'))
 
     def test_distinct_registers_allowed_but_exact_duplicate_rejected(self):
-        prefix = 'guarantee Marker {}\nregister Marker { Box[Int] }\n'
+        prefix = 'typegroup Marker {}\nregister Marker { Box[Int] }\n'
         _, symbols, _ = annotated(prefix + 'register Marker { Box[Float] }')
         for typ in ['Box[Int]', 'Box[Float]']:
-            self.assertEqual(symbols.type_guarantees[type_identity_key(normalized_type(typ))], {'Marker'})
+            self.assertIn(type_identity_key(normalized_type(typ)), symbols.typegroups['Marker'])
         with self.assertRaisesRegex(TypecheckError, 'duplicate register'):
             annotated(prefix + 'register Marker { Box[Int] }')
 
     def test_typegroup_isolation(self):
-        prefix = ('typegroup Boxes = Box[Int]\n'
+        prefix = ('typegroup Boxes { Box[Int] }\n'
                   'sig take(T) -> T { require T in Boxes }\n'
                   'func take(x: T) { return x }\n')
         program, _, _ = annotated(prefix + use('Box[Int]', 'take'))
@@ -180,7 +180,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         for typ in ['Box[Float]', 'Box[MissingType]', 'Box']:
             with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
                 annotated(prefix + use(typ, 'take'))
-        program, symbols, _ = annotated(prefix.replace('= Box[Int]', '= Box[Int] | Box[Float]') +
+        program, symbols, _ = annotated(prefix.replace('{ Box[Int] }', '{ Box[Int], Box[Float] }') +
                                         use('Box[Float]', 'take'))
         self.assertEqual(len(symbols.typegroups['Boxes']), 2)
         eval_program(program)
@@ -195,8 +195,8 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
                         prefix, calls = CAPABILITY + implementation(target), ['op', 'relay']
                     else:
                         declaration, requirement = (
-                            (f'guarantee Marker {{}}\nregister Marker {{ {target} }}', 'T guarantees Marker')
-                            if kind == 'register' else (f'typegroup Boxes = {target}', 'T in Boxes'))
+                            (f'typegroup Marker {{}}\nregister Marker {{ {target} }}', 'T in Marker')
+                            if kind == 'register' else (f'typegroup Boxes {{ {target} }}', 'T in Boxes'))
                         prefix = (declaration + f'\nsig take(T) -> T {{ require {requirement} }}\n'
                                   'func take(x: T) { return x }\n')
                         calls = ['take']
@@ -218,9 +218,9 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         for declaration, requirement, call in [
             (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'op'),
             (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'relay'),
-            ('guarantee Marker {}\nregister Marker { Thunk[Int]<Never> }\n',
-             'T guarantees Marker', 'take'),
-            ('typegroup Boxes = Thunk[Int]<Never>\n', 'T in Boxes', 'take'),
+            ('typegroup Marker {}\nregister Marker { Thunk[Int]<Never> }\n',
+             'T in Marker', 'take'),
+            ('typegroup Boxes { Thunk[Int]<Never> }\n', 'T in Boxes', 'take'),
         ]:
             prefix = declaration
             if requirement:

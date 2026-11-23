@@ -1,13 +1,15 @@
 import itertools
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
 from test_failure_contract import checked, output
 from ginger.ast import TypeRef
-from ginger.builtin import BUILTINS
+from ginger.builtin import BUILTINS, project_comparison
 from ginger.eval import eval_program
 from ginger.errors import TypecheckError
-from ginger.core.failure_spec import EMPTY_FAILURES
+from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
+from ginger.runtime.failures import RaisedFailure
 from ginger.typecheck import compatible
 
 
@@ -45,13 +47,13 @@ class ComparisonApiTests(unittest.TestCase):
         self.matrix([('1', 1), ('2', 2)])
 
     def test_int_boundaries(self):
-        self.matrix([(str(v), v) for v in [-9007199254740991, 0, 9007199254740991]])
+        self.matrix([(str(v), v) for v in [-9007199254740991, -2, -1, 0, 1, 2, 9007199254740991]])
 
     def test_int64_boundaries(self):
-        self.matrix([(f'{v}i64', v) for v in [-9223372036854775807, 0, 9223372036854775807]])
+        self.matrix([(f'{v}i64', v) for v in [-9223372036854775807, -2, -1, 0, 1, 2, 9223372036854775807]])
 
     def test_float_extremes_and_signed_zero(self):
-        self.matrix([(str(v), v) for v in [-1e308, -0.0, 0.0, 1e308]])
+        self.matrix([(str(v), v) for v in [-sys.float_info.max, -2.0, -1.0, -5e-324, -0.0, 0.0, 5e-324, 1.0, 2.0, sys.float_info.max]])
 
     def test_widening_matches_cmp(self):
         for name, ret in RETURNS.items():
@@ -72,7 +74,8 @@ class ComparisonApiTests(unittest.TestCase):
         for name, ret in RETURNS.items():
             prefix = (f'sig relay(T,T) -> {ret} {{ require T guarantees Ord }}\n'
                       f'func relay(a: T,b: T) {{ return {name}(a,b) }}\n')
-            for args in ['1,2', '1i64,2i64', '1.0,2.0']:
+            for args in ['1,2', '2,2', '2,1', '1i64,2i64', '2i64,2i64', '2i64,1i64',
+                         '1.0,2.0', '2.0,2.0', '2.0,1.0']:
                 direct = self.evaluate(f'var x: {ret} = {name}({args})')
                 generic = self.evaluate(prefix + f'var x: {ret} = relay({args})')
                 self.assertEqual(generic.environment['x'].value, direct.environment['x'].value)
@@ -80,20 +83,23 @@ class ComparisonApiTests(unittest.TestCase):
     def test_custom_cmp_only_impl(self):
         prefix = ('impl Box guarantees Ord { cmp = builtin test.compare }\n'
                   'sig make() -> Box { builtin test.make }\n')
-        for name, ret in [('balance', 'Ordering'), ('slope', 'Slope'), ('gt', 'Bool')]:
-            for generic in [False, True]:
+        for name, ret in RETURNS.items():
+            for generic, tag in itertools.product([False, True], ['Left', 'Flat', 'Right']):
                 relay = (f'sig relay(T,T) -> {ret} {{ require T guarantees Ord }}\n'
                          f'func relay(a: T,b: T) {{ return {name}(a,b) }}\n') if generic else ''
-                impl = Mock(return_value=('Ordering', 'Left'))
+                impl = Mock(return_value=('Ordering', tag))
                 with patch.dict(BUILTINS, {'test.make': lambda: object(), 'test.compare': impl}):
                     result = self.evaluate(prefix + relay + f'var x: {ret} = {"relay" if generic else name}(make(),make())')
                 impl.assert_called_once()
                 self.assertEqual(result.environment['x'].value,
-                                 {'balance': ('Ordering', 'Left'), 'slope': ('Slope', 'Falling'), 'gt': True}[name])
-                self.assertFalse(any(f.function_name == 'cmp' for f in result.call_frames.values()))
+                                 {'cmp': ('Ordering', tag), 'balance': ('Ordering', tag),
+                                  'slope': ('Slope', {'Left': 'Falling', 'Flat': 'Flat', 'Right': 'Rising'}[tag]),
+                                  'gt': tag == 'Left', 'eq': tag == 'Flat', 'lt': tag == 'Right'}[name])
+                if name != 'cmp':
+                    self.assertFalse(any(f.function_name == 'cmp' for f in result.call_frames.values()))
 
     def test_invalid_canonical_result_is_validated_before_projection(self):
-        for name, ret in [('balance', 'Ordering'), ('slope', 'Slope'), ('gt', 'Bool')]:
+        for name, ret in RETURNS.items():
             with patch.dict(BUILTINS, {'core.int.cmp': lambda a, b: ('Slope', 'Flat')}):
                 result = self.evaluate(f'var x: {ret} = {name}(1,1)')
             self.assertEqual(result.value_contract_violation.expected_type, TypeRef('Ordering'))
@@ -101,7 +107,7 @@ class ComparisonApiTests(unittest.TestCase):
             self.assertNotIn('x', result.environment)
 
     def test_invalid_operands_remain_fatal(self):
-        for name, ret in [('balance', 'Ordering'), ('slope', 'Slope'), ('gt', 'Bool')]:
+        for name, ret in RETURNS.items():
             for typ, bad, literal in [('Int', True, '1'), ('Int64', True, '1i64'),
                                       ('Float', float('nan'), '1.0'),
                                       ('Float', float('inf'), '1.0'),
@@ -112,6 +118,43 @@ class ComparisonApiTests(unittest.TestCase):
                 impl.assert_not_called()
                 self.assertIsNotNone(result.value_contract_violation)
                 self.assertEqual(result.failure_history, ())
+
+    def test_argument_failure_skips_cmp_and_projection_and_resolves(self):
+        for name in ('eq', 'lt'):
+            cmp = Mock()
+            with patch.dict(BUILTINS, {'core.float.cmp': cmp}), patch(
+                    'ginger.runtime.builtin_bridge.project_comparison', wraps=project_comparison) as projection:
+                result = self.evaluate(f'var x: Bool = {name}(div(1.0,0.0),1.0)\n'
+                                       'resolve x { DivideByZero { x = eq(1,1) } }')
+            cmp.assert_not_called()
+            self.assertEqual(projection.call_count, 1)  # Only the recovery eq.
+            self.assertEqual(len(result.failure_history), 1)
+            self.assertEqual(result.failure_history[0].failure_id, FailureId.DivideByZero)
+            self.assertEqual(result.unresolved_events, ())
+            self.assertIsNone(result.contract_violation)
+
+    def test_cmp_failure_never_projects_or_creates_bool(self):
+        for name in ('eq', 'lt'):
+            for literal, builtin in [('1', 'core.int.cmp'), ('1i64', 'core.int.cmp'),
+                                     ('1.0', 'core.float.cmp')]:
+                cmp = Mock(side_effect=RaisedFailure(FailureId.IOErr))
+                with patch.dict(BUILTINS, {builtin: cmp}), patch(
+                        'ginger.runtime.builtin_bridge.project_comparison', wraps=project_comparison) as projection:
+                    result = self.evaluate(f'var x: Bool = {name}({literal},{literal})')
+                cmp.assert_called_once()
+                projection.assert_not_called()
+                self.assertIsNotNone(result.contract_violation)
+                self.assertEqual(result.contract_violation.origin, builtin)
+                self.assertEqual(result.failure_history, ())
+                self.assertNotIn('x', result.environment)
+
+    def test_projected_bool_return_is_validated(self):
+        for name in ('eq', 'lt'):
+            with patch('ginger.runtime.builtin_bridge.project_comparison', return_value=1):
+                result = self.evaluate(f'var x: Bool = {name}(1,1)')
+            self.assertEqual(result.value_contract_violation.expected_type, TypeRef('Bool'))
+            self.assertNotIn('x', result.environment)
+            self.assertEqual(result.failure_history, ())
 
     def test_custom_slope_return_and_print(self):
         for value in [('Slope', 'Rising'), ('Slope', 'Flat'), ('Slope', 'Falling'), ('Ordering', 'Flat'), 'Flat', None]:

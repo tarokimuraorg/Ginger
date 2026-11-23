@@ -116,7 +116,7 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
             raise ValueError(f"Invalid typegroup: {group!r}")
         out.append(TypeGroupDecl(group["name"], [_type_ref(t) for t in group["members"]]))
 
-    # --- marker guarantee registrations ---
+    # --- TypeGroup registrations (legacy JSON field name: guarantee) ---
     for registration in data.get("registers", []):
         if not isinstance(registration, dict):
             raise ValueError(f"Invalid register: {registration!r}")

@@ -17,13 +17,39 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-failureset Calculation { DivideByZero FloatOverflow FloatUnderflow IOErr }
+failureset Calculation { 
+    DivideByZero,
+    FloatOverflow,
+    FloatUnderflow,
+    IOErr 
+}
+
 var narrow: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
 var wide: Thunk[Float]<Calculation> = narrow
+
 wide = thunk(1.0)
+
+// forceがない為実行エラー
+//print(wide)
+
 var x: Float = force(wide)
-resolve x { IOErr { x = 99 } }
+
+resolve x { 
+    IOErr { 
+        x = 99 
+    } 
+}
+
 print(x)
-sig make() -> Thunk[Int]<DivideByZero> { failure { IOErr } }
-func make() { return thunk(2) }
+
+sig make() -> Thunk[Int]<DivideByZero> { 
+    failure { 
+        IOErr 
+    } 
+}
+
+func make() { 
+    return thunk(2) 
+}
+
 print(force(make()))

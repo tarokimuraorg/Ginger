@@ -54,7 +54,7 @@ class ThunkValueContractTests(unittest.TestCase):
                 ('Calculation', overflow, True),
                 ('Never', overflow, False), ('FloatOverflow', divide, False)]:
             with self.subTest(public=public, saved=saved):
-                source = 'failureset Calculation { FloatOverflow FloatUnderflow DivideByZero }\n'
+                source = 'failureset Calculation { FloatOverflow, FloatUnderflow, DivideByZero }\n'
                 source += self.source(contract=public, tail=f'var t: Thunk[Float]<{public}> = make()')
                 result = self.run_source(source, self.thunk(1.0, saved))
                 self.assertEqual(result.value_contract_violation is None, valid)

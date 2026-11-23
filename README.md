@@ -52,9 +52,11 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Int / Float | 数値リテラル、加減乗算、Float 除算、`neg`、`toFloat` |
 | Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
-| `guarantee` | 型に要求する保証とメソッドの宣言 |
-| `register` | typegroup またはメソッドを持たない guarantee への型の登録 |
+| `guarantee` | 操作能力や能力要件の契約（現在はメソッド宣言のみ対応） |
+| `impl` | 操作能力の実装と契約検証（現在は内部 catalog / AST 専用） |
+| `register` | TypeGroupへの所属型の追加（演算能力は追加しない） |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
+| `failureset` | 発生可能なfailureの集合（型引数・条件付きfailureに対応） |
 | `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
@@ -63,7 +65,7 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 
 `builtin` は処理系内部専用で、Ginger ソースから直接指定できません。`sig` 内の `builtin` 節、および現在 builtin 対応付けのみを扱う `impl` 宣言は、実行前の構文解析で拒否します。`guarantee`、`register`、`require` と builtin 指定のない `sig` は引き続き利用できます。ユーザー定義 impl の将来の仕様は未決定です。
 
-JSON catalog の guarantees / registers / impls / sigs と builtin ID は維持し、標準演算・型推論・generic dispatch・failure 契約は従来どおり機能します。catalog loader と内部生成 AST は共通の宣言登録・検証経路を利用します。Python からの AST 直接構築や宣言登録 API は信頼された処理系内部の入口であり、ソースの禁止規則の対象ではありません。以下の custom builtin / 独自 builtin sig / impl に関する記述も、この内部機構の契約を説明するもので、Ginger の公開構文や builtin ID の公開 API を定めるものではありません。
+JSON catalog の guarantees / impls / sigs と builtin ID は維持し、標準演算・型推論・generic dispatch・failure 契約は従来どおり機能します。catalog loader と内部生成 AST は共通の宣言登録・検証経路を利用します。Python からの AST 直接構築や宣言登録 API は信頼された処理系内部の入口であり、ソースの builtin / impl 禁止規則の対象ではありません。ただし register の登録先は内部 AST / catalog でもTypeGroupに限定します。以下の custom builtin / 独自 builtin sig / impl に関する記述も、この内部機構の契約を説明するもので、Ginger の公開構文や builtin ID の公開 API を定めるものではありません。
 
 ## 型・変数・式
 
@@ -242,7 +244,7 @@ TypeRef は open-world です。canonical type registry による型名の存在
 | `Box[Int]`、`Box[Float]`、`Box[MissingType]`、`Pair[Int, Float]` | 合法 |
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
-内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register G { Box[T] }`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
+内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register G { Box[T] }`、`typegroup Group { Box[T] }` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
 
 ### Cell / ThunkValue の shallow immutability（Phase 3B）
 
@@ -383,15 +385,71 @@ print(result)
 
 `failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
+## 列挙ブロックの共通規則
+
+`failureset`・`failure`・`typegroup`・`register` はカンマ区切りを使用し、原則として末尾カンマを許可します。単一要素ではカンマを省略できます。1行形式・複数行形式の両方を許可しますが、空白や改行だけでは複数要素を区切れません。
+
+```ginger
+failureset Calculation {
+    DivideByZero,
+    FloatOverflow,
+}
+sig calculate() -> Float {
+    failure {
+        DivideByZero,
+        FloatOverflow,
+    }
+}
+typegroup Number {
+    Int,
+    Float,
+}
+typegroup Mark {}
+register Mark {
+    Int,
+    Float,
+}
+```
+
+例外は `failure { Never }` です。Neverは単独・条件なし・末尾カンマなしでのみ宣言でき、`failure { Never, }` は禁止します。通常の `failure { DivideByZero, }` は有効です。
+
+旧 `typegroup Name = ...` 形式（単一型・`|` による集合式の両方）と、カンマなしの複数要素列挙は廃止しました。互換処理はありません。`guarantee` のメソッド宣言、`resolve` 文・式のハンドラ、`func` の処理文には、このカンマ区切り規則を適用しません。
+
+空ブロックの可否は既存規則を維持します。空のTypeGroupは許可し、空のfailureset・failure・registerは拒否します。
+
 ## guarantee と標準 catalog
 
-TypeGroup は `typegroup Number = Int | Float` または `typegroup Number { Int, Float }` で宣言できます。ブロックでは改行区切りも使用でき、`typegroup CustomTypes {}` は空集合です。`register Number { Int64 }` で明示的に拡張できます。全宣言と追加登録を収集して所属を確定し、同一 concrete type identity の重複は初期宣言との重複も含めて拒否します。guarantee と typegroup の同名宣言は標準catalogを含め禁止します。
+guaranteeは、少なくとも1つのメソッドまたは有効な能力要件を定義しなければなりません。
+現在のparser・AST・JSON catalogはguarantee内のメソッド宣言だけをサポートし、能力要件のみの宣言やguarantee間の継承・包含は未対応です。新しい要件構文は導入していません。
+`guarantee Empty {}` やコメント・空白だけの宣言は、共通の宣言検証で `guarantee Empty must declare at least one method or capability requirement` という静的エラーになります。未使用・前方参照・内部AST・catalog経由でも同じ規則を適用します。既存の意味解析診断と同じく宣言名を示し、位置情報は付加しません。
+
+型分類には `typegroup Mark { Int, Float }` と `require T in Mark` を使います。`register` はTypeGroupへの所属追加だけを行い、操作能力を追加しません。`require T guarantees Addable` は操作能力の要求であり、TypeGroup所属で代用できません。`impl` は能力契約の実装・検証を担います。空guarantee禁止は定義の検査であり、implの所有権・スコープ・重複規則や実装検証方式を変更しません。
+
+TypeGroup の宣言は `typegroup Number { Int, Float }` のブロック形式に統一しました。`typegroup CustomTypes {}` は空集合です。`register Number { Int64 }` で明示的に拡張できます。全宣言と追加登録を収集して所属を確定し、同一 concrete type identity の重複は初期宣言との重複も含めて拒否します。guarantee と typegroup の同名宣言は標準catalogを含め禁止します。
 
 標準TypeGroupも `register BoundedArithmetic { Float }` で拡張できます。この場合Floatのadd / sub / mulの静的契約にIntegerOverflowが加わりますが、演算能力・builtin dispatch・実際のfailure発生規則は変わりません。登録は処理対象プログラム内で完結します。
 
-旧条件式 `when T guarantees Group` は拒否し、`when T in Group` への移行を案内します。通常の `require T guarantees Guarantee` は変更ありません。failureブロックは従来どおりカンマ区切り・末尾カンマ許可で、空ブロックやNeverとの混在は拒否します。静的契約は発生可能性を表し、resolveで回復するfailureも残します。runtimeイベントの発生記録と解決状態は別に管理します。
+旧条件式 `when T guarantees Group` は拒否し、`when T in Group` への移行を案内します。通常の `require T guarantees Guarantee` は変更ありません。failureブロックはカンマ区切りで、Never単独宣言を除き末尾カンマを許可し、空ブロックやNeverとの混在は拒否します。静的契約は発生可能性を表し、resolveで回復するfailureも残します。runtimeイベントの発生記録と解決状態は別に管理します。
 
-`register Mark { Int, Float }` は、メソッドを持たない `guarantee Mark {}` に具体型を登録します。改行と末尾カンマを許可し、空ブロック・同じ型と保証の重複登録・typegroup 名の登録は拒否します。guarantee は後方に宣言でき、全宣言の収集後に検証します。旧ソース構文 `register Int guarantees Mark` は拒否します。内部 JSON catalog の登録形式は変更ありません。
+`register Mark { Int, Float }` は `typegroup Mark {}` に所属型を追加します。登録先はTypeGroupのみで、メソッドの有無を問わずguaranteeへのregisterは禁止です（`register target must be a typegroup: Mark is a guarantee`）。改行・末尾カンマ・前方参照を許可し、空ブロック・初期宣言を含む重複登録・TypeGroup名の要素指定は拒否します。未定義の登録先は `unknown register target` です。旧ソース構文 `register Int guarantees Mark` も拒否します。内部 JSON catalog の `registers` は既存フィールド名 `guarantee` を保持しますが、参照先にはTypeGroupを指定し、共通の検証経路でguaranteeへの登録を拒否します。
+
+registerのTypeGroup専用化と空guarantee禁止にあたり、次の用途を調査しました。同じ名前でも各テスト・サンプルは独立したプログラムです。
+
+| 宣言・参照箇所 | 分類と移行結果 |
+| --- | --- |
+| `catalog/math.json`: Addable / Subtractable / Multipliable / Negatable | 操作能力。各々 add / sub / mul / neg メソッドを持ち、既存implとsigのguarantees要件でdispatchする。register依存なし、変更なし。 |
+| `catalog/ordering.json`: Ord、`catalog/io.json`: Printable | 操作能力。cmp / print メソッドと既存impl・sig要件を維持。標準catalog全体に空guarantee・registerによる能力登録なし。 |
+| README、`test_register_blocks.py`・`test_enumeration_blocks.py`: Mark | 型分類。TypeGroup宣言、register、`require T in Mark`へ移行。Int / Float / Int64等の所属と重複検査を維持。 |
+| `test_parameterized_type_identity.py`・`test_concrete_identity_positions.py`: Marker | 型分類。TypeGroupへ移行。Box・Pair・Thunkの完全な型identity、所属の分離、latent failureとは独立したidentityを維持。 |
+| `test_requirement_typevars.py`・`test_requirement_references.py`: registerを伴うG | 型分類。IntまたはFloatの集合とrequireをTypeGroupへ移行。操作・builtin dispatchとの結び付きなし。 |
+| `scripts/Scene_33,34,81,83,84,153,156.ginger`: Mark / G | 型分類。公開名・全register要素を保持してTypeGroupへ移行。対応するrequireと所属拒否の期待診断も更新。 |
+| `test_guarantee_method_arity.py`・`Scene_92.ginger`: H | 分類Cの検査用契約。複数guarantee要件でdispatchしない検査を維持するため、witnessメソッドとcore.int.negによる対応implを追加。 |
+| requirement / guarantee method検査のG・A・B・H、failure / namespace検査のG・Shared・Example・BoundedArithmetic・Marker | 分類Cのfixture。witness(self: Self) -> Selfを追加し、推論・未実装契約の拒否・名前空間・同名method不在の検査を維持。標準catalog・演算子との結び付きなし。ローカル宣言禁止テストの空guaranteeは拒否例として維持。 |
+| `Scene_50,74,75,76,79,80,151.ginger`: Shared / G / Mark | 分類C。上記の宣言・推論・未実装・impl位置検査を維持するwitnessメソッドを追加。 |
+
+標準catalogのメソッド付き契約は分類Aとして維持しました。分類B（メソッドなし・有効な能力要件あり）は現行仕様に存在しません。残存する分類Cは検査用のみで、今回新たなTypeGroup移行はありません。既存TypeGroupの所属・registerによる拡張・可視範囲は変更していません。
+
+標準の型分類 `BoundedArithmetic` / `FiniteArithmetic` はすでにTypeGroupです。所属は条件付きfailureの具体化に使われ、演算能力を生成しません。parser / ASTのブロック展開、宣言収集、typecheckの能力検査、lowerの演算子変換、evalのdispatch、failure契約比較とruntimeは維持します。分類用の旧guarantee登録は有効例から除去し、拒否テストだけに残します。既存のopen-world規則により未知の具体型名は許可されますが、型変数・Selfなどの非具体identityは拒否します。
 
 `guarantee` method は capability method の型契約の canonical source、`sig` は public generic call surface と public failure/effect contract を定義します。guarantee 経由で dispatch する sig は、method の `Self` を require が指定する型変数へ再帰的に projection し、引数数・引数型・戻り値型を照合します。Thunk の潜在契約も正規化後に一致する必要があり、widening では代用しません。この照合は、func / 直接 builtin を持たず、guarantee requirement が1個で同名 method に対応する sig が対象です。
 
@@ -418,7 +476,7 @@ print(addTwo(1.0, 2.0))
 
 この例は `3` と `3.0` を出力し、Int の call には IntegerOverflow、Float の call には FloatOverflow の未処理警告が出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
 
-能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。メソッドを持つ guarantee には `impl` が必要で、guarantee への `register` はメソッドを持たない保証に使います。guarantee 間の継承・包含は導入していません。
+能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。操作能力の実装には既存の `impl` を使用し、要求メソッドと型契約を検証します。完全に空のguaranteeは拒否します。内部implは従来どおり要求メソッドの充足を検証し、guaranteeへのregisterも引き続き禁止します。TypeGroup所属は能力証明になりません。guarantee 間の継承・包含は導入していません。
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
 
@@ -452,7 +510,7 @@ catalog の `failures` は従来の文字列と条件付き object を混在で�
 inferred_failures ⊆ declared_failures
 ```
 
-宣言に、現行実装では実際に発生しない failure が含まれていても許可します。内部で確実に処理され、外へ漏れない failure は公開契約に含めません。実装バグや型検査で防ぐべき問題まで failure として列挙する必要はありません。
+宣言に、現行実装では実際に発生しない failure が含まれていても許可します。resolveで回復可能なfailureも静的契約に含めます。実装バグや型検査で防ぐべき問題まで failure として列挙する必要はありません。
 
 sig 本体に `failure { DivideByZero, FloatOverflow, FloatUnderflow }` のようなカンマ区切りのブロックを記述できます。1行・複数行と末尾カンマを許可し、空ブロックは拒否します。単独指定も `failure { Never }` のようにブロックが必要です。複数ブロックも許可し、重複・矛盾はブロックをまたいで検査します。`when` は各要素に個別に作用し、ブロック全体には指定できません。個別 FailureId は `core/failure_spec.py` に定義されたものに限られ、宣言済み failureset 名も使用できます。
 
@@ -495,9 +553,9 @@ var floating: Float = addTwo(1.0, 2.0)
 
 integer の resolve は許可され、実際の overflow を回復できます。floating の initializer は IntegerOverflow を持たないため、floating に対する同じ handler は静的エラーです。floating は FloatOverflow を持つので、その handler は許可されます。`thunk(addTwo(...))` の潜在契約も concrete binding で既存の FailureSet に具体化し、runtime ThunkValue に symbolic contract は追加しません。
 
-conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
+conditional Never、集合参照自体への `when` 条件、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で確実に回復する failure は合算から除外します。handled による上限検証の保留は廃止しました。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で回復する failure も合算に残します。handled による上限検証の保留は廃止しました。
 
 標準 `div` は `DivideByZero`・`FloatOverflow`・`FloatUnderflow` を無条件に宣言しています。`div(1.0,2.0)` も3つすべてを持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -706,7 +764,7 @@ sig use(Thunk[T]<Never>) -> T {
 ```
 
 ```ginger
-failureset CalculationFailure { DivideByZero FloatOverflow FloatUnderflow IOErr }
+failureset CalculationFailure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }
 // 型の例: Thunk[Int]<Never>, Thunk[Int]<DivideByZero>, Thunk[Int]<CalculationFailure>
 var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0, 0.0))
 var x: Float = force(t)
@@ -752,7 +810,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 | 型宣言・コンテナ | nominal type declarations、type aliases、Array は未実装 |
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 明示した require を generic 本体の能力証明に使用。型・guarantee・method による既存 impl dispatch を維持し、継承・associated types・overload は未対応 |
-| failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
+| failure の契約 | 型変数のTypeGroup条件と、条件の一致による上限検証に対応。ジェネリックfailuresetに対応し、一般的な条件論理は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
 | resolve | トップレベル／関数 local の var に対応。let・parameter・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
@@ -768,6 +826,8 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 ## テスト
 
 `tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・open-world・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
+
+`tests/test_empty_guarantees.py` は空・コメントのみの定義、require / implからの前方参照、複数宣言、内部ASTとcatalogの拒否、および標準能力・ジェネリックfailuresetとThunkの維持を確認します。能力要件のみのguaranteeと、それに対する正当な空implは現行仕様に存在しないため、正常系を追加していません。
 
 failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_float_underflow.py` は静的リテラル検証、正確なゼロ、正負の underflow、generic / Thunk / 関数内 resolve、外部 subnormal の受理とゼロ消失の検出を確認します。`tests/test_float_finite.py` は有限値と符号付きゼロの literal、正負の Float overflow、ゼロ除算優先順位、不正な外部入力、alias、resolve / Thunk を確認します。`tests/test_builtin_value_contract.py` は non-finite return の拒否と他型・opaque 型の回帰を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
 
@@ -798,15 +858,15 @@ python3 -B -m unittest discover -s tests -v
 
 古い `catalog` / `fn` / `args:` 構文、`run_ginger.py` による起動、Catalog / Code の自動分離は現行の使い方ではありません。`scripts/` の古いサンプルやコメントにも不一致があります。既存ファイルの存在だけを、対応機能や互換性の保証とは扱わないでください。
 
-### failureset（第1段階）
+### failureset
 
 既存の FailureId 集合に名前を付け、sig の failure 宣言で参照できます。
 
 ```ginger
 failureset CalculationFailure {
-    DivideByZero
-    FloatOverflow
-    FloatUnderflow
+    DivideByZero,
+    FloatOverflow,
+    FloatUnderflow,
     IOErr
 }
 sig calculate() -> Float {
@@ -824,10 +884,57 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 同じプログラム内の source failureset を参照できます。catalog 単独での解決には
 その定義が必要です。failureset は既存の文字列 entry を維持し、conditional object の failure には指定できません。
 
-要素は直接の既知 FailureId に限定します。未知の要素、要素の重複、`Never`、
+要素は直接の既知 FailureId（ジェネリック定義では以下の条件付き指定も可）に限定します。未知の要素、要素の重複、`Never`、
 集合名の重複、ネスト（自己参照を含む）はエラーです。空の定義は現段階では未対応として
 拒否します。FailureId および `Never` と同名の集合は曖昧になるため禁止し、
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
+
+型パラメータを1つ持つジェネリックfailuresetでは、TypeGroupによるfailure条件を名前付きで再利用できます。
+
+```ginger
+failureset AddFailures(T) {
+    IntegerOverflow when T in BoundedArithmetic,
+    FloatOverflow when T in FiniteArithmetic,
+    FloatUnderflow when T in FiniteArithmetic,
+}
+sig delayed(T,T) -> Thunk[T]<AddFailures(T)> {
+    require T guarantees Addable
+}
+func delayed(a: T,b: T) {
+    return thunk(a + b)
+}
+sig inner(U,U) -> U {
+    require U guarantees Addable
+    failure { AddFailures(U) }
+}
+func inner(a: U,b: U) {
+    return force(delayed(a,b))
+}
+print(inner(1,2))     // 3
+print(inner(1.0,2.0)) // 3.0
+```
+
+宣言は `failureset Name(T) { ... }`、参照は `Name(Type)` です。型パラメータ名には
+既存の型変数規則（`T`、`U`など大文字1文字）を使用します。型変数が未確定なら
+`when T in Group` を保持し、関数間の型具体化で対応する型変数へ置換します。
+具体型が確定すると既存のTypeGroup所属判定を適用します。標準環境では
+`AddFailures(Int)` は `IntegerOverflow`、`AddFailures(Float)` は
+`FloatOverflow, FloatUnderflow` です。条件に一致しなければ空集合になります。
+空の展開結果は許可しますが、`failure {}` や空のfailureset定義は許可しません。
+
+`register BoundedArithmetic { Float }` を追加すると、`AddFailures(Float)` にも
+`IntegerOverflow` が含まれます。宣言・登録の位置には依存しません。
+Addableの操作能力とTypeGroup所属は独立し、登録によってbuiltinの実際のfailure発生規則は変わりません。
+
+`failure { DivideByZero, AddFailures(U), }` のような混在や、Thunkの潜在failureとして
+使用できます。`thunk()` の生成は遅延計算を実行せず、`force()` に潜在契約が適用されます。
+上の例ではFloatの公開上限に `FloatUnderflow` も含めていますが、加算自体の既存契約は変更しません。
+静的契約は発生可能性を記録し、resolveによる回復後も残ります。runtimeイベントの発生・解決状態とは
+別であり、正常な計算でfailureイベントを生成することはありません。
+
+引数なしfailuresetは従来どおり参照できます。ジェネリック集合の型引数省略、引数なし集合への型引数、
+複数型引数、未定義集合・TypeGroup、スコープ外の型変数を拒否します。
+同名の引数なし／ジェネリック宣言によるオーバーロードや、集合の入れ子参照は許可しません。
 
 集合名自体は FailureId ではなく、resolve の handler 名には使用できません。対象 binding の
 最新 write から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。

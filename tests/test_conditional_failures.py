@@ -303,7 +303,7 @@ class ConditionalFailureTests(unittest.TestCase):
                       '(T guarantees BoundedArithmetic)', 'x > 0']
         for condition in conditions:
             with self.subTest(condition=condition), self.assertRaises((SyntaxError, TypecheckError)):
-                checked('typegroup Numeric = Int | Float\n'
+                checked('typegroup Numeric { Int, Float }\n'
                         f'sig f(T) -> T {{ failure {{ IntegerOverflow when {condition} }} }}')
 
     def test_catalog_accepts_mixed_string_and_structured_entries(self):

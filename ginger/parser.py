@@ -4,7 +4,7 @@ from .ast import (
     ResolveExpr, HandlerReturnStmt,
     Program, TopLevel,
     TypeRef, Param, FuncSig,
-    FailureSetDecl, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
+    FailureSetDecl, FailureSetRef, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
     ConditionalFailureDecl, SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
@@ -197,12 +197,23 @@ class Parser:
         specs = self.parse_failure_contract() if self.match("SYM", "<") else None
         return TypeRef(name, tuple(args), specs)
 
-    def parse_failure_contract(self) -> tuple[str, ...]:
+    def parse_failure_reference(self) -> str | FailureSetRef:
+        name = self.eat("IDENT").text
+        if self.match("SYM", "[") or self.match("SYM", "<"):
+            raise SyntaxError("failure names cannot have type arguments or failure contracts; use Name(T)")
+        if not self.match("SYM", "("):
+            return name
+        self.eat("SYM", "(")
+        argument = self.parse_type()
+        self.eat("SYM", ")")
+        return FailureSetRef(name, argument)
+
+    def parse_failure_contract(self) -> tuple[str | FailureSetRef, ...]:
         self.eat("SYM", "<")
-        specs = [self.eat("IDENT").text]
+        specs = [self.parse_failure_reference()]
         while self.match("SYM", ","):
             self.eat("SYM", ",")
-            specs.append(self.eat("IDENT").text)
+            specs.append(self.parse_failure_reference())
         self.eat("SYM", ">")
         return tuple(specs)
 
@@ -244,14 +255,31 @@ class Parser:
     def parse_failureset(self) -> FailureSetDecl:
         self.eat("KW", "failureset")
         name = self.eat("IDENT").text
+        type_param = None
+        if self.match("SYM", "("):
+            self.eat("SYM", "(")
+            type_param = self.eat("IDENT").text
+            self.eat("SYM", ")")
         self.eat("SYM", "{")
-        members: List[str] = []
+        members = []
         self.skip_newlines()
         while not self.match("SYM", "}"):
-            members.append(self.eat("IDENT").text)
+            member = self.parse_failure_reference()
+            if self.match("KW", "when"):
+                self.eat("KW", "when")
+                if isinstance(member, FailureSetRef):
+                    raise SyntaxError("conditions apply only to individual failures")
+                variable = self.eat("IDENT").text
+                self.eat("KW", "in")
+                member = ConditionalFailureDecl(member, variable, self.eat("IDENT").text)
+            members.append(member)
+            self.skip_newlines()
+            if not self.match("SYM", ","):
+                break
+            self.eat("SYM", ",")
             self.skip_newlines()
         self.eat("SYM", "}")
-        return FailureSetDecl(name=name, members=members)
+        return FailureSetDecl(name=name, members=members, type_param=type_param)
 
     # ---- guarantee ----
 
@@ -284,27 +312,19 @@ class Parser:
     # ---- typegroup ----
 
     def parse_typegroup(self) -> TypeGroupDecl:
-        # typegroup Number = Int | Float
         self.eat("KW", "typegroup")
         name = self.eat("IDENT").text
-        if self.match("SYM", "{"):
-            self.eat("SYM", "{")
-            self.skip_newlines()
-            members = []
-            while not self.match("SYM", "}"):
-                members.append(self.parse_type())
-                if self.match("SYM", ","):
-                    self.eat("SYM", ",")
-                elif not self.match("SYM", "}") and not self.match("NEWLINE"):
-                    raise SyntaxError("typegroup members must be separated by a newline or comma")
-                self.skip_newlines()
-            self.eat("SYM", "}")
-            return TypeGroupDecl(name=name, members=members)
-        self.eat("SYM", "=")
-        members: List[TypeRef] = [self.parse_type()]
-        while self.match("SYM", "|"):
-            self.eat("SYM", "|")
+        self.eat("SYM", "{")
+        self.skip_newlines()
+        members: List[TypeRef] = []
+        while not self.match("SYM", "}"):
             members.append(self.parse_type())
+            self.skip_newlines()
+            if not self.match("SYM", ","):
+                break
+            self.eat("SYM", ",")
+            self.skip_newlines()
+        self.eat("SYM", "}")
         return TypeGroupDecl(name=name, members=members)
 
     # ---- register ----
@@ -376,7 +396,7 @@ class Parser:
         ret = self.parse_type()
 
         requires: List[RequireClause] = []
-        failures: list[str | ConditionalFailureDecl] = []
+        failures: list[str | ConditionalFailureDecl | FailureSetRef] = []
         builtin: str | None = None
 
         self.eat("SYM", "{")
@@ -400,13 +420,12 @@ class Parser:
                 if self.match("SYM", "}"):
                     raise SyntaxError("failure block must contain at least one element")
                 while True:
-                    failure_type = self.parse_type()
-                    if failure_type.args or failure_type.failure_specs is not None:
-                        raise SyntaxError("failure names cannot have type arguments or failure contracts")
-                    f = failure_type.name
-                    clause: str | ConditionalFailureDecl = f
+                    clause = self.parse_failure_reference()
+                    f = clause.name if isinstance(clause, FailureSetRef) else clause
                     if self.match("KW", "when"):
                         self.eat("KW", "when")
+                        if isinstance(clause, FailureSetRef):
+                            raise SyntaxError("conditions apply only to individual failures")
                         if f == "Never":
                             raise SyntaxError("Never cannot have a failure condition")
                         type_var = self.eat("IDENT").text
@@ -432,6 +451,8 @@ class Parser:
                     self.eat("SYM", ",")
                     self.skip_newlines()
                     if self.match("SYM", "}"):
+                        if f == "Never":
+                            raise SyntaxError("Never cannot have a trailing comma")
                         break
                 self.eat("SYM", "}")
                 continue

@@ -24,14 +24,6 @@
         {
           "name": "cmp",
           "builtin": "core.int.cmp"
-        },
-        {
-          "name": "eq",
-          "builtin": "core.int.eq"
-        },
-        {
-          "name": "lt",
-          "builtin": "core.int.lt"
         }
       ]
     },
@@ -39,18 +31,14 @@
       "type": { "ref": "Int" },
       "guarantee": "Ord",
       "methods": [
-        { "name": "cmp", "builtin": "core.int.cmp" },
-        { "name": "eq",  "builtin": "core.int.eq"  },
-        { "name": "lt",  "builtin": "core.int.lt"  }
+        { "name": "cmp", "builtin": "core.int.cmp" }
       ]
     },
     {
       "type": { "ref": "Float" },
       "guarantee": "Ord",
       "methods": [
-        { "name": "cmp", "builtin": "core.float.cmp" },
-        { "name": "eq",  "builtin": "core.float.eq"  },
-        { "name": "lt",  "builtin": "core.float.lt"  }
+        { "name": "cmp", "builtin": "core.float.cmp" }
       ]
     }
   ],

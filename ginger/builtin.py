@@ -121,6 +121,10 @@ def project_comparison(value: OrderingValue, projection: str) -> Value:
     """Interpret a validated canonical Ord.cmp result without another call."""
     if projection == "balance":
         return value
+    if projection == "eq":
+        return value[1] == "Flat"
+    if projection == "lt":
+        return value[1] == "Right"
     if projection == "gt":
         return value[1] == "Left"
     if projection == "slope":

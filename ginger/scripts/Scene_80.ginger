@@ -10,11 +10,12 @@
 // Expected normal failure:
 // none
 // Expected fatal:
-// TypecheckError
-// symbolic type variable
-// Expected completion: stops at TypecheckError
+// SyntaxError
+// builtin is internal to the Ginger implementation
+// Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// Trusted internal AST fixture: TypecheckError (symbolic type variable); covered by the test above.
 // The public API raises this expected exception; subsequent source is not executed.
 
-guarantee G {}
+guarantee G { witness(self: Self) -> Self }
 impl Box[T] guarantees G {}

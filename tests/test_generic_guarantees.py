@@ -97,7 +97,7 @@ class GenericGuaranteeTests(unittest.TestCase):
         for body in ['add(a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'does not guarantee Addable'):
-                checked('typegroup Numeric = Int | Float\n' +
+                checked('typegroup Numeric { Int, Float }\n' +
                         addition(body, requires='require T in Numeric'))
 
     def test_symbolic_add_failure_upper_bound(self):
