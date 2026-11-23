@@ -51,7 +51,6 @@
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
@@ -62,7 +61,6 @@
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
@@ -73,7 +71,6 @@
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
@@ -84,7 +81,6 @@
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
@@ -95,7 +91,6 @@
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
@@ -106,7 +101,6 @@
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     }
   ]

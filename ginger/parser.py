@@ -58,49 +58,6 @@ class Parser:
         if self.match("KW", "try") or self.match("KW", "catch"):
             raise SyntaxError("try/catch has been removed; use resolve <binding>")
     
-    def parse_attrs(self) -> List[str]:
-        """
-        Parse attribute lines preceding a sig or func declaration.
-        
-        Syntax:
-            @attr.<name>
-        
-        Returns:
-            ["io", ...] (the <name> part only)
-        """     
-        attrs: List[str] = []
-        
-        while self.match("SYM", "@"):
-
-            self.eat("SYM", "@")
-
-            # must be: attr . NAME
-            ns = self.eat("IDENT").text
-
-            if ns != "attr":
-                raise SyntaxError(f"unknown attribute namespace '@{ns}' (did you mean @attr.<name>?)")
-            
-            # @attr.<name>の'.'がない場合：落とす
-            if not self.match("SYM", "."):
-                t = self.cur()
-                raise SyntaxError(
-                    f"expected '.' after '@attr' (use @attr.<name>), got {t.kind}('{t.text}') at {t.pos}"
-                )
-
-            self.eat("SYM", ".")
-
-            if not self.match("IDENT"):
-                t = self.cur()
-                raise SyntaxError(
-                    f"expected attribute name after '@attr.', got {t.kind}('{t.text}') at {t.pos}"
-                )
-            
-            aname = self.eat("IDENT").text
-            attrs.append(aname)
-            self.skip_newlines()
-
-        return attrs
-
     # ---- program ----
 
     def parse_program(self) -> Program:
@@ -126,11 +83,6 @@ class Parser:
 
         self.reject_removed_syntax()
         
-        # 先頭の @attr を回収
-        attrs = self.parse_attrs()
-        if attrs and not (self.match("KW", "sig") or self.match("KW", "func")):
-            raise SyntaxError("attributes must precede a sig or func declaration")
-        
         if self.match("KW", "failureset"):
             return self.parse_failureset()
 
@@ -144,9 +96,9 @@ class Parser:
         if self.match("KW", "impl"):
             return self.parse_impl()
         if self.match("KW", "func"):
-            return self.parse_func(attrs=attrs)
+            return self.parse_func()
         if self.match("KW", "sig"):
-            return self.parse_sig(attrs=attrs)
+            return self.parse_sig()
         
         # --- let/var (toplevel statement) ---
         if self.match("KW", "let"):
@@ -385,7 +337,7 @@ class Parser:
 
     # ---- sig ----
 
-    def parse_sig(self, attrs: Optional[List[str]] = None) -> SigDecl:
+    def parse_sig(self) -> SigDecl:
 
         self.eat("KW", "sig")
         name = self.eat("IDENT").text
@@ -479,13 +431,12 @@ class Parser:
             ret=ret,
             requires=requires,
             failures=failures,
-            attrs=list(attrs or []),
             builtin=builtin,
         )
 
     # ---- func ----
 
-    def parse_func(self, attrs: Optional[List[str]] = None) -> FuncDecl:
+    def parse_func(self) -> FuncDecl:
         # func add(a: Int, b: Int) { return a + b }
         self.eat("KW", "func")
         name = self.eat("IDENT").text
@@ -499,7 +450,6 @@ class Parser:
             name=name, 
             params=params,
             body=body, 
-            attrs=list(attrs or []),
             )
 
     def parse_require_clause(self) -> RequireClause:

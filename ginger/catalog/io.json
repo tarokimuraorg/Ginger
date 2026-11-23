@@ -62,7 +62,6 @@
                 { "kind": "guarantees", "type_var": "T", "guarantee": "Printable" }
             ],
             "failures": [],
-            "attrs": [],
             "builtin": null
         }
     ]

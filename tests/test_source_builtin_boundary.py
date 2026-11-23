@@ -21,7 +21,7 @@ class SourceBuiltinBoundaryTests(unittest.TestCase):
             'impl Int guarantees Addable {}',
             'sig alias(Int) -> Int { builtin core.int.neg }',
             'sig alias(Int) -> Int {\n failure { IntegerOverflow }\n builtin core.int.neg\n}',
-            '@attr.io\nsig alias(Int) -> Unit { builtin core.int.print }',
+            'sig alias(Int) -> Unit { builtin core.int.print }',
         ]
         for source in declarations:
             for entry in (parse, compile, run):

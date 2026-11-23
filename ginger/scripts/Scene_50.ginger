@@ -1,7 +1,7 @@
 // Purpose:
-// failureset forward reference・overlap・別 namespace と attr.io
+// failureset forward reference・overlap・別 namespace と属性不要の IO
 // Based on tests (source-visible behavior; host/internal assertions remain unit tests):
-// tests/test_failure_contract.py::test_attributes_preserved_and_invalid_placements_rejected
+// tests/test_removed_attributes.py::test_plain_function_prints
 // tests/test_failure_contract.py::test_builtin_contract_is_visible_and_resolvable
 // tests/test_failureset.py::test_expansion_and_mixed_declarations
 // tests/test_failureset.py::test_forward_reference_and_overlap
@@ -19,16 +19,29 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-@attr.io
-sig notify() -> Unit { failure { A, B, IOErr } }
-@attr.io
-func notify() { print(1) }
+sig notify() -> Unit { 
+    failure { A, B, IOErr } 
+}
+
+func notify() { 
+    print(1) 
+}
+
 failureset A { IOErr }
 failureset B { IOErr, DivideByZero, FloatOverflow, FloatUnderflow }
-guarantee Shared { witness(self: Self) -> Self }
+
+guarantee Shared { 
+    witness(self: Self) -> Self 
+}
+
 typegroup SharedGroup { Int }
 failureset Shared { IOErr }
-sig Shared() -> Unit { failure { Shared } }
+
+sig Shared() -> Unit { 
+    failure { Shared } 
+}
+
 func Shared() {}
+
 notify()
 Shared()

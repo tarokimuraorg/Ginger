@@ -592,15 +592,15 @@ builtin の宣言は静的解析が信頼する契約です。Python実装から
 
 旧 `try` / `catch` 構文は削除しました。予約語として保持し、使用すると `try/catch has been removed; use resolve <binding>` という構文エラーになります。失敗し得る式の結果を var の initializer または再代入に置き、resolve でその binding を回復してください。
 
-## @attr.handled の廃止（failure runtime 再設計 Phase 1）
+## 属性構文の廃止
 
-`@attr.handled` は廃止しました。sig・func・builtin sig・catalog JSON の属性として指定すると、未知の属性として明示的にエラーになります。旧コードは属性を削除し、通常の failure 宣言と必要に応じた binding の resolve へ移行してください。
+Ginger の属性構文はすべて廃止しました。`@attr.io`、`@attr.handled` および汎用の `@attr.<name>` 構文は使用できず、通常の構文エラーになります。IO 操作に属性宣言は不要です。旧コードは属性を削除し、failure の扱いは通常の failure 契約と必要に応じた binding の resolve で記述してください。Catalog JSON の sig に `attrs` キーがある場合も、空配列を含め明示的に拒否します。
 
 failure の種類を指定しない runtime の握りつぶし、呼び出し先の静的 failure の除去、自身・直接依存・間接依存を理由とする上限契約検証の保留は行いません。`FAILURE_CONTRACT_DEFERRED` の note も生成しません。builtin の宣言を信頼する既存の検証境界は引き続き存在します。
 
-汎用の `@attr.<name>` 構文は維持し、`@attr.io` は引き続き使用できます。属性は sig / func の前にのみ置けます。不正な位置の属性は黙って破棄せず、構文エラーにします。
+旧仕様では Phase 1 で `@attr.handled` を廃止した後も、宣言メタデータとして `@attr.io` と汎用属性構文を維持していました。現在はそれらも廃止し、AST・属性レジストリ・属性検証から撤去しています。
 
-Phase 1 時点では failure 履歴や statement 単位の継続は未導入で、未処理の `RaisedFailure` は例外として伝播して実行を停止していました。属性の廃止と、以下の runtime 導入は別の段階で行いました。`@suppress` は導入していません。
+Phase 1 時点では failure 履歴や statement 単位の継続は未導入で、未処理の `RaisedFailure` は例外として伝播して実行を停止していました。`@attr.handled` の廃止と、以下の runtime 導入は別の段階で行いました。`@suppress` は導入していません。
 
 ## 内部 runtime の骨格（Phase 2）
 

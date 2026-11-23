@@ -151,6 +151,8 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
     for s in data.get("sigs", []):
         if not isinstance(s, dict):
             raise ValueError(f"Invalid sig: {s!r}")
+        if "attrs" in s:
+            raise ValueError("Catalog sig field 'attrs' has been removed")
         sname = s.get("name")
         if not isinstance(sname, str):
             raise ValueError(f"Sig.name must be str: {s!r}")
@@ -162,7 +164,6 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         if not isinstance(failure_entries, list):
             raise ValueError(f"Sig '{sname}' failures must be an array")
         failures = [_failure(entry) for entry in failure_entries]
-        attrs = s.get("attrs", [])
         builtin = s.get("builtin")
         if builtin is not None and not isinstance(builtin, str):
             raise ValueError(
@@ -177,7 +178,6 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
                 ret=ret,
                 requires=requires,
                 failures=failures,
-                attrs=attrs,
                 builtin=builtin,
             )
         )

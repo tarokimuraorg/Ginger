@@ -142,32 +142,6 @@ func g() { f() }
         self.assertEqual(build_symbols(parse("")).sig_failures["div"],
                          frozenset({FailureId.DivideByZero, FailureId.FloatOverflow, FailureId.FloatUnderflow}))
 
-    def test_handled_is_rejected_on_sig_func_and_builtin(self):
-        sources = [
-            "@attr.handled\nsig h() -> Unit {}",
-            "@attr.handled\nfunc h() {}",
-            "sig h() -> Unit {}\n@attr.handled\nfunc h() {}",
-            "@attr.handled\nsig h(Int) -> Unit { builtin core.int.print }",
-        ]
-        for source in sources:
-            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, "unknown attr '@attr.handled'"):
-                checked(source)
-        from ginger.ast import SigDecl, TypeRef
-        with self.assertRaisesRegex(TypecheckError, "unknown attr '@attr.handled'"):
-            build_symbols(Program([SigDecl('h', [], TypeRef('Unit'), [], attrs=['handled'])]))
-
-    def test_attributes_preserved_and_invalid_placements_rejected(self):
-        program, diags = checked("@attr.io\nsig h() -> Unit {}\n@attr.io\nfunc h() {}\nh()")
-        self.assertEqual(diags.items, [])
-        self.assertEqual(output(program), "")
-        for declaration in ["guarantee G {}", "typegroup G {}", "register G { Int }",
-                            "impl Int guarantees G {}", "failureset F { IOErr }",
-                            "var x: Int = 1", "resolve x { IOErr { print(1) } }"]:
-            for attr in ('handled', 'io'):
-                with self.subTest(declaration=declaration, attr=attr), self.assertRaisesRegex(
-                        SyntaxError, "attributes must precede a sig or func"):
-                    parse(f"@attr.{attr}\n{declaration}")
-
     def test_function_contracts_are_never_deferred_by_dependencies(self):
         prefix = "sig h() -> Unit {}\nfunc h() {}\n"
         with self.assertRaisesRegex(TypecheckError, "undeclared failures: DivideByZero"):

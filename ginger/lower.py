@@ -45,7 +45,6 @@ def lower_toplevel(it: TopLevel) -> TopLevel:
             name=it.name,
             params=it.params,
             body=lower_block(it.body),
-            attrs=it.attrs,
         )
     
     # catalog-ish nodes: leave as-is (GuaranteeDecl, SigDecl, ImplDecl, etc.)

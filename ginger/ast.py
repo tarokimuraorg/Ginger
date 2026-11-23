@@ -180,7 +180,6 @@ class SigDecl:
     ret: TypeRef
     requires: List[RequireClause]
     failures: list[str | ConditionalFailureDecl | FailureSetRef] = field(default_factory=list)
-    attrs: list[str] = field(default_factory=list)
     builtin: str | None = None
 
 @dataclass(frozen=True)
@@ -188,7 +187,6 @@ class FuncDecl:
     name: str
     params: List[Param]
     body: BlockStmt
-    attrs: list[str] = field(default_factory=list)
 
 
 # ---- code (binding) ----

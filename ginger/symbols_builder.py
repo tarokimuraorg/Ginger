@@ -7,7 +7,6 @@ from ginger.core.failure_spec import FailureId, FailureSet
 from ginger.core.failure_contract import (
     ConditionalFailure, FailureContract, substitute_contract, union_contracts,
 )
-from .attrs import ATTRS
 from ginger.core.prelude import prelude_items
 
 from .ast import (
@@ -358,13 +357,6 @@ def build_symbols(prog: Program) -> Symbols:
             
             sigs[item.name] = item
 
-            attrs = set(getattr(item, "attrs", []) or [])
-
-            # 未知の attr を禁止
-            for a in attrs:
-                if a not in ATTRS:
-                    raise TypecheckError(f"unknown attr '@attr.{a}' on sig '{item.name}'")
-                
             # --- builtin (SigDecl.builtin) ---
             b = getattr(item, "builtin", None)
 
@@ -384,10 +376,6 @@ def build_symbols(prog: Program) -> Symbols:
                 [f for f in fnames if isinstance(f, str)], failuresets, f"sig '{item.name}'")
 
         elif isinstance(item, FuncDecl):
-
-            for attr in item.attrs:
-                if attr not in ATTRS:
-                    raise TypecheckError(f"unknown attr '@attr.{attr}' on func '{item.name}'")
 
             if item.name in funcs:
                 raise TypecheckError(f"duplicate func '{item.name}'")
