@@ -544,6 +544,14 @@ def _validate_catalog(syms: Symbols) -> None:
             if g not in syms.guarantees:
                 raise TypecheckError(f"unknown guarantee '{g}' for type '{t}'")
 
+    # Reject surplus methods only after all guarantee references are valid.
+    for t, g, method in syms.impls:
+        allowed = {signature.name for signature in syms.guarantees[g].methods}
+        if method not in allowed:
+            raise TypecheckError(
+                f"impl for type '{t}', guarantee '{g}' defines unknown method '{method}'"
+            )
+
     # 2) guarantee が要求する method が impl に揃ってるか
     for t, gs in syms.type_guarantees.items():
         for g in gs:

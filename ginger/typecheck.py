@@ -685,7 +685,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
                 # Derived comparison APIs select the existing Ord.cmp impl;
                 # retain the projection for the same runtime builtin boundary.
                 method = sig.name
-                if requirement.guarantee_name == "Ord" and sig.name in {"balance", "slope", "gt"}:
+                if requirement.guarantee_name == "Ord" and sig.name in {"balance", "slope", "gt", "eq", "lt"}:
                     method = "cmp"
                     comparison_projection = sig.name
                 selected_type = tmap[requirement.type_var]
