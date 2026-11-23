@@ -48,11 +48,17 @@ class TypeGroupContractTests(unittest.TestCase):
             self.symbols('register Missing { Int }')
 
     def test_shared_namespace_including_catalog(self):
-        for source in ['guarantee Example { witness(self: Self) -> Self }\ntypegroup Example {}',
-                       'typegroup Example {}\nguarantee Example { witness(self: Self) -> Self }',
-                       'guarantee BoundedArithmetic { witness(self: Self) -> Self }', 'typegroup Addable {}',
-                       'typegroup Example {}\ntypegroup Example {}']:
-            with self.subTest(source=source), self.assertRaises(TypecheckError):
+        for source, diagnostic in [
+            ('guarantee Example { witness(self: Self) -> Self }\ntypegroup Example {}',
+             "guarantee/typegroup name conflict 'Example'"),
+            ('typegroup Example {}\nguarantee Example { witness(self: Self) -> Self }',
+             "guarantee/typegroup name conflict 'Example'"),
+            ('guarantee BoundedArithmetic { witness(self: Self) -> Self }',
+             "guarantee/typegroup name conflict 'BoundedArithmetic'"),
+            ('typegroup Addable {}', "guarantee/typegroup name conflict 'Addable'"),
+            ('typegroup Example {}\ntypegroup Example {}', "duplicate typegroup 'Example'"),
+        ]:
+            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, diagnostic):
                 self.symbols(source)
 
     def test_guarantee_is_not_a_failure_group(self):

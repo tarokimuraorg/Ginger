@@ -385,6 +385,103 @@ print(result)
 
 `failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
+## 名前解決と名前の衝突
+
+Ginger はすべての識別子を単一の名前表から検索しません。構文上の文脈で参照する宣言の種類が決まります。ただし、すべての宣言種類の名前空間が完全に独立しているわけではありません。内部の検索表が別であることと、宣言名の重複を許可することは同義ではありません。
+
+| 同じ名前を使う組み合わせ | 現行規則 |
+| --- | --- |
+| 関数 × Guarantee / TypeGroup / FailureSet | 同名可能 |
+| Guarantee × FailureSet | 同名可能 |
+| TypeGroup × FailureSet | 同名可能 |
+| Guarantee × TypeGroup | 同名禁止（標準 catalog を含む） |
+| FailureSet × FailureId / Never | 同名禁止 |
+| 関数 × 変数 / 仮引数 / 具体型名 | 同名可能 |
+| 別 Guarantee 間のメソッド | 同名可能 |
+| 同一 Guarantee 内のメソッド | 同名禁止（引数数・型・戻り値が異なっても禁止） |
+
+同種の `sig`、`func`、Guarantee、TypeGroup、FailureSet の同名重複は拒否します。catalog の宣言も検査対象です。`sig` と `func` の同名利用は一つの関数の宣言と本体の対応であり、オーバーロードではありません。同名 `sig` は `func` より先に必要です。位置ごとの引数型などの照合条件は「関数の宣言と実装」を参照してください。
+
+### 参照する文脈
+
+| 構文 | 参照対象 |
+| --- | --- |
+| `Shared(...)` | 関数の `sig` と、その実装（下記 dispatch 規則） |
+| 裸の `Shared` | 現在のスコープの変数・仮引数などの binding |
+| `require T guarantees Shared` | Guarantee |
+| `require T in Shared` | TypeGroup |
+| `failure { Shared }` | 個別 FailureId または FailureSet の展開 |
+| `failure { IOErr when T in Shared }` | 条件の `Shared` は TypeGroup |
+| `resolve` の handler 名 | 個別 FailureId のみ。FailureSet 名や Never は不可 |
+| 型注釈の `Int` など | open-world の TypeRef（下記の境界に注意） |
+
+Guarantee を TypeGroup として、また TypeGroup を Guarantee として参照することはできません。TypeGroup 所属は Guarantee の能力証明になりません。FailureSet と FailureId は正規の宣言経路で同名にできないため、両方に一致した場合の優先順位は言語仕様として定義しません。
+
+例えば次は有効です。
+
+```ginger
+guarantee Shared { witness(self: Self) -> Self }
+failureset Shared { IOErr }
+sig Shared() -> Unit { failure { Shared } }
+func Shared() {}
+Shared()
+```
+
+三つの宣言は共存し、failure 宣言だけが `{IOErr}` に展開され、`Shared()` はユーザー関数を呼び出します。runtime の関数フレームも宣言契約 `{IOErr}` を保持します。空の本体から IOErr イベントが発生するわけではありません。一方、静的には宣言された failure に対する `UNHANDLED_FAILURES` 警告が出ます。契約と実際のイベントは別です。
+
+TypeGroup と FailureSet も同名で共存できます。例えば `typegroup Shared { Int }` と `failureset Shared { IOErr }` があるとき、`require T in Shared` は Int の所属を要求し、`failure { Shared }` は IOErr を宣言します。`failure { IOErr when T in Shared }` の条件も TypeGroup 所属で判定し、Int では IOErr、Float では空集合になります。
+
+```ginger
+sig Shared() -> Int {}
+func Shared() { return 9 }
+var Shared: Int = 4
+print(Shared())
+print(Shared)
+```
+
+これは `9`、`4` の順に出力します。同名の変数や仮引数は関数を隠さず、関数名も binding の読み取りを妨げません。binding がなければ裸の関数名は `unknown identifier` となり、関数名を第一級の値として参照できません。変数・仮引数のスコープと再宣言の制約は「関数の宣言と実装」の規則に従います。
+
+### dispatch と宣言順序
+
+通常の呼び出しは、まず `sig` に従って引数型・requirement を検査し、次の順で実装を選びます。
+
+1. 同名のユーザー `func` があればその本体を呼び出します。同名 Guarantee メソッドや catalog の直接 builtin より優先しますが、sig の requirement は引き続き必要です。
+2. func がなければ、sig に直接指定された内部 builtin を使います。builtin の指定は catalog / 内部宣言用であり、公開ソースには書けません。
+3. どちらもなければ、Guarantee requirement がちょうど1個ある sig で、その能力のメソッドへ dispatch します。通常は sig と同名のメソッドで、Self を射影した型契約も検証します。具体型では `(型 identity, Guarantee, メソッド)` の impl を選びます。既存の Ord 派生 API（balance / slope / gt / eq / lt）は cmp の impl と結果の projection を使います。
+4. generic 本体で型変数のままなら、明示された能力証明を確認して Guarantee / メソッドの選択を保持し、runtime の型 binding で impl を確定します。これは通常関数のオーバーロード探索ではありません。
+
+実装を選べない呼び出しは拒否します。Guarantee のメソッド宣言だけでは通常の呼び出し用 sig は作られません。別 Guarantee に同名メソッドがあっても名前だけで横断検索しません。詳細は「guarantee と標準 catalog」を参照してください。`thunk` / `force` はこの通常 dispatch の例外です。
+
+宣言は全体から収集されるため、呼び出しを宣言群より前に置けます。Guarantee・FailureSet・sig・func は、sig が func より先という制約の範囲で順序を変えても、Shared の解決・集合展開・呼び出し先・runtime 契約・実行結果は変わりません。無関係な宣言を間に挟んでも同じです。TypeGroup 所属も全宣言・register の収集後に確定します。これは変数の前方参照を許す規則ではありません。
+
+### 型名と特殊呼び出しの境界（第2段階の検討事項）
+
+型名は open-world で、存在確認用の独立した型名登録表はありません。未知の具体型名も TypeRef として受理しますが、値の生成機能を与えるものではありません。関数 `Int` と型注釈 `Int` は共存できます。一方、TypeGroup と具体型名の完全な独立性はありません。
+
+```ginger
+typegroup Int { Float }
+typegroup Other {}
+register Other { Int }
+```
+
+先頭の宣言単独は受理されますが、上記全体は `typegroup 'Int' is not a concrete register target` で拒否されます。`symbols_builder._build_failuresets` と `build_symbols` の register 検査が、登録する型の名前を TypeGroup 名と照合するためです。具体型名との衝突をどう扱うべきかは第2段階へ持ち越し、現状を望ましい仕様として固定するテストや新しい禁止規則は追加しません。
+
+### thunk / force の intrinsic 名
+
+`thunk` と `force` は専用の評価規則を持つ intrinsic です。標準の呼び出し構文 `thunk(expr)` / `force(t)` は使用できますが、通常関数として再定義することはできません。同名のユーザー定義 `func` は Symbol Builder の登録前に `cannot define func 'thunk': reserved intrinsic name` または `cannot define func 'force': reserved intrinsic name` で拒否され、関数本体の型検査には進みません。
+
+禁止するのは `func` の名前だけであり、言語全体の予約語ではありません。同名の変数・仮引数・Guarantee メソッド・FailureSet など、独立した名前空間で従来許可されている識別子は使用できます。`thunkValue` や `enforce` も禁止しません。通常の変数参照と intrinsic 呼び出しは共存します。
+
+```ginger
+sig example(Int) -> Int {}
+func example(force: Int) {
+    return force(thunk(force))
+}
+print(example(8)) // 8
+```
+
+intrinsic 呼び出しは従来どおり通常の関数 dispatch より先に特殊評価されます。標準 catalog の `thunk` / `force` の sig は専用の型・effect 推論に必要なプレースホルダーとして維持し、同名 sig のソースからの再宣言は既存の `duplicate sig` 検査で拒否します。Thunk の型と潜在 failure 契約は専用規則で計算します。`thunk` は式を実行せず作成時の環境とともに保持し、`force` は保存環境で毎回再評価します（非 memoized）。failure 契約の検証・伝播・直接原因の保持と `resolve` の挙動は変わりません。
+
 ## 列挙ブロックの共通規則
 
 `failureset`・`failure`・`typegroup`・`register` はカンマ区切りを使用し、原則として末尾カンマを許可します。単一要素ではカンマを省略できます。1行形式・複数行形式の両方を許可しますが、空白や改行だけでは複数要素を区切れません。
@@ -825,6 +922,8 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 
 ## テスト
 
+`tests/test_name_resolution_contracts.py` は公開ソース経路で同名宣言の共存、Shared の全12有効宣言順序・前方呼び出し・runtime契約、関数とbinding / 型名の区別、TypeGroup / FailureSet の文脈別解決、catalog builtin / Guarantee / generic dispatch、同種宣言の重複拒否を確認します。衝突・能力証明・resolve・メソッド重複の既存テストはそれぞれ `test_typegroup_contracts.py`、`test_requirement_references.py`、`test_generic_guarantees.py`、`test_failureset.py`、`test_guarantee_method_uniqueness.py` にあります。
+
 `tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・open-world・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
 
 `tests/test_empty_guarantees.py` は空・コメントのみの定義、require / implからの前方参照、複数宣言、内部ASTとcatalogの拒否、および標準能力・ジェネリックfailuresetとThunkの維持を確認します。能力要件のみのguaranteeと、それに対する正当な空implは現行仕様に存在しないため、正常系を追加していません。
@@ -887,7 +986,7 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 要素は直接の既知 FailureId（ジェネリック定義では以下の条件付き指定も可）に限定します。未知の要素、要素の重複、`Never`、
 集合名の重複、ネスト（自己参照を含む）はエラーです。空の定義は現段階では未対応として
 拒否します。FailureId および `Never` と同名の集合は曖昧になるため禁止し、
-type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
+guarantee・typegroup・関数とは同名を許容します。型名は open-world で独立した登録表を持ちません。文脈ごとの解決と衝突制約は「名前解決と名前の衝突」を参照してください。
 
 型パラメータを1つ持つジェネリックfailuresetでは、TypeGroupによるfailure条件を名前付きで再利用できます。
 

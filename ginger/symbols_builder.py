@@ -377,6 +377,11 @@ def build_symbols(prog: Program) -> Symbols:
 
         elif isinstance(item, FuncDecl):
 
+            if item.name in {"thunk", "force"}:
+                raise TypecheckError(
+                    f"cannot define func '{item.name}': reserved intrinsic name"
+                )
+
             if item.name in funcs:
                 raise TypecheckError(f"duplicate func '{item.name}'")
             
