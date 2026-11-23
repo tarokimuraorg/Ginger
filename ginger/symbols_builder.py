@@ -321,10 +321,19 @@ def build_symbols(prog: Program) -> Symbols:
     # and catalog declarations alike. GuaranteeDecl currently supports methods
     # only; there is no standalone capability-requirement syntax or AST field.
     for item in items:
-        if isinstance(item, GuaranteeDecl) and not item.methods:
+        if not isinstance(item, GuaranteeDecl):
+            continue
+        if not item.methods:
             raise TypecheckError(
                 f"guarantee {item.name} must declare at least one method or capability requirement"
             )
+        seen_methods: set[str] = set()
+        for method in item.methods:
+            if method.name in seen_methods:
+                raise TypecheckError(
+                    f"duplicate method '{method.name}' in guarantee '{item.name}'"
+                )
+            seen_methods.add(method.name)
 
     # Resolve named sets before sig normalization, including catalog sigs.
     failuresets = _build_failuresets(items)
