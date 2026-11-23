@@ -312,6 +312,7 @@ def build_symbols(prog: Program) -> Symbols:
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]] = {}
     funcs: Dict[str, FuncDecl] = {}
     impls: Dict[Tuple[TypeIdentityKey, str, str], str] = {}
+    seen_impl_pairs: set[Tuple[TypeIdentityKey, str]] = set()
 
     items = prelude_items()
     items += list(prog.items)
@@ -413,6 +414,13 @@ def build_symbols(prog: Program) -> Symbols:
             _validate_concrete_identity(item.typ, "impl target")
             t = type_identity_key(item.typ)
             g = item.guarantee
+
+            pair = (t, g)
+            if pair in seen_impl_pairs:
+                raise TypecheckError(
+                    f"duplicate impl for type '{t}', guarantee '{g}'"
+                )
+            seen_impl_pairs.add(pair)
 
             # impl is also a registration
             type_guarantees.setdefault(t, set()).add(g)
