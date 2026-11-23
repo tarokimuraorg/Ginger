@@ -19,8 +19,8 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 failureset CalculationFailure {
-    DivideByZero
-    FloatOverflow FloatUnderflow
+    DivideByZero,
+    FloatOverflow, FloatUnderflow,
     IOErr
 }
 

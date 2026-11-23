@@ -250,6 +250,10 @@ class Parser:
         while not self.match("SYM", "}"):
             members.append(self.eat("IDENT").text)
             self.skip_newlines()
+            if not self.match("SYM", ","):
+                break
+            self.eat("SYM", ",")
+            self.skip_newlines()
         self.eat("SYM", "}")
         return FailureSetDecl(name=name, members=members)
 
@@ -284,27 +288,19 @@ class Parser:
     # ---- typegroup ----
 
     def parse_typegroup(self) -> TypeGroupDecl:
-        # typegroup Number = Int | Float
         self.eat("KW", "typegroup")
         name = self.eat("IDENT").text
-        if self.match("SYM", "{"):
-            self.eat("SYM", "{")
-            self.skip_newlines()
-            members = []
-            while not self.match("SYM", "}"):
-                members.append(self.parse_type())
-                if self.match("SYM", ","):
-                    self.eat("SYM", ",")
-                elif not self.match("SYM", "}") and not self.match("NEWLINE"):
-                    raise SyntaxError("typegroup members must be separated by a newline or comma")
-                self.skip_newlines()
-            self.eat("SYM", "}")
-            return TypeGroupDecl(name=name, members=members)
-        self.eat("SYM", "=")
-        members: List[TypeRef] = [self.parse_type()]
-        while self.match("SYM", "|"):
-            self.eat("SYM", "|")
+        self.eat("SYM", "{")
+        self.skip_newlines()
+        members: List[TypeRef] = []
+        while not self.match("SYM", "}"):
             members.append(self.parse_type())
+            self.skip_newlines()
+            if not self.match("SYM", ","):
+                break
+            self.eat("SYM", ",")
+            self.skip_newlines()
+        self.eat("SYM", "}")
         return TypeGroupDecl(name=name, members=members)
 
     # ---- register ----
@@ -432,6 +428,8 @@ class Parser:
                     self.eat("SYM", ",")
                     self.skip_newlines()
                     if self.match("SYM", "}"):
+                        if f == "Never":
+                            raise SyntaxError("Never cannot have a trailing comma")
                         break
                 self.eat("SYM", "}")
                 continue

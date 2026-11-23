@@ -43,7 +43,7 @@ func first(a: T,b: T) { return a }
 sig relay(U) -> U {}
 func relay(x: U) { let y: U = identity(x) return y }
 
-typegroup Floating = Float
+typegroup Floating { Float }
 
 sig choose(T,U) -> U { require U in Floating }
 func choose(a: T,b: U) { return b }

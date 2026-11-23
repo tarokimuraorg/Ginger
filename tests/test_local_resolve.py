@@ -156,7 +156,7 @@ class LocalResolveTests(unittest.TestCase):
         self.assertFalse(result.unresolved_events)
 
     def test_failureset_is_individual_events(self):
-        source = ('failureset Arithmetic { DivideByZero FloatOverflow FloatUnderflow }\n'
+        source = ('failureset Arithmetic { DivideByZero, FloatOverflow, FloatUnderflow }\n'
                   'sig quotient() -> Float { failure { Arithmetic } }\n'
                   'func quotient() { return div(1.0,0.0) }\n')
         result, stdout = self.public_result(source + self.program('var y: Float = quotient()\n'

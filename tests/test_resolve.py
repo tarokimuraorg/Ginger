@@ -216,7 +216,7 @@ class ResolveTests(unittest.TestCase):
                     'IntegerOverflow { x = 1 } }')
 
     def test_unknown_never_and_failureset_handlers_are_rejected(self):
-        prefix = 'failureset CalculationFailure { IntegerOverflow DivideByZero }\n'
+        prefix = 'failureset CalculationFailure { IntegerOverflow, DivideByZero }\n'
         for failure in ('UnknownFailure', 'Never', 'CalculationFailure'):
             with self.subTest(failure=failure), self.assertRaises(TypecheckError):
                 checked(prefix + OVERFLOW + f'resolve x {{ {failure} {{ x = 0 }} }}')

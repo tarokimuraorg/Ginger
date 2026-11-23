@@ -24,9 +24,9 @@ sig notify() -> Unit { failure { A, B, IOErr } }
 @attr.io
 func notify() { print(1) }
 failureset A { IOErr }
-failureset B { IOErr DivideByZero FloatOverflow FloatUnderflow }
+failureset B { IOErr, DivideByZero, FloatOverflow, FloatUnderflow }
 guarantee Shared {}
-typegroup Shared = Int
+typegroup Shared { Int }
 failureset Shared { IOErr }
 sig Shared() -> Unit { failure { Shared } }
 func Shared() {}

@@ -64,7 +64,7 @@ class RegisterBlockTests(unittest.TestCase):
                 compile(source)
 
     def test_typegroup_rejected_in_either_order(self):
-        group = 'typegroup Numbers = Int | Float\n'
+        group = 'typegroup Numbers { Int, Float }\n'
         registration = 'guarantee Mark {}\nregister Mark { Numbers }\n'
         for source in [group + registration, registration + group]:
             with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'not a concrete register target'):
@@ -93,7 +93,7 @@ class RegisterBlockTests(unittest.TestCase):
 func keep(x: T) { return x }
 guarantee Mark {}
 register Mark { Int, Float }
-typegroup Numbers = Int | Float
+typegroup Numbers { Int, Float }
 print(keep(1))
 print(keep(2.0))
 '''

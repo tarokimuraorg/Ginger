@@ -46,7 +46,7 @@ class RequirementReferenceTests(unittest.TestCase):
                     "unknown typegroup 'MissingGroup'.*'op'")
 
     def test_valid_typegroup_in_either_source_order(self):
-        group = 'typegroup ExistingGroup = Float\n'
+        group = 'typegroup ExistingGroup { Float }\n'
         sig = 'sig unused(T) -> T { require T in ExistingGroup }\n'
         for source in [group + sig, sig + group]:
             with self.subTest(source=source):
@@ -54,7 +54,7 @@ class RequirementReferenceTests(unittest.TestCase):
 
     def test_namespaces_are_distinct(self):
         self.assert_rejected(
-            'typegroup G = Int\nsig op(T) -> T { require T guarantees G }',
+            'typegroup G { Int }\nsig op(T) -> T { require T guarantees G }',
             "unknown guarantee 'G'")
         self.assert_rejected(
             'guarantee G {}\nsig op(T) -> T { require T in G }',
@@ -67,7 +67,7 @@ class RequirementReferenceTests(unittest.TestCase):
         ]:
             with self.subTest(requirement=requirement):
                 self.assert_rejected(
-                    'guarantee A {}\ntypegroup Existing = Int\n'
+                    'guarantee A {}\ntypegroup Existing { Int }\n'
                     'sig op(T) -> T { require T guarantees A '
                     'require T in Existing ' + requirement + ' }', diagnostic)
 

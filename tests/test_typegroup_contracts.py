@@ -16,8 +16,8 @@ class TypeGroupContractTests(unittest.TestCase):
         return build_symbols(checked(source)[0])
 
     def test_empty_block_and_equivalent_membership(self):
-        syms = self.symbols('typegroup Empty {}\ntypegroup Block {\nInt\nFloat\n}\n'
-                            'typegroup Union = Int | Float')
+        syms = self.symbols('typegroup Empty {}\ntypegroup Block {\nInt,\nFloat\n}\n'
+                            'typegroup Union { Int, Float }')
         self.assertEqual(syms.typegroups['Empty'], set())
         self.assertEqual(syms.typegroups['Block'], syms.typegroups['Union'])
 
@@ -37,7 +37,7 @@ class TypeGroupContractTests(unittest.TestCase):
                 self.assertNotIn('Group', syms.type_guarantees['Float'])
 
     def test_duplicates_and_unknown_destination(self):
-        for source in ['typegroup Group { Int, Int }', 'typegroup Group = Int | Int',
+        for source in ['typegroup Group { Int, Int }',
                        'typegroup Group {}\nregister Group { Int, Int }',
                        'register Group { Int }\ntypegroup Group { Int }',
                        'typegroup Group {}\nregister Group { Int }\nregister Group { Int }',

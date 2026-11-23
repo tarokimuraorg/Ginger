@@ -69,7 +69,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
     def test_parser_and_lowering_preserve_targets(self):
         source = (implementation('Box[Int]') +
                   'register Marker { Box[Float] }\n'
-                  'typegroup Boxes = Box[Int] | Box[Float]')
+                  'typegroup Boxes { Box[Int], Box[Float] }')
         parsed = parse(source)
         lowered = lower_program(parsed)
         for program in [parsed, lowered]:
@@ -172,7 +172,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
             annotated(prefix + 'register Marker { Box[Int] }')
 
     def test_typegroup_isolation(self):
-        prefix = ('typegroup Boxes = Box[Int]\n'
+        prefix = ('typegroup Boxes { Box[Int] }\n'
                   'sig take(T) -> T { require T in Boxes }\n'
                   'func take(x: T) { return x }\n')
         program, _, _ = annotated(prefix + use('Box[Int]', 'take'))
@@ -180,7 +180,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         for typ in ['Box[Float]', 'Box[MissingType]', 'Box']:
             with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
                 annotated(prefix + use(typ, 'take'))
-        program, symbols, _ = annotated(prefix.replace('= Box[Int]', '= Box[Int] | Box[Float]') +
+        program, symbols, _ = annotated(prefix.replace('{ Box[Int] }', '{ Box[Int], Box[Float] }') +
                                         use('Box[Float]', 'take'))
         self.assertEqual(len(symbols.typegroups['Boxes']), 2)
         eval_program(program)
@@ -196,7 +196,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
                     else:
                         declaration, requirement = (
                             (f'guarantee Marker {{}}\nregister Marker {{ {target} }}', 'T guarantees Marker')
-                            if kind == 'register' else (f'typegroup Boxes = {target}', 'T in Boxes'))
+                            if kind == 'register' else (f'typegroup Boxes {{ {target} }}', 'T in Boxes'))
                         prefix = (declaration + f'\nsig take(T) -> T {{ require {requirement} }}\n'
                                   'func take(x: T) { return x }\n')
                         calls = ['take']
@@ -220,7 +220,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
             (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'relay'),
             ('guarantee Marker {}\nregister Marker { Thunk[Int]<Never> }\n',
              'T guarantees Marker', 'take'),
-            ('typegroup Boxes = Thunk[Int]<Never>\n', 'T in Boxes', 'take'),
+            ('typegroup Boxes { Thunk[Int]<Never> }\n', 'T in Boxes', 'take'),
         ]:
             prefix = declaration
             if requirement:

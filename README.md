@@ -242,7 +242,7 @@ TypeRef は open-world です。canonical type registry による型名の存在
 | `Box[Int]`、`Box[Float]`、`Box[MissingType]`、`Pair[Int, Float]` | 合法 |
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
-内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register G { Box[T] }`、`typegroup Group = Box[T]` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
+内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register G { Box[T] }`、`typegroup Group { Box[T] }` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
 
 ### Cell / ThunkValue の shallow immutability（Phase 3B）
 
@@ -383,13 +383,45 @@ print(result)
 
 `failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
+## 列挙ブロックの共通規則
+
+`failureset`・`failure`・`typegroup`・`register` はカンマ区切りを使用し、原則として末尾カンマを許可します。単一要素ではカンマを省略できます。1行形式・複数行形式の両方を許可しますが、空白や改行だけでは複数要素を区切れません。
+
+```ginger
+failureset Calculation {
+    DivideByZero,
+    FloatOverflow,
+}
+sig calculate() -> Float {
+    failure {
+        DivideByZero,
+        FloatOverflow,
+    }
+}
+typegroup Number {
+    Int,
+    Float,
+}
+guarantee Mark {}
+register Mark {
+    Int,
+    Float,
+}
+```
+
+例外は `failure { Never }` です。Neverは単独・条件なし・末尾カンマなしでのみ宣言でき、`failure { Never, }` は禁止します。通常の `failure { DivideByZero, }` は有効です。
+
+旧 `typegroup Name = ...` 形式（単一型・`|` による集合式の両方）と、カンマなしの複数要素列挙は廃止しました。互換処理はありません。`guarantee` のメソッド宣言、`resolve` 文・式のハンドラ、`func` の処理文には、このカンマ区切り規則を適用しません。
+
+空ブロックの可否は既存規則を維持します。空のTypeGroupは許可し、空のfailureset・failure・registerは拒否します。
+
 ## guarantee と標準 catalog
 
-TypeGroup は `typegroup Number = Int | Float` または `typegroup Number { Int, Float }` で宣言できます。ブロックでは改行区切りも使用でき、`typegroup CustomTypes {}` は空集合です。`register Number { Int64 }` で明示的に拡張できます。全宣言と追加登録を収集して所属を確定し、同一 concrete type identity の重複は初期宣言との重複も含めて拒否します。guarantee と typegroup の同名宣言は標準catalogを含め禁止します。
+TypeGroup の宣言は `typegroup Number { Int, Float }` のブロック形式に統一しました。`typegroup CustomTypes {}` は空集合です。`register Number { Int64 }` で明示的に拡張できます。全宣言と追加登録を収集して所属を確定し、同一 concrete type identity の重複は初期宣言との重複も含めて拒否します。guarantee と typegroup の同名宣言は標準catalogを含め禁止します。
 
 標準TypeGroupも `register BoundedArithmetic { Float }` で拡張できます。この場合Floatのadd / sub / mulの静的契約にIntegerOverflowが加わりますが、演算能力・builtin dispatch・実際のfailure発生規則は変わりません。登録は処理対象プログラム内で完結します。
 
-旧条件式 `when T guarantees Group` は拒否し、`when T in Group` への移行を案内します。通常の `require T guarantees Guarantee` は変更ありません。failureブロックは従来どおりカンマ区切り・末尾カンマ許可で、空ブロックやNeverとの混在は拒否します。静的契約は発生可能性を表し、resolveで回復するfailureも残します。runtimeイベントの発生記録と解決状態は別に管理します。
+旧条件式 `when T guarantees Group` は拒否し、`when T in Group` への移行を案内します。通常の `require T guarantees Guarantee` は変更ありません。failureブロックはカンマ区切りで、Never単独宣言を除き末尾カンマを許可し、空ブロックやNeverとの混在は拒否します。静的契約は発生可能性を表し、resolveで回復するfailureも残します。runtimeイベントの発生記録と解決状態は別に管理します。
 
 `register Mark { Int, Float }` は、メソッドを持たない `guarantee Mark {}` に具体型を登録します。改行と末尾カンマを許可し、空ブロック・同じ型と保証の重複登録・typegroup 名の登録は拒否します。guarantee は後方に宣言でき、全宣言の収集後に検証します。旧ソース構文 `register Int guarantees Mark` は拒否します。内部 JSON catalog の登録形式は変更ありません。
 
@@ -452,7 +484,7 @@ catalog の `failures` は従来の文字列と条件付き object を混在で�
 inferred_failures ⊆ declared_failures
 ```
 
-宣言に、現行実装では実際に発生しない failure が含まれていても許可します。内部で確実に処理され、外へ漏れない failure は公開契約に含めません。実装バグや型検査で防ぐべき問題まで failure として列挙する必要はありません。
+宣言に、現行実装では実際に発生しない failure が含まれていても許可します。resolveで回復可能なfailureも静的契約に含めます。実装バグや型検査で防ぐべき問題まで failure として列挙する必要はありません。
 
 sig 本体に `failure { DivideByZero, FloatOverflow, FloatUnderflow }` のようなカンマ区切りのブロックを記述できます。1行・複数行と末尾カンマを許可し、空ブロックは拒否します。単独指定も `failure { Never }` のようにブロックが必要です。複数ブロックも許可し、重複・矛盾はブロックをまたいで検査します。`when` は各要素に個別に作用し、ブロック全体には指定できません。個別 FailureId は `core/failure_spec.py` に定義されたものに限られ、宣言済み failureset 名も使用できます。
 
@@ -497,7 +529,7 @@ integer の resolve は許可され、実際の overflow を回復できます�
 
 conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
-通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で確実に回復する failure は合算から除外します。handled による上限検証の保留は廃止しました。
+通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で回復する failure も合算に残します。handled による上限検証の保留は廃止しました。
 
 標準 `div` は `DivideByZero`・`FloatOverflow`・`FloatUnderflow` を無条件に宣言しています。`div(1.0,2.0)` も3つすべてを持ちます。トップレベルで処理対象にしなければ未処理警告が出ます。値に応じた failure の絞り込みは行わないため、除数がゼロでない呼び出しも警告対象です。
 
@@ -706,7 +738,7 @@ sig use(Thunk[T]<Never>) -> T {
 ```
 
 ```ginger
-failureset CalculationFailure { DivideByZero FloatOverflow FloatUnderflow IOErr }
+failureset CalculationFailure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }
 // 型の例: Thunk[Int]<Never>, Thunk[Int]<DivideByZero>, Thunk[Int]<CalculationFailure>
 var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0, 0.0))
 var x: Float = force(t)
@@ -804,9 +836,9 @@ python3 -B -m unittest discover -s tests -v
 
 ```ginger
 failureset CalculationFailure {
-    DivideByZero
-    FloatOverflow
-    FloatUnderflow
+    DivideByZero,
+    FloatOverflow,
+    FloatUnderflow,
     IOErr
 }
 sig calculate() -> Float {

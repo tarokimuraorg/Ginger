@@ -14,7 +14,7 @@ from ginger.symbols_builder import build_symbols
 from test_failure_contract import checked, output
 
 
-SET = 'failureset CalculationFailure { DivideByZero FloatOverflow FloatUnderflow IOErr }\n'
+SET = 'failureset CalculationFailure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }\n'
 EXPECTED = frozenset({FailureId.DivideByZero, FailureId.FloatOverflow, FailureId.FloatUnderflow, FailureId.IOErr})
 
 
@@ -46,12 +46,12 @@ func g() { return f() }
         with self.assertRaisesRegex(TypecheckError, "func 'g'.*undeclared failures: IOErr"):
             checked(source.replace('failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }', 'failure { DivideByZero, FloatOverflow, FloatUnderflow }'))
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
-            checked(source.replace('{ DivideByZero FloatOverflow FloatUnderflow IOErr }', '{ IOErr }'))
+            checked(source.replace('{ DivideByZero, FloatOverflow, FloatUnderflow, IOErr }', '{ IOErr }'))
 
     def test_symbol_validation(self):
         cases = [
             ('failureset A { UnknownFailure }', 'unknown failure in failureset'),
-            ('failureset A { DivideByZero DivideByZero }', 'duplicate failure in failureset'),
+            ('failureset A { DivideByZero, DivideByZero }', 'duplicate failure in failureset'),
             ('failureset A { Never }', 'Never is not allowed in failureset'),
             ('failureset A { IOErr } failureset A { DivideByZero }', 'duplicate failureset definition'),
             ('failureset A { IOErr } failureset B { A }', 'nested failureset is not supported'),
@@ -71,7 +71,7 @@ func g() { return f() }
                 build_symbols(parse(f'failureset {name} {{ DivideByZero }}'))
         syms = build_symbols(parse('''
 guarantee Shared {}
-typegroup SharedGroup = Int
+typegroup SharedGroup { Int }
 failureset Shared { IOErr }
 sig Shared() -> Unit { failure { Shared } }
 func Shared() {}
@@ -82,7 +82,7 @@ func Shared() {}
         syms = build_symbols(parse('''
 sig f() -> Unit { failure { A, B, IOErr } }
 failureset A { IOErr }
-failureset B { IOErr DivideByZero FloatOverflow FloatUnderflow }
+failureset B { IOErr, DivideByZero, FloatOverflow, FloatUnderflow }
 '''))
         self.assertEqual(syms.sig_failures['f'], EXPECTED)
 

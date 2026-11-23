@@ -35,7 +35,7 @@ register Mark { Float }
 
 guarantee Mark {}
 
-typegroup Numbers = Int | Float
+typegroup Numbers { Int, Float }
 
 sig unused(Box[Box[T]]) -> T { 
     require T guarantees Mark 

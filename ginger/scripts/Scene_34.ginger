@@ -20,7 +20,7 @@
 
 guarantee Mark {}
 register Mark { Thunk[Int]<Never> }
-typegroup IntThunks = Thunk[Int]<Never>
+typegroup IntThunks { Thunk[Int]<Never> }
 
 sig keep(T) -> T { 
     require T guarantees Mark
@@ -35,4 +35,4 @@ print(force(keep(thunk(add(1,2)))))
 register Mark { Box[Int] }
 register Mark { Box[Float] }
 
-typegroup Boxes = Box[Box[Int]] | Pair[Int,Float] | MissingType
+typegroup Boxes { Box[Box[Int]], Pair[Int,Float], MissingType }

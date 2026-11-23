@@ -87,22 +87,22 @@ class RequirementTypeVariableTests(unittest.TestCase):
     def test_typegroup_invalid_targets(self):
         for params, ret in [('Int', 'Int'), ('', 'T')]:
             with self.subTest(params=params):
-                self.assert_rejected('typegroup Existing = Int\n'
+                self.assert_rejected('typegroup Existing { Int }\n'
                                      f'sig op({params}) -> {ret} {{ require T in Existing }}')
 
     def test_typegroup_parameter_and_forward_reference(self):
-        compile('sig op(T) -> T { require T in Existing }\ntypegroup Existing = Int')
+        compile('sig op(T) -> T { require T in Existing }\ntypegroup Existing { Int }')
 
     def test_all_requirement_targets_are_checked(self):
         for requirement in ['require U guarantees B', 'require U in Existing']:
             with self.subTest(requirement=requirement):
                 self.assert_rejected('guarantee A {}\nguarantee B {}\n'
-                                     'typegroup Existing = Int\n'
+                                     'typegroup Existing { Int }\n'
                                      'sig op(T) -> T { require T guarantees A '
                                      + requirement + ' }', variable='U')
 
     def test_multiple_and_duplicate_valid_requirements(self):
-        compile('guarantee A {}\nguarantee B {}\ntypegroup Existing = Int\n'
+        compile('guarantee A {}\nguarantee B {}\ntypegroup Existing { Int }\n'
                 'sig op(T) -> T { require T guarantees A require T guarantees B '
                 'require T guarantees A require T in Existing }')
 
@@ -122,7 +122,7 @@ class RequirementTypeVariableTests(unittest.TestCase):
     def test_concrete_target(self):
         for requirement in ['guarantees G', 'in Existing']:
             with self.subTest(requirement=requirement):
-                self.assert_rejected('guarantee G {}\ntypegroup Existing = Int\n'
+                self.assert_rejected('guarantee G {}\ntypegroup Existing { Int }\n'
                                      f'sig op(Int) -> Int {{ require Int {requirement} }}',
                                      variable='Int')
 

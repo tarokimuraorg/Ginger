@@ -118,7 +118,7 @@ class GuaranteeDecl:
 @dataclass(frozen=True)
 class TypeGroupDecl:
     name: str
-    members: List[TypeRef]  # Int | Float | ...
+    members: List[TypeRef]  # Concrete type members.
 
 @dataclass(frozen=True)
 class RegisterDecl:

@@ -18,7 +18,7 @@ def declaration(kind, typ):
                 f'impl {typ} guarantees G {{ op = builtin test.op }}')
     if kind == 'register':
         return f'guarantee Marker {{}}\nregister Marker {{ {typ} }}'
-    return f'typegroup Group = {typ}'
+    return f'typegroup Group {{ {typ} }}'
 
 
 class ConcreteIdentityPositionTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
         compile('sig unchanged(Self) -> Self {}')
 
     def test_mixed_typegroup_rejects_any_symbolic_member(self):
-        for members in ['Box[Int] | Box[T]', 'Box[T] | Box[Int]']:
+        for members in ['Box[Int], Box[T]', 'Box[T], Box[Int]']:
             self.assert_rejected('typegroup', members, 'T')
 
     def test_concrete_and_open_world_targets_remain_valid(self):
@@ -76,7 +76,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
         for source, position in [
             ('register MissingGuarantee { Box[T] }', 'register target'),
             ('impl Box[T] guarantees MissingGuarantee {}', 'impl target'),
-            ('typegroup Group = Int\ntypegroup Group = Box[T]', 'typegroup member'),
+            ('typegroup Group { Int }\ntypegroup Group { Box[T] }', 'typegroup member'),
         ]:
             with self.subTest(position=position), self.assertRaisesRegex(TypecheckError, position):
                 compile(source)
