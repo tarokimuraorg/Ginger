@@ -527,7 +527,7 @@ var floating: Float = addTwo(1.0, 2.0)
 
 integer の resolve は許可され、実際の overflow を回復できます。floating の initializer は IntegerOverflow を持たないため、floating に対する同じ handler は静的エラーです。floating は FloatOverflow を持つので、その handler は許可されます。`thunk(addTwo(...))` の潜在契約も concrete binding で既存の FailureSet に具体化し、runtime ThunkValue に symbolic contract は追加しません。
 
-conditional Never、conditional failureset、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
+conditional Never、集合参照自体への `when` 条件、同一 conditional clause の重複、同じ failure の unconditional / conditional の併記は拒否します。型名比較・AND / OR・任意の boolean・runtime 値条件・failure 型変数は未対応です。guarantee inheritance、associated types、overload、advanced typeclass resolution も導入していません。
 
 通常ユーザー関数では、到達可能なローカル宣言の initializer、再代入の右辺、return 式、式文の failure を合算し、未宣言 failure の伝播を型検査で拒否します。通常の呼び出しは callee の sig と引数式の failure を合算します。標準 add / sub / mul は上記の conditional contract を置換して使用します。条件付き宣言に表現されていない実装由来 failure も、該当 guarantee / method の実装から保守的に合算します。最初の無条件 return より後は failure 集計から除外しますが、既存の型検査は続けます。関数内 resolve で回復する failure も合算に残します。handled による上限検証の保留は廃止しました。
 
@@ -784,7 +784,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 | 型宣言・コンテナ | nominal type declarations、type aliases、Array は未実装 |
 | 型引数・ジェネリクス | TypeRef の再帰照合・置換に対応。一般的な variance、failure 型変数、overload、alpha-equivalence は未対応 |
 | guarantee の契約 | 明示した require を generic 本体の能力証明に使用。型・guarantee・method による既存 impl dispatch を維持し、継承・associated types・overload は未対応 |
-| failure の契約 | 型変数の guarantee 条件と完全一致による上限検証に対応。一般的な条件論理や conditional failureset は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
+| failure の契約 | 型変数のTypeGroup条件と、条件の一致による上限検証に対応。ジェネリックfailuresetに対応し、一般的な条件論理は未対応。builtin 実装の自動推論はなく、print / IO の契約は未確定。未処理は警告 |
 | resolve | トップレベル／関数 local の var に対応。let・parameter・handler 内 resolve、failureset handler、全種 failure を処理する handler、failure 値の取得構文は未対応 |
 | handled | 廃止済み。sig / func / builtin sig で指定するとエラー |
 | Thunk | 明示的な潜在failure上限契約を保持し、forceで復元する。本体上限契約を検証 |
@@ -830,7 +830,7 @@ python3 -B -m unittest discover -s tests -v
 
 古い `catalog` / `fn` / `args:` 構文、`run_ginger.py` による起動、Catalog / Code の自動分離は現行の使い方ではありません。`scripts/` の古いサンプルやコメントにも不一致があります。既存ファイルの存在だけを、対応機能や互換性の保証とは扱わないでください。
 
-### failureset（第1段階）
+### failureset
 
 既存の FailureId 集合に名前を付け、sig の failure 宣言で参照できます。
 
@@ -856,10 +856,57 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 同じプログラム内の source failureset を参照できます。catalog 単独での解決には
 その定義が必要です。failureset は既存の文字列 entry を維持し、conditional object の failure には指定できません。
 
-要素は直接の既知 FailureId に限定します。未知の要素、要素の重複、`Never`、
+要素は直接の既知 FailureId（ジェネリック定義では以下の条件付き指定も可）に限定します。未知の要素、要素の重複、`Never`、
 集合名の重複、ネスト（自己参照を含む）はエラーです。空の定義は現段階では未対応として
 拒否します。FailureId および `Never` と同名の集合は曖昧になるため禁止し、
 type・guarantee・typegroup・関数とは既存の別々の名前表に合わせて同名を許容します。
+
+型パラメータを1つ持つジェネリックfailuresetでは、TypeGroupによるfailure条件を名前付きで再利用できます。
+
+```ginger
+failureset AddFailures(T) {
+    IntegerOverflow when T in BoundedArithmetic,
+    FloatOverflow when T in FiniteArithmetic,
+    FloatUnderflow when T in FiniteArithmetic,
+}
+sig delayed(T,T) -> Thunk[T]<AddFailures(T)> {
+    require T guarantees Addable
+}
+func delayed(a: T,b: T) {
+    return thunk(a + b)
+}
+sig inner(U,U) -> U {
+    require U guarantees Addable
+    failure { AddFailures(U) }
+}
+func inner(a: U,b: U) {
+    return force(delayed(a,b))
+}
+print(inner(1,2))     // 3
+print(inner(1.0,2.0)) // 3.0
+```
+
+宣言は `failureset Name(T) { ... }`、参照は `Name(Type)` です。型パラメータ名には
+既存の型変数規則（`T`、`U`など大文字1文字）を使用します。型変数が未確定なら
+`when T in Group` を保持し、関数間の型具体化で対応する型変数へ置換します。
+具体型が確定すると既存のTypeGroup所属判定を適用します。標準環境では
+`AddFailures(Int)` は `IntegerOverflow`、`AddFailures(Float)` は
+`FloatOverflow, FloatUnderflow` です。条件に一致しなければ空集合になります。
+空の展開結果は許可しますが、`failure {}` や空のfailureset定義は許可しません。
+
+`register BoundedArithmetic { Float }` を追加すると、`AddFailures(Float)` にも
+`IntegerOverflow` が含まれます。宣言・登録の位置には依存しません。
+Addableの操作能力とTypeGroup所属は独立し、登録によってbuiltinの実際のfailure発生規則は変わりません。
+
+`failure { DivideByZero, AddFailures(U), }` のような混在や、Thunkの潜在failureとして
+使用できます。`thunk()` の生成は遅延計算を実行せず、`force()` に潜在契約が適用されます。
+上の例ではFloatの公開上限に `FloatUnderflow` も含めていますが、加算自体の既存契約は変更しません。
+静的契約は発生可能性を記録し、resolveによる回復後も残ります。runtimeイベントの発生・解決状態とは
+別であり、正常な計算でfailureイベントを生成することはありません。
+
+引数なしfailuresetは従来どおり参照できます。ジェネリック集合の型引数省略、引数なし集合への型引数、
+複数型引数、未定義集合・TypeGroup、スコープ外の型変数を拒否します。
+同名の引数なし／ジェネリック宣言によるオーバーロードや、集合の入れ子参照は許可しません。
 
 集合名自体は FailureId ではなく、resolve の handler 名には使用できません。対象 binding の
 最新 write から静的に発生しうる個別の FailureId を指定してください。集合演算は未導入です。`@attr.handled` は上記 Phase 1 で廃止しました。
