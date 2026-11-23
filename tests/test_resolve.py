@@ -575,16 +575,10 @@ class LatestWriteTests(unittest.TestCase):
         prefix = ('sig calculate(Float, Float) -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                   'func calculate(a: Float, b: Float) { print(77)\nreturn div(a,b) }\n'
                   'var x: Float = 10.0\n')
-        for expr, failure, expected in [('calculate(mul(1e308,1e308),1)', 'FloatOverflow', '77\n'),
+        for expr, failure, expected in [('calculate(mul(1e308,1e308),1)', 'FloatOverflow', '77\n1.0\n'),
                                       ('calculate(1,0)', 'DivideByZero', '77\n1.0\n')]:
             with self.subTest(expr=expr):
                 source = prefix + f'x = {expr}\n' + f'resolve x {{ {failure} {{ x = 1 }} }}\nprint(x)'
-                if failure == 'FloatOverflow':
-                    stream = io.StringIO()
-                    with redirect_stdout(stream), self.assertRaisesRegex(EvalError, "uninitialized binding 'a'"):
-                        evaluator.eval_program(checked(source)[0])
-                    self.assertEqual(stream.getvalue(), expected)
-                    continue
                 result, stdout = self.public_result(source)
                 self.assertEqual(stdout, expected)
                 self.assertEqual(len(result.failure_history), 1)

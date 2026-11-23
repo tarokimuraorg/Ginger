@@ -28,15 +28,24 @@ class EvalResult:
 
     References can include failures from earlier successful subexpressions.
     Later resolution changes event status without rewriting this snapshot.
+    cause_event_id identifies the event that prevented a value, independently
+    of unrelated pending events. Propagation copies it; it is never inferred
+    from reference order. Successful results have no direct cause.
     """
 
     value_result: Value | NoValue
     related_event_ids: tuple[int, ...] = ()
+    cause_event_id: int | None = None
 
     def __post_init__(self):
         if not isinstance(self.value_result, (Value, NoValue)):
             raise TypeError("value_result must be Value or NoValue")
         object.__setattr__(self, "related_event_ids", tuple(self.related_event_ids))
+        if self.cause_event_id is not None:
+            if not isinstance(self.value_result, NoValue):
+                raise ValueError("a successful result cannot have a failure cause")
+            if self.cause_event_id not in self.related_event_ids:
+                raise ValueError("failure cause must be a related event")
 
 
 @dataclass(frozen=True)

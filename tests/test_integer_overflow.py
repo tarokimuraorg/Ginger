@@ -8,7 +8,7 @@ from ginger.ast import TypeRef
 from ginger.builtin import BUILTINS, call_builtin
 from ginger.core.failure_spec import FailureId, EMPTY_FAILURES, failures
 from ginger.diagnostics import Diagnostics
-from ginger.errors import EvalError, TypecheckError
+from ginger.errors import TypecheckError
 from ginger.eval import eval_program
 from ginger.numeric import INT_MIN, INT_MAX
 from ginger.runtime.failures import RaisedFailure
@@ -109,11 +109,12 @@ class IntegerOverflowTests(unittest.TestCase):
         program, diags = checked(prefix + f'var x: Int = f({INT_MAX})\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(7) } }')
         self.assertEqual(diags.items, [])
-        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-            output(program)
+        self.assertEqual(output(program), '7\n')
         program, _ = checked(prefix + f'print(f({INT_MAX}))')
-        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-            recorded(program)
+        _, context, out = recorded(program)
+        self.assertEqual(out, '')
+        self.assertEqual(context.unresolved_pending(1), (1,))
+        self.assertEqual(context.next_event_id, 2)
 
     def test_float_runtime_effect_and_resolve_eligibility(self):
         for op, result in [('add', 3.0), ('sub', -1.0), ('mul', 2.0)]:
@@ -159,8 +160,12 @@ class IntegerOverflowTests(unittest.TestCase):
         prefix = INT_IDENTITY + 'sig f(Int) -> Int { failure { IntegerOverflow } }\nfunc f(x: Int) { return keepInt(add(x,1)) }\n'
         for typ in ['Int64', 'Float']:
             program, _ = checked(prefix + f'var x: {typ} = f({INT_MAX})')
-            with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-                eval_program(program)
+            result = eval_program(program)
+            self.assertIsInstance(result.environment['x'], UninitializedBinding)
+            self.assertEqual(result.environment['x'].cause_event_id, 1)
+            self.assertEqual(result.environment['x'].typ, TypeRef(typ))
+            self.assertEqual(len(result.unresolved_events), 1)
+            self.assertIsNone(result.contract_violation)
 
     def test_int64_arithmetic_stays_disabled(self):
         for op in ['add', 'sub', 'mul', 'div']:
@@ -194,8 +199,7 @@ class IntegerOverflowTests(unittest.TestCase):
                                  'var x: Float = identity(add(toFloat(force(t)),2.0))\n'
                                  'resolve x { IntegerOverflow { x = 0\nprint(8) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow'])
-        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-            output(program)
+        self.assertEqual(output(program), '8\n')
 
     def test_failed_initialization_and_assignment_do_not_store_result(self):
         import ginger.eval as evaluator

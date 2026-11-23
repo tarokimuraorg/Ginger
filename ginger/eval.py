@@ -49,18 +49,16 @@ class Cell:
 
 @dataclass(frozen=True)
 class UninitializedBinding:
-    """A binding without a value; retains its latest failed write's event IDs."""
+    """Missing value with related events and an explicit failed-write cause.
+
+    Only live failed parameters carry parameter_call_id; ordinary writes and
+    Thunk snapshots cannot propagate a missing value through identifier reads.
+    """
     mutable: bool
     typ: TypeRef
     related_event_ids: tuple[int, ...]
-
-    @property
-    def cause_event_id(self) -> int:
-        # A successful subexpression can carry earlier pending events. Once an
-        # expression produces NoValue, value-consuming builtin evaluation stops;
-        # a failed return also ends its function. The newest related event is
-        # therefore the direct cause, even with earlier pending events.
-        return max(self.related_event_ids)
+    cause_event_id: int
+    parameter_call_id: int | None = None
 
 Binding = Cell | UninitializedBinding
 
@@ -76,6 +74,17 @@ class FunctionEnv(dict):
         snapshot = FunctionEnv(self.type_bindings, self)
         snapshot.call_frame_id = self.call_frame_id
         return snapshot
+
+
+def thunk_snapshot(env):
+    """Captured missing values stay fatal, even when forced in the owning call."""
+    if env is None:
+        return None
+    snapshot = env.copy()
+    for name, binding in snapshot.items():
+        if isinstance(binding, UninitializedBinding):
+            snapshot[name] = replace(binding, parameter_call_id=None)
+    return snapshot
 
 
 def instantiated_type(typ, env, syms):
@@ -202,10 +211,9 @@ def eval_binding_statement(stmt, env, syms, outer=None):
         mutable = cell.mutable
     result = eval_expr(stmt.expr, env, syms, outer)
     if isinstance(result.value_result, NoValue):
-        # NoValue short-circuits value consumers/returns: the newest related event is
-        # the direct cause, not earlier pending from successful subexpressions.
-        _active_runtime.get().record_binding_write(stmt.name, (max(result.related_event_ids),))
-        env[stmt.name] = UninitializedBinding(mutable, typ, result.related_event_ids)
+        _active_runtime.get().record_binding_write(stmt.name, (result.cause_event_id,))
+        env[stmt.name] = UninitializedBinding(
+            mutable, typ, result.related_event_ids, result.cause_event_id)
         return result
     value = prepare_typed_value(
         result.value_result.value, expression_type(stmt.expr, env, syms, outer), typ,
@@ -221,7 +229,7 @@ def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[st
         if isinstance(original.value_result, ProducedValue):
             return original
         context = _active_runtime.get()
-        event_id = max(original.related_event_ids)
+        event_id = original.cause_event_id
         event = context.get_event(event_id)
         handler = next((h for h in expr.handlers
                         if h.failure_name == event.failure_id.value), None)
@@ -242,7 +250,8 @@ def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[st
             *(e.event_id for e in context.failure_history if e.event_id >= first_event),
             *(replacement.result.related_event_ids if replacement else ()))))
         if replacement is None or isinstance(replacement.result.value_result, NoValue):
-            return EvalResult(NoValue(), ids)
+            return EvalResult(NoValue(), ids, replacement.result.cause_event_id
+                              if replacement else original.cause_event_id)
         value = prepare_typed_value(replacement.result.value_result.value, replacement.typ,
                                     expression_type(expr, env, syms),
                                     boundary="resolve_return", implementation="resolve")
@@ -260,6 +269,12 @@ def eval_expr(expr: Expr, env: Dict[str, Binding], syms, outer: Optional[Dict[st
         if binding is None and outer is not None:
             binding = outer.get(expr.name)
         if isinstance(binding, UninitializedBinding):
+            context = _active_runtime.get()
+            if (binding is env.get(expr.name)
+                    and binding.parameter_call_id is not None
+                    and binding.parameter_call_id == context.current_call_id
+                    and context.get_event(binding.cause_event_id).status is FailureStatus.UNRESOLVED):
+                return EvalResult(NoValue(), binding.related_event_ids, binding.cause_event_id)
             raise EvalError(f"cannot read uninitialized binding '{expr.name}' "
                             f"(cause event IDs: {binding.related_event_ids})")
         if binding is not None:
@@ -312,6 +327,9 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
     with context.call(fname, contract,
                       type_bindings=resolved.type_bindings) as frame:
         local.call_frame_id = frame.call_id
+        for name, binding in local.items():
+            if isinstance(binding, UninitializedBinding):
+                local[name] = replace(binding, parameter_call_id=frame.call_id)
         token = _statement_scope.set(fname)
         try:
             return_source = TypeRef("Unit")
@@ -327,7 +345,7 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
             ids = tuple(dict.fromkeys((*result.related_event_ids,
                                        *context.unresolved_pending(frame.call_id))))
             context.validate_function_exit(frame.call_id)
-            return EvalResult(result.value_result, ids)
+            return EvalResult(result.value_result, ids, result.cause_event_id)
         finally:
             _statement_scope.reset(token)
 
@@ -344,7 +362,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
             raise EvalError("thunk expects exactly 1 argument")
         arg_expr = expr.args[0].expr
         contract = expression_type(expr, env, syms, outer).latent_failures
-        return EvalResult(ProducedValue(ThunkValue(arg_expr, env.copy(), outer, contract)))
+        return EvalResult(ProducedValue(ThunkValue(arg_expr, thunk_snapshot(env), outer, contract)))
     
     # --- force (強制実行)---
     if expr.callee == "force":
@@ -386,7 +404,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
                 context.last_value_contract_violation = violation
                 raise
         return EvalResult(forced.value_result, tuple(dict.fromkeys(
-            (*result.related_event_ids, *forced.related_event_ids))))
+            (*result.related_event_ids, *forced.related_event_ids))), forced.cause_event_id)
 
     is_user_func = expr.callee in syms.funcs
     argument_results = []
@@ -395,7 +413,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         result = eval_expr(argument.expr, env, syms, outer)
         related_ids.extend(result.related_event_ids)
         if isinstance(result.value_result, NoValue) and not is_user_func:
-            return EvalResult(NoValue(), tuple(dict.fromkeys(related_ids)))
+            return EvalResult(NoValue(), tuple(dict.fromkeys(related_ids)), result.cause_event_id)
         argument_results.append(result)
 
     actual_types = [expression_type(a.expr, env, syms, outer) for a in expr.args]
@@ -417,7 +435,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
             (type_identity_key(selected_type), resolved.deferred_guarantee, resolved.deferred_method)))
     # Only user calls reach this boundary with NoValue. Keep each argument's
     # own events and statically instantiated type; never validate a dummy value.
-    args = [UninitializedBinding(False, parameter, result.related_event_ids)
+    args = [UninitializedBinding(False, parameter, result.related_event_ids, result.cause_event_id)
             if isinstance(result.value_result, NoValue) else
             prepare_typed_value(result.value_result.value, actual, parameter,
                                 boundary="call_argument", implementation=expr.callee)
@@ -425,7 +443,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
 
     if expr.callee in syms.funcs:
         result = eval_user_func(expr.callee, args, syms, env, resolved)
-        return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
+        return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))), result.cause_event_id)
 
     if resolved.implementation is None:
         raise EvalError(f"function '{expr.callee}' has no resolved runtime implementation")
@@ -438,7 +456,7 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
     result = invoke_builtin(resolved.implementation, args, contract, context, context.current_call_id,
                             return_type=resolved.return_type, parameter_types=resolved.parameter_types,
                             comparison_projection=resolved.comparison_projection)
-    return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))))
+    return EvalResult(result.value_result, tuple(dict.fromkeys((*related_ids, *result.related_event_ids))), result.cause_event_id)
 
 
 def eval_block(block: BlockStmt, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None) -> EvalResult:

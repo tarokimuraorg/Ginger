@@ -8,7 +8,7 @@ from test_failure_contract import checked, output
 from ginger.ast import UnaryMinusExpr, TypeRef
 from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.diagnostics import Diagnostics
-from ginger.errors import EvalError, TypecheckError
+from ginger.errors import TypecheckError
 from ginger.lower import lower_program
 from ginger.parser import parse
 from ginger.symbols_builder import build_symbols
@@ -120,13 +120,14 @@ class UnaryMinusTests(unittest.TestCase):
                 program, diags = checked(FLOAT_IDENTITY + f'print(identity({expr}))')
                 self.assertEqual([d.message for d in diags],
                                  ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow'])
-                with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-                    recorded(program)
+                _, context, out = recorded(program)
+                self.assertEqual(out, '')
+                self.assertEqual(context.unresolved_pending(1), (1,))
+                self.assertEqual(context.next_event_id, 2)
                 program, diags = checked(FLOAT_IDENTITY + f'var x: Float = identity({expr})\n'
                                          'resolve x { DivideByZero { x = 0\nprint(7) } }')
                 self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
-                with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-                    output(program)
+                self.assertEqual(output(program), '7\n')
 
     def test_function_failure_contract(self):
         source = FLOAT_IDENTITY + ('sig risky() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
@@ -137,8 +138,7 @@ class UnaryMinusTests(unittest.TestCase):
         program, diags = checked((source % 'failure { DivideByZero, FloatOverflow, FloatUnderflow }') +
                                  'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint(8) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
-        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-            output(program)
+        self.assertEqual(output(program), '8\n')
 
     def test_thunk_preserves_latent_and_force_failures(self):
         prefix = FLOAT_IDENTITY + 'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk((-(div(1.0, 0.0))))\n'
@@ -149,8 +149,7 @@ class UnaryMinusTests(unittest.TestCase):
                                  'var x: Float = identity((-force(t)))\n'
                                  'resolve x { DivideByZero { x = 0\nprint(9) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
-        with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-            output(program)
+        self.assertEqual(output(program), '9\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix.replace('Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>', 'Thunk[Float]<Never>'))
 
@@ -172,7 +171,7 @@ class UnaryMinusTests(unittest.TestCase):
                          + ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow']),
             'Scene_2': ('2.0\n', []), 'Scene_3': ('-1\n0.0\n', ['unhandled failures: FloatOverflow, FloatUnderflow']),
             'Scene_4': ("1\n2\n123\n",["unhandled failures: IntegerOverflow"] * 2),
-            'Scene_5': ('0.0\n', []),
+            'Scene_5': ('0.0\n1.0\n', []),
             'Scene_6': ('0.0\n5.0\n', []),
             'Scene_7': ('-2\n-2\n3\n3\n', ['unhandled failures: IntegerOverflow', 'unhandled failures: IntegerOverflow']),
         }
@@ -180,14 +179,7 @@ class UnaryMinusTests(unittest.TestCase):
         for name, (stdout, warnings) in expected.items():
             with self.subTest(name=name):
                 program, diags = checked((root / f'{name}.ginger').read_text())
-                if name == 'Scene_5':
-                    stream = io.StringIO()
-                    with redirect_stdout(stream), self.assertRaisesRegex(EvalError, "uninitialized binding 'a'"):
-                        from ginger.eval import eval_program
-                        eval_program(program)
-                    self.assertEqual(stream.getvalue(), stdout)
-                else:
-                    self.assertEqual(output(program), stdout)
+                self.assertEqual(output(program), stdout)
                 self.assertEqual([d.message for d in diags], warnings)
 
 

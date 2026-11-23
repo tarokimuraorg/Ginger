@@ -42,7 +42,7 @@ def invoke_builtin(implementation: str, args: list[Any], contract: FailureSet,
                 violating_function_or_builtin=implementation,
                 declared_contract=contract, boundary_kind="builtin")
         event = context.register_failure(failure.fid, origin=implementation, call_id=call_id)
-        return EvalResult(NoValue(), (event.event_id,))
+        return EvalResult(NoValue(), (event.event_id,), event.event_id)
     try:
         if comparison_projection is not None:
             validate_builtin_return(value, TypeRef("Ordering"), implementation=implementation, call_id=call_id)

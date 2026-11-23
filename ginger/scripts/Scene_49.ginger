@@ -18,12 +18,31 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig identity(Float) -> Float {}
-func identity(x: Float) { return x }
+sig identity(Float) -> Float {
+    failure {FloatOverflow, IntegerOverflow}
+}
+
+func identity(x: Float) { 
+    return x 
+}
+
 var widened: Float = add(9007199254740991,1)
-resolve widened { IntegerOverflow { widened = 1 } }
+
+resolve widened { 
+    IntegerOverflow { 
+        widened = 1 
+    } 
+}
+
 print(widened)
+
 var t: Thunk[Int]<IntegerOverflow> = thunk(add(9007199254740991,1))
 var x: Float = identity(add(toFloat(force(t)),2.0))
-resolve x { IntegerOverflow { x = 2 } }
+
+resolve x { 
+    IntegerOverflow { 
+        x = 2 
+    } 
+}
+
 print(x)

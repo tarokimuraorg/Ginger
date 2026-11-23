@@ -316,8 +316,9 @@ def typecheck_func_bodies(syms) -> None:
 def may_leave_independent_pending(expr, syms, sources, visiting=frozenset()):
     """A successful value can carry pending events unrelated to its write.
 
-    Return-only callees preserve direct causes. Without a path proof for a
-    multi-statement callee (or an opaque thunk), keep its contract conservative.
+    Return-only callees may ignore failed actuals. Without a strict path proof
+    for those arguments, a multi-statement callee, or an opaque thunk, retain
+    the contract conservatively.
     """
     if isinstance(expr, ResolveExpr):
         return True
@@ -335,6 +336,18 @@ def may_leave_independent_pending(expr, syms, sources, visiting=frozenset()):
         if expr.callee in visiting:
             return True
         body = syms.funcs[expr.callee].body.stmts
+        # Multiple failed actuals, or an ignored failed actual, can survive
+        # independently of the returned value. Prove only the simple strict
+        # path before any body operation can fail; otherwise stay conservative.
+        failing = [p.name for p, a in zip(syms.funcs[expr.callee].params, expr.args)
+                   if symbolic_effect_expr(a.expr, {}, syms).potential_failures()]
+        if failing:
+            first = body[0].expr if len(body) == 1 and isinstance(body[0], ReturnStmt) else None
+            while (isinstance(first, CallExpr) and first.callee not in syms.funcs
+                   and first.callee not in {"thunk", "force"} and first.args):
+                first = first.args[0].expr
+            if len(failing) != 1 or not isinstance(first, IdentExpr) or first.name != failing[0]:
+                return True
         return (len(body) != 1 or not isinstance(body[0], ReturnStmt)
                 or may_leave_independent_pending(body[0].expr, syms, {}, visiting | {expr.callee}))
     return False

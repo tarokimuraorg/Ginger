@@ -66,13 +66,16 @@ class FailedArgumentTests(unittest.TestCase):
         self.assertEqual(context.next_event_id, 2)
         self.assertEqual(context.unresolved_pending(1), (1,))
 
-    def test_parameter_read_and_builtin_consumer_stop(self):
+    def test_parameter_read_propagates_and_builtin_consumer_skips(self):
         for body in ['b', 'neg(b)']:
             with self.subTest(body=body):
                 builtin = Mock(return_value=0.0)
                 with patch.dict(BUILTINS, {'core.float.neg': builtin}):
-                    self.assert_stopped(COMBINE % body +
-                        'print(combine(1.0,div(1.0,0.0),3.0))\nprint(4)', 'b', '99\n')
+                    _, context, out = recorded(checked(COMBINE % body +
+                        'print(combine(1.0,div(1.0,0.0),3.0))\nprint(4)')[0])
+                    self.assertEqual(out, '99\n4\n')
+                    self.assertEqual(context.unresolved_pending(1), (1,))
+                    self.assertEqual(context.next_event_id, 2)
                 builtin.assert_not_called()
 
     def test_fatal_argument_read_stops_later_arguments_and_body(self):
@@ -117,10 +120,9 @@ class FailedArgumentTests(unittest.TestCase):
     def test_each_parameter_read_reports_its_own_event(self):
         for name, event_id in [('b', 1), ('c', 2)]:
             with self.subTest(name=name):
-                context, stream = RuntimeContext(), io.StringIO()
-                source = COMBINE % name + 'print(combine(1.0,div(1.0,0.0),div(2.0,0.0)))'
-                with redirect_stdout(stream), self.assertRaises(EvalError) as caught:
-                    evaluator._eval_program_with_context(checked(source)[0], context)
-                self.assertIn(f"binding '{name}' (cause event IDs: ({event_id},))", str(caught.exception))
-                self.assertEqual(stream.getvalue(), '99\n')
+                env, context, out = recorded(checked(COMBINE % name +
+                    'var result: Float = combine(1.0,div(1.0,0.0),div(2.0,0.0))')[0])
+                self.assertEqual(env['result'].cause_event_id, event_id)
+                self.assertEqual(env['result'].related_event_ids, (1, 2))
+                self.assertEqual(out, '99\n')
                 self.assertEqual(context.next_event_id, 3)
