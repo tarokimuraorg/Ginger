@@ -16,5 +16,5 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 failureset U { IntegerOverflow }
-guarantee G {}
+guarantee G { witness(self: Self) -> Self }
 sig op(Thunk[Int]<U>) -> Int { require U guarantees G }

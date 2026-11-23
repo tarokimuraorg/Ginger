@@ -70,7 +70,7 @@ func g() { return f() }
             with self.subTest(name=name), self.assertRaisesRegex(TypecheckError, 'conflicts'):
                 build_symbols(parse(f'failureset {name} {{ DivideByZero }}'))
         syms = build_symbols(parse('''
-guarantee Shared {}
+guarantee Shared { witness(self: Self) -> Self }
 typegroup SharedGroup { Int }
 failureset Shared { IOErr }
 sig Shared() -> Unit { failure { Shared } }

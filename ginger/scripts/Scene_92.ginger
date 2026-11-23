@@ -9,15 +9,16 @@
 // Expected normal failure:
 // none
 // Expected fatal:
-// TypecheckError
-// no implementation
-// Expected completion: stops at TypecheckError
+// SyntaxError
+// builtin is internal to the Ginger implementation
+// Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
+// Trusted internal AST fixture: TypecheckError (no implementation); covered by the test above.
 // The public API raises this expected exception; subsequent source is not executed.
 
 guarantee G { op(self: Self, other: Self) -> Self }
 impl Int guarantees G { op = builtin core.int.add }
-guarantee H {}
-impl Int guarantees H {}
+guarantee H { witness(self: Self) -> Self }
+impl Int guarantees H { witness = builtin core.int.neg }
 sig op(T) -> T { require T guarantees G require T guarantees H }
 print(op(1))

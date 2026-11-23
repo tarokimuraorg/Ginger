@@ -57,7 +57,7 @@ class RequirementReferenceTests(unittest.TestCase):
             'typegroup G { Int }\nsig op(T) -> T { require T guarantees G }',
             "unknown guarantee 'G'")
         self.assert_rejected(
-            'guarantee G {}\nsig op(T) -> T { require T in G }',
+            'guarantee G { witness(self: Self) -> Self }\nsig op(T) -> T { require T in G }',
             "unknown typegroup 'G'")
 
     def test_all_requirements_are_checked(self):
@@ -67,7 +67,7 @@ class RequirementReferenceTests(unittest.TestCase):
         ]:
             with self.subTest(requirement=requirement):
                 self.assert_rejected(
-                    'guarantee A {}\ntypegroup Existing { Int }\n'
+                    'guarantee A { witness(self: Self) -> Self }\ntypegroup Existing { Int }\n'
                     'sig op(T) -> T { require T guarantees A '
                     'require T in Existing ' + requirement + ' }', diagnostic)
 
@@ -94,7 +94,7 @@ class RequirementReferenceTests(unittest.TestCase):
         self.assertEqual(run(source + 'var x: Int = op(1)').environment['x'].value, 1)
 
     def test_satisfaction_remains_a_call_site_check(self):
-        source = ('guarantee G {}\n'
+        source = ('guarantee G { witness(self: Self) -> Self }\n'
                   'sig op(T) -> T { require T guarantees G }\n'
                   'func op(x: T) { return x }\nvar x: Int = op(1)')
         build_symbols(lower_program(parse(source)))

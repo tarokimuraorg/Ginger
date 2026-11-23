@@ -316,6 +316,15 @@ def build_symbols(prog: Program) -> Symbols:
     items = prelude_items()
     items += list(prog.items)
 
+    # Validate definitions before resolving references, for source, internal AST,
+    # and catalog declarations alike. GuaranteeDecl currently supports methods
+    # only; there is no standalone capability-requirement syntax or AST field.
+    for item in items:
+        if isinstance(item, GuaranteeDecl) and not item.methods:
+            raise TypecheckError(
+                f"guarantee {item.name} must declare at least one method or capability requirement"
+            )
+
     # Resolve named sets before sig normalization, including catalog sigs.
     failuresets = _build_failuresets(items)
     typegroups = failuresets.typegroups

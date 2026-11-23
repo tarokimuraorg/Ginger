@@ -70,7 +70,7 @@ class RegisterBlockTests(unittest.TestCase):
         registration = 'register Mark { Int, Float }\n'
         for source in [declaration + registration, registration + declaration]:
             with self.subTest(source=source), self.assertRaisesRegex(
-                    TypecheckError, 'register target must be a typegroup: Mark is a guarantee'):
+                    TypecheckError, 'guarantee Mark must declare at least one method or capability requirement'):
                 compile(source)
 
     def test_catalog_guarantee_registration_is_rejected(self):
@@ -81,14 +81,15 @@ class RegisterBlockTests(unittest.TestCase):
                 path = Path(directory) / 'catalog.json'
                 path.write_text(json.dumps(data))
                 declarations = load_core_catalog_json(path)
-            with self.assertRaisesRegex(TypecheckError, 'Mark is a guarantee'):
+            with self.assertRaisesRegex(TypecheckError,
+                                        'Mark is a guarantee' if methods else
+                                        'guarantee Mark must declare at least one method'):
                 build_symbols(Program(declarations))
 
-    def test_empty_guarantee_impl_remains_supported(self):
-        symbols = build_symbols(Program([
-            GuaranteeDecl('Mark', []), ImplDecl(TypeRef('Int'), 'Mark', [])]))
-        self.assertIn('Mark', symbols.type_guarantees['Int'])
-        self.assertNotIn('Mark', symbols.typegroups)
+    def test_empty_guarantee_impl_is_rejected(self):
+        with self.assertRaisesRegex(TypecheckError, 'guarantee Mark must declare at least one method'):
+            build_symbols(Program([
+                GuaranteeDecl('Mark', []), ImplDecl(TypeRef('Int'), 'Mark', [])]))
 
     def test_typegroup_rejected_in_either_order(self):
         group = 'typegroup Numbers { Int, Float }\n'

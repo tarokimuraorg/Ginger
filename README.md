@@ -52,10 +52,11 @@ Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警�
 | Int / Float | 数値リテラル、加減乗算、Float 除算、`neg`、`toFloat` |
 | Bool / Ordering / Slope / Unit | 比較結果、出力、値を返さない処理 |
 | `sig` / `func` | 関数の型宣言と実装を分け、引数と戻り値を検査 |
-| `guarantee` | 型が満たす操作能力の契約とメソッドの宣言 |
+| `guarantee` | 操作能力や能力要件の契約（現在はメソッド宣言のみ対応） |
 | `impl` | 操作能力の実装と契約検証（現在は内部 catalog / AST 専用） |
 | `register` | TypeGroupへの所属型の追加（演算能力は追加しない） |
 | `typegroup` | concrete type identity の集合と `require T in Group` による所属検査 |
+| `failureset` | 発生可能なfailureの集合（型引数・条件付きfailureに対応） |
 | `failure` / `resolve` | 無条件・guarantee 条件付きの failure 上限契約、latest write の具体的 failure 集合に基づく資格検査、未処理警告。resolve はトップレベルと関数 local の var に対応 |
 | `Thunk` / `thunk` / `force` | 式の遅延評価と強制評価 |
 | 標準 JSON catalog | 数値演算・変換・比較・出力・遅延評価の宣言を自動注入 |
@@ -418,6 +419,12 @@ register Mark {
 
 ## guarantee と標準 catalog
 
+guaranteeは、少なくとも1つのメソッドまたは有効な能力要件を定義しなければなりません。
+現在のparser・AST・JSON catalogはguarantee内のメソッド宣言だけをサポートし、能力要件のみの宣言やguarantee間の継承・包含は未対応です。新しい要件構文は導入していません。
+`guarantee Empty {}` やコメント・空白だけの宣言は、共通の宣言検証で `guarantee Empty must declare at least one method or capability requirement` という静的エラーになります。未使用・前方参照・内部AST・catalog経由でも同じ規則を適用します。既存の意味解析診断と同じく宣言名を示し、位置情報は付加しません。
+
+型分類には `typegroup Mark { Int, Float }` と `require T in Mark` を使います。`register` はTypeGroupへの所属追加だけを行い、操作能力を追加しません。`require T guarantees Addable` は操作能力の要求であり、TypeGroup所属で代用できません。`impl` は能力契約の実装・検証を担います。空guarantee禁止は定義の検査であり、implの所有権・スコープ・重複規則や実装検証方式を変更しません。
+
 TypeGroup の宣言は `typegroup Number { Int, Float }` のブロック形式に統一しました。`typegroup CustomTypes {}` は空集合です。`register Number { Int64 }` で明示的に拡張できます。全宣言と追加登録を収集して所属を確定し、同一 concrete type identity の重複は初期宣言との重複も含めて拒否します。guarantee と typegroup の同名宣言は標準catalogを含め禁止します。
 
 標準TypeGroupも `register BoundedArithmetic { Float }` で拡張できます。この場合Floatのadd / sub / mulの静的契約にIntegerOverflowが加わりますが、演算能力・builtin dispatch・実際のfailure発生規則は変わりません。登録は処理対象プログラム内で完結します。
@@ -426,7 +433,7 @@ TypeGroup の宣言は `typegroup Number { Int, Float }` のブロック形式�
 
 `register Mark { Int, Float }` は `typegroup Mark {}` に所属型を追加します。登録先はTypeGroupのみで、メソッドの有無を問わずguaranteeへのregisterは禁止です（`register target must be a typegroup: Mark is a guarantee`）。改行・末尾カンマ・前方参照を許可し、空ブロック・初期宣言を含む重複登録・TypeGroup名の要素指定は拒否します。未定義の登録先は `unknown register target` です。旧ソース構文 `register Int guarantees Mark` も拒否します。内部 JSON catalog の `registers` は既存フィールド名 `guarantee` を保持しますが、参照先にはTypeGroupを指定し、共通の検証経路でguaranteeへの登録を拒否します。
 
-今回のregister移行では、変更前に次の用途を調査しました。同じ名前でも各テスト・サンプルは独立したプログラムです。
+registerのTypeGroup専用化と空guarantee禁止にあたり、次の用途を調査しました。同じ名前でも各テスト・サンプルは独立したプログラムです。
 
 | 宣言・参照箇所 | 分類と移行結果 |
 | --- | --- |
@@ -436,9 +443,11 @@ TypeGroup の宣言は `typegroup Number { Int, Float }` のブロック形式�
 | `test_parameterized_type_identity.py`・`test_concrete_identity_positions.py`: Marker | 型分類。TypeGroupへ移行。Box・Pair・Thunkの完全な型identity、所属の分離、latent failureとは独立したidentityを維持。 |
 | `test_requirement_typevars.py`・`test_requirement_references.py`: registerを伴うG | 型分類。IntまたはFloatの集合とrequireをTypeGroupへ移行。操作・builtin dispatchとの結び付きなし。 |
 | `scripts/Scene_33,34,81,83,84,153,156.ginger`: Mark / G | 型分類。公開名・全register要素を保持してTypeGroupへ移行。対応するrequireと所属拒否の期待診断も更新。 |
-| `test_guarantee_method_arity.py`・`Scene_92.ginger`: H | 複数guarantee要件でdispatchしないことを検査する空の契約。分類制約へ変えると検査対象が変わるためguaranteeを保持し、テスト用registerを既存の空implへ置換。 |
-| requirement / guarantee method検査のG・A・B・H、failure / namespace検査のG・Shared・Example・BoundedArithmetic・Marker | 空guarantee宣言の受理、推論、未実装契約の拒否、名前空間の区別を検査するfixture。登録による分類用途ではなく、検査対象として保持。標準catalog・演算子との結び付きなし。 |
-| `Scene_50,74,75,76,79,80,151.ginger`: Shared / G / Mark | 上記の宣言・推論・未実装・impl位置検査に対応。registerなし、既存のguaranteeを保持。 |
+| `test_guarantee_method_arity.py`・`Scene_92.ginger`: H | 分類Cの検査用契約。複数guarantee要件でdispatchしない検査を維持するため、witnessメソッドとcore.int.negによる対応implを追加。 |
+| requirement / guarantee method検査のG・A・B・H、failure / namespace検査のG・Shared・Example・BoundedArithmetic・Marker | 分類Cのfixture。witness(self: Self) -> Selfを追加し、推論・未実装契約の拒否・名前空間・同名method不在の検査を維持。標準catalog・演算子との結び付きなし。ローカル宣言禁止テストの空guaranteeは拒否例として維持。 |
+| `Scene_50,74,75,76,79,80,151.ginger`: Shared / G / Mark | 分類C。上記の宣言・推論・未実装・impl位置検査を維持するwitnessメソッドを追加。 |
+
+標準catalogのメソッド付き契約は分類Aとして維持しました。分類B（メソッドなし・有効な能力要件あり）は現行仕様に存在しません。残存する分類Cは検査用のみで、今回新たなTypeGroup移行はありません。既存TypeGroupの所属・registerによる拡張・可視範囲は変更していません。
 
 標準の型分類 `BoundedArithmetic` / `FiniteArithmetic` はすでにTypeGroupです。所属は条件付きfailureの具体化に使われ、演算能力を生成しません。parser / ASTのブロック展開、宣言収集、typecheckの能力検査、lowerの演算子変換、evalのdispatch、failure契約比較とruntimeは維持します。分類用の旧guarantee登録は有効例から除去し、拒否テストだけに残します。既存のopen-world規則により未知の具体型名は許可されますが、型変数・Selfなどの非具体identityは拒否します。
 
@@ -467,7 +476,7 @@ print(addTwo(1.0, 2.0))
 
 この例は `3` と `3.0` を出力し、Int の call には IntegerOverflow、Float の call には FloatOverflow の未処理警告が出ます。`return add(a,b)` に置き換えても同じです。`(a + b)` は lower で同じ `add` call に変換されるため、型推論・能力検査・symbolic effect・failure の具体化・runtime dispatch・resolve 資格が一致します。既存の `-` / `*` と sub / mul、`(-a)` と neg も同じ方針です。require を削除すると explicit / infix の両方を定義時に拒否し、`addTwo(1i64,2i64)` は call-site で Addable 不足を拒否します。
 
-能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。操作能力の実装には既存の `impl` を使用し、要求メソッドと型契約を検証します。空のguaranteeの宣言と内部の空implは引き続き許可しますが、guaranteeへのregisterはできません。TypeGroup所属は能力証明になりません。guarantee 間の継承・包含は導入していません。
+能力証明は Addable 専用ではありません。例えば `sig negate(T) -> T { require T guarantees Negatable }` と `func negate(x: T) { return (-x) }` も有効です。操作能力の実装には既存の `impl` を使用し、要求メソッドと型契約を検証します。完全に空のguaranteeは拒否します。内部implは従来どおり要求メソッドの充足を検証し、guaranteeへのregisterも引き続き禁止します。TypeGroup所属は能力証明になりません。guarantee 間の継承・包含は導入していません。
 
 `ginger/catalog/` の `math`・`cast`・`ordering`・`io`・`lazy` は `core/prelude.py` から自動で読み込みます。JSON の宣言は AST に変換され、ソースの宣言とともにシンボルを構築します。
 
@@ -817,6 +826,8 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 ## テスト
 
 `tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・open-world・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
+
+`tests/test_empty_guarantees.py` は空・コメントのみの定義、require / implからの前方参照、複数宣言、内部ASTとcatalogの拒否、および標準能力・ジェネリックfailuresetとThunkの維持を確認します。能力要件のみのguaranteeと、それに対する正当な空implは現行仕様に存在しないため、正常系を追加していません。
 
 failure 契約の自動回帰テストは `tests/test_failure_contract.py` にあります。上限契約、宣言正規化、handled の拒否・Thunk / builtin の契約と、既存の型検査・サンプルの回帰確認を担います。`tests/test_generic_guarantees.py` は generic 本体の能力証明、explicit / lowered call の一致、deferred dispatch と frame binding を確認します。`tests/test_conditional_failures.py` は Int / Float の具体的 effect、nested substitution、resolve / Thunk、catalog と runtime 契約を確認します。`tests/test_float_underflow.py` は静的リテラル検証、正確なゼロ、正負の underflow、generic / Thunk / 関数内 resolve、外部 subnormal の受理とゼロ消失の検出を確認します。`tests/test_float_finite.py` は有限値と符号付きゼロの literal、正負の Float overflow、ゼロ除算優先順位、不正な外部入力、alias、resolve / Thunk を確認します。`tests/test_builtin_value_contract.py` は non-finite return の拒否と他型・opaque 型の回帰を確認します。`tests/test_resolve.py` は静的資格、no-op、原因 event の分離、回復条件、部分 resolve の警告、handler failure と caused_by、Thunk/force、旧構文拒否を確認します。履歴・契約違反・statement 継続の既存テストも resolve に移行しています。
 

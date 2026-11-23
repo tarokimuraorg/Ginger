@@ -48,16 +48,16 @@ class TypeGroupContractTests(unittest.TestCase):
             self.symbols('register Missing { Int }')
 
     def test_shared_namespace_including_catalog(self):
-        for source in ['guarantee Example {}\ntypegroup Example {}',
-                       'typegroup Example {}\nguarantee Example {}',
-                       'guarantee BoundedArithmetic {}', 'typegroup Addable {}',
+        for source in ['guarantee Example { witness(self: Self) -> Self }\ntypegroup Example {}',
+                       'typegroup Example {}\nguarantee Example { witness(self: Self) -> Self }',
+                       'guarantee BoundedArithmetic { witness(self: Self) -> Self }', 'typegroup Addable {}',
                        'typegroup Example {}\ntypegroup Example {}']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 self.symbols(source)
 
     def test_guarantee_is_not_a_failure_group(self):
         with self.assertRaisesRegex(TypecheckError, 'unknown typegroup'):
-            self.symbols('guarantee Marker {}\nsig keep(T) -> T { failure { IOErr when T in Marker } }')
+            self.symbols('guarantee Marker { witness(self: Self) -> Self }\nsig keep(T) -> T { failure { IOErr when T in Marker } }')
         with self.assertRaisesRegex(SyntaxError, 'when T in Group'):
             self.symbols('sig keep(T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }')
 

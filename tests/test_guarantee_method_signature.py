@@ -136,8 +136,8 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
 
     def test_absent_method_and_multiple_requirements_unchanged(self):
         for source in [
-            'guarantee G {}\nsig op(T) -> T { require T guarantees G }',
-            'guarantee G { op(self: Self) -> Float }\nguarantee H {}\n'
+            'guarantee G { witness(self: Self) -> Self }\nsig op(T) -> T { require T guarantees G }',
+            'guarantee G { op(self: Self) -> Float }\nguarantee H { witness(self: Self) -> Self }\n'
             'sig op(T) -> T { require T guarantees G require T guarantees H }',
         ]:
             with self.subTest(source=source):
