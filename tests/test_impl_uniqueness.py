@@ -86,7 +86,7 @@ class ImplUniquenessTests(unittest.TestCase):
 
     def test_type_arguments_and_order_remain_distinct(self):
         types = ['Box[Int]', 'Box[Float]', 'Pair[Int,Float]', 'Pair[Float,Int]']
-        program = parse(PROBE + ''.join(implementation(typ) for typ in types))
+        program = parse('type Box\ntype Pair\n' + PROBE + ''.join(implementation(typ) for typ in types))
         symbols = build_symbols(program)
         keys = [type_identity_key(item.typ) for item in program.items if isinstance(item, ImplDecl)]
         self.assertEqual(len(set(keys)), 4)
@@ -95,17 +95,17 @@ class ImplUniquenessTests(unittest.TestCase):
 
     def test_same_identity_spelling_and_thunk_contracts_cannot_bypass_check(self):
         for first, second in [('Box[Int]', 'Box[ Int ]'),
-                              ('Thunk[Int]<Never>', 'Thunk[Int]<IntegerOverflow>'),
-                              ('Thunk[Int]<IntegerOverflow>', 'Thunk[Int]<Overflow>')]:
+                              ('Thunk[Pure]', 'Thunk[ Pure ]'),
+                              ('Thunk[Checked]', 'Thunk[Checked]')]:
             with self.subTest(first=first, second=second):
-                program = parse('failureset Overflow { IntegerOverflow }\n' + PROBE
+                program = parse('sigtype Checked() -> Int { failure { IntegerOverflow } }\nsigtype Pure() -> Int {}\ntype Box\nfailureset Overflow { IntegerOverflow }\n' + PROBE
                                 + implementation(first) + implementation(second))
                 self.assert_duplicate(program, typ=type_identity_key(program.items[-1].typ))
 
     def test_invalid_targets_are_checked_before_duplicate_declarations(self):
         for typ in ['T', 'Self', 'Box[T]', 'Box[Self]']:
             with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'not allowed in impl target'):
-                build_symbols(parse(PROBE + implementation(typ) + implementation(typ)))
+                build_symbols(parse('type Box\n' + PROBE + implementation(typ) + implementation(typ)))
 
     def test_standard_catalog_pairs_and_every_method_are_preserved(self):
         declarations = [item for item in prelude_items() if isinstance(item, ImplDecl)]

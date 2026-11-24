@@ -49,7 +49,7 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
             self.assert_rejected(name, 'return x', 'Int')
 
     def test_standard_sigs_and_intrinsic_calls_remain(self):
-        symbols, stdout = self.run_source('print(force(thunk(4)))')
+        symbols, stdout = self.run_source('sigtype D() -> Int {}\nvar t: Thunk[D] = thunk(4)\nprint(force(t))')
         self.assertEqual(stdout, '4\n')
         for name in ('thunk', 'force'):
             self.assertIn(name, symbols.sigs)
@@ -64,14 +64,14 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
     def test_variables_coexist_with_intrinsic_calls(self):
         _, stdout = self.run_source('var force: Int = 9\nvar thunk: Int = 4\n'
                                     'print(force)\nprint(thunk)\n'
-                                    'print(force(thunk(force)))')
+                                    'sigtype Deferred() -> Int {}\nvar t: Thunk[Deferred] = thunk(force)\nprint(force(t))')
         self.assertEqual(stdout, '9\n4\n9\n')
 
     def test_parameters_coexist_with_intrinsic_calls(self):
         for name in ('thunk', 'force'):
             with self.subTest(name=name):
-                _, stdout = self.run_source('sig example(Int) -> Int {}\n'
-                    f'func example({name}: Int) {{ return force(thunk({name})) }}\n'
+                _, stdout = self.run_source('sigtype Deferred() -> Int {}\nsig example(Int) -> Int {}\n'
+                    f'func example({name}: Int) {{ let t: Thunk[Deferred] = thunk({name}) return force(t) }}\n'
                     'print(example(8))')
                 self.assertEqual(stdout, '8\n')
 
@@ -80,7 +80,7 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
             with self.subTest(name=name):
                 symbols, stdout = self.run_source(
                     f'guarantee {name} {{ {name}(self: Self) -> Self }}\n'
-                    f'failureset {name} {{ IOErr }}\nprint(force(thunk(4)))')
+                    f'failureset {name} {{ IOErr }}\nsigtype D() -> Int {{ failure {{ Never }} }}\nvar t: Thunk[D] = thunk(4)\nprint(force(t))')
                 self.assertEqual(symbols.guarantees[name].methods[0].name, name)
                 self.assertIn(name, symbols.failuresets)
                 self.assertEqual(stdout, '4\n')

@@ -27,6 +27,37 @@ PY
 
 Scene 1〜7 は実行可能です。Scene 1 は IntegerOverflow の未処理警告が2件と DivideByZero / FloatOverflow / FloatUnderflow の警告が1件、Scene 3 は FloatOverflow / FloatUnderflow が1件、Scene 7 は IntegerOverflow が1件出ます。Scene 2・5・6 には未処理警告はありません。Scene 4 は現在 `1`、`2`、`123` を出力し、IntegerOverflow の静的警告が2件、実行時の未解決イベントが1件あります。上の Scene 7 の例は、標準出力へ `-2`、`-2`、`3` の順に出力します。警告は標準エラー出力へ `warning[UNHANDLED_FAILURES]: unhandled failures: IntegerOverflow` と表示され、実際の failure は発生しません。
 
+## 名前付き計算契約 `sigtype`
+
+`sigtype` は、引数型・戻り値型・failure 条件の組に名前を付けるトップレベル宣言です。
+
+| 宣言 | 役割 |
+| --- | --- |
+| `type` | 具体型の名前を登録する |
+| `sigtype` | 計算契約に名前を付ける |
+| `sig` | 関数名に計算契約を結び付ける |
+| `func` | 関数の処理を実装する |
+
+```ginger
+sigtype Calculation(Int) -> Int {
+    failure { IntegerOverflow }
+}
+sig calculate: Calculation
+func calculate(x: Int) {
+    return add(x, 1)
+}
+```
+
+引数は0個以上です。外側の `{}` は必須で、`sig` と同様に failure ブロックを省略できます。省略時と `failure { Never }` は同じ空集合を表します。明示する場合は1要素以上が必要です。引数・戻り値では登録済み具体型を前方参照でき、既存の generic 型変数と `require` も使えます。
+
+同じプログラムには、同名の `sigtype` も、正規化した契約が完全に一致する別名の `sigtype` も登録できません。引数の個数・順序、再帰的な型引数、戻り値、Thunk の契約名、条件付き failure、`require` が比較対象です。型変数の一貫した改名や failure 要素の並べ替えでは別契約になりません。FailureSet は展開して比較するため、集合名と個別列挙でも重複し得ます。failure 集合が真の部分集合なら、両方の契約を登録できます。
+
+`sigtype` の名前は標準 Catalog を含む具体型および TypeGroup と共有できません。関数・Guarantee・FailureSet は別の名前空間です。既存の `sig` と同じ契約も登録できます。
+
+`sig name: Calculation` は登録済みの契約を関数に適用します。契約は後で宣言しても構いません。未登録名はコンパイルエラーです。従来の直接指定形式も使用でき、どちらも同じ規則で `func` を検査します。同じ契約を複数の関数で共有できますが、関数ごとの `sig` は1つです。同じ契約の再指定や直接指定との併用もエラーになります。
+
+契約の宣言から値や呼び出し可能な関数は生成されません。引数0個の具体化済み契約は Thunk の型注釈に指定できます。
+
 ## 処理フロー
 
 `ginger/pipeline.py` が処理をまとめています。
@@ -88,7 +119,7 @@ Int は、すべての有効な値を binary64 Float へ整数精度を失わず
 
 トップレベル変数には明示的な型注釈が必要です。widening は変数初期化・再代入・具体型の関数引数・return の使用境界で行います。`var x: Int = 1` から `var y: Int64 = x`、`var z: Float = x` に変換しても、元の x の宣言型は Int のままです。runtime でも宣言型を保持し、Python int から Int / Int64 を推測しません。
 
-3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[Int]<Never> → Thunk[Int64]<Never>` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
+3型は別の型です。sig / func の構造照合は厳密なままで、`Thunk[DeferredInt] → Thunk[DeferredInt64]` などの generic variance は導入しません。同じ型変数に対応する実引数は、以下の call-site 推論で安全な widening により統合できます。`toFloat` は引き続き `Int → Float` 専用です。
 
 Int64 に提供する capability は `Negatable`・`Printable`・`Ord`（neg、print、cmp / balance / slope / eq / lt / gt）のみです。add / sub / mul / div は未対応です。
 
@@ -125,7 +156,8 @@ print(x) // 0.0（静的には未処理 FloatOverflow の警告が残る）
 型に基づく契約なので `add(1,2)` も IntegerOverflow の可能性を持ちます。値に基づく除外はしません。resolve 資格検査、関数の `inferred_failures ⊆ declared_failures` 検査、failureset、Thunk の latent failure に統合しています。余分な failure をユーザー関数が宣言する既存ルールは維持し、その宣言は呼び出し側でも有効です。
 
 ```ginger
-var t: Thunk[Int]<IntegerOverflow> = thunk(mul(9007199254740991, 2))
+sigtype DeferredInt() -> Int { failure { IntegerOverflow } }
+var t: Thunk[DeferredInt] = thunk(mul(9007199254740991, 2))
 var x: Int = force(t)
 resolve x {
     IntegerOverflow {
@@ -151,9 +183,9 @@ return 式には宣言戻り値型を generic 型変数の推論用期待型と�
 
 内部 catalog / AST で構築した独自 builtin sig は自身の failure 宣言を維持し、Python 実装から自動推論しません。例えば標準 `core.int.add` を直接参照する独自 sig でも、呼び出し側へ IntegerOverflow を公開する責任は宣言側にあります。標準実装 ID を参照しただけで標準の conditional contract を自動付与しません。runtime の標準算術結果検査は実行され、alias 自身の契約にない failure を送出した場合は FailureContractViolation になります。Float 実装の alias も、add / sub は FloatOverflow、mul / div は FloatOverflow / FloatUnderflow、div はさらに DivideByZero の宣言を自身で持つ必要があります。
 
-builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限であること、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。subnormal は builtin / custom builtin 戻り値、初期化・再代入・読み出し、関数引数・戻り値、Thunk / force、外部実行 API の各境界で正常値です。ValueContractViolation は fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。未知 TypeRef、Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
+builtin return validation は Int / Int64 の exact Python int と範囲、Float の exact Python float と有限であること、Bool、Ordering、Slope、Unit を検証します。Float の型違い（int / bool / None / float subclass など）は `wrong_python_type`、NaN / ±inf は `non_finite` reason の ValueContractViolation です。subnormal は builtin / custom builtin 戻り値、初期化・再代入・読み出し、関数引数・戻り値、Thunk / force、外部実行 API の各境界で正常値です。ValueContractViolation は fatal で FailureEvent を作らず、resolve 不可、不正値を公開せず、`ExecutionResult.value_contract_violation` に記録します。登録済みの Box / Pair などの opaque 型は従来どおり通過し、String semantics も変更しません。
 
-Phase 3C では custom builtin の `Thunk[T]<F>` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
+Phase 3C では custom builtin の `Thunk[SigTypeName]` return を後述の handle adapter で internal value に戻した後、Phase 2.5 の共通 `validate_runtime_value` を適用します。`isinstance(value, ThunkValue)` を要求し、保存された `potential_failure_contract` が公開 TypeRef の `latent_failures` 以下であることを、正規化済み FailureSet の包含関係で検証します。外形違反は `wrong_python_type`、保存契約の超過は `contract_mismatch` の ValueContractViolation です。内部式はこの時点では評価しません。
 
 `force` は既存の実 failure 契約検証後、Value の場合だけ具体化済み result TypeRef で同じ validator を適用します。標準6型の成功値を検査し、NaN / ±inf などを caller・assignment・後続処理へ公開する前に fatal に停止します。NoValue は検査対象外です。診断 snapshot は expected TypeRef、Python type、安全な値表現、reason、call ID と境界を保持し、force は `boundary_kind="thunk"`、`implementation="force"` で識別します。nested Thunk は force ごとに一層だけ外形と保存契約を検査し、内側の式を先行評価しません。ThunkValue は result TypeRef を保持せず、force 式の静的型と call frame の type binding による既存の型置換を正本にします。generic T も Python 値から推測しません。Box / Pair / MissingType などを result に持つ Thunk も外形と保存契約は検査しますが、opaque payload の representation は検査しません。
 
@@ -165,7 +197,7 @@ checked identifier は expression の静的 TypeRef で読み出しを検証し�
 
 force 開始時にも concrete public Thunk TypeRef により外形と saved failure contract の subset を再検証し、違反時は保存式を実行しません。従来の force 終了時の failure / success validation も維持します。capture 環境は deep validation しませんが、保存式内の checked identifier read にも検証が働きます。low-level host fixture が captured environment の entry を不正な payload / 異なる `Cell.typ` を持つ新しい Cell に置換しても、後続の checked read は静的型に対する違反を検出します。nested Thunk は従来どおり force ごとに一層ずつ評価します。
 
-保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と正式 custom builtin extension を使用する checked evaluation です。Box / Pair / MissingType / `Float[Int]` などの open-world payload は再帰的に検証しません。canonical standard return / parameter として使用する境界では共通 validator が働きます。
+保証対象は通常 API (`run()` / `execute()` / `eval_program()`) と正式 custom builtin extension を使用する checked evaluation です。Box / Pair / MissingType / `Float[Int]` などの opaque payload は再帰的に検証しません。canonical standard return / parameter として使用する境界では共通 validator が働きます。
 
 直接 `call_builtin()` / `widen_value()` / `eval_expr()` / `_eval_program_with_context(...)`、外部 environment 注入、Cell / Value / ThunkValue constructor、unchecked AST は caller responsibility の low-level API です。ExecutionResult 返却後も payload 内部の mutation は保証対象外です。Phase 3A は custom Python implementation 自体の I/O や mutation を sandbox / rollback しません。Phase 3B は Cell / ThunkValue の field binding を frozen にしますが、captured env の deep copy / isolation、AST mutation 防止、opaque alias 制御、ExecutionResult deep copy は Phase 3D 以降の課題です。検証済み AST の改変や任意に構築した保存式の整合性は Phase 3A で保証しません。
 
@@ -233,15 +265,26 @@ variant の global constructor や namespace 構文はなく、print は両型�
 
 内部の型情報は、型名と再帰的な型引数を持つ `TypeRef` で表します。型引数の list / tuple 表現が混在していますが、構造比較はそのコンテナの違いを無視します。
 
-Type identity は **name + recursive type arguments** です。`Box[Int] ≠ Box[Float]`、`Pair[Int, Float] ≠ Pair[Int, Int]` として区別します。capability / membership identity には latent failures / latent conditions を含めません。`Thunk[Int]<Never>` と `Thunk[Int]<IntegerOverflow>` の capability identity はどちらも `Thunk[Int]` ですが、static compatibility では failure contract の差を保持します。
+Type identity は **name + recursive type arguments** です。`Box[Int] ≠ Box[Float]`、`Pair[Int, Float] ≠ Pair[Int, Int]` として区別します。Thunk の capability / membership identity には参照する sigtype 名が含まれます。
 
-TypeRef は open-world です。canonical type registry による型名の存在検査はなく、`MissingType` や `Box[MissingType]` も unknown type としては拒否しません。これは型のコンストラクタや値の生成機能を提供するという意味ではありません。
+具体型名はコンパイル単位ごとに登録します。トップレベルの `type Bee` は名前だけを宣言します。すべての型宣言を先に収集するので、次のように前方参照できます。
+
+```ginger
+sig identity(Bee) -> Bee {}
+type Bee
+type Butterfly
+typegroup Insects { Bee, Butterfly }
+```
+
+標準 Catalog は Int、Int64、Float、Bool、Ordering、Slope、Unit、Thunk を事前登録します。標準型を含めて同名の型は再宣言できません。未登録の具体型名は、未使用の関数やネストした型引数の中でも静的エラーになります。通常型の型引数数は現段階で未規定です。`type Box` を宣言すると、`Box`、`Box[Int]`、`Box[Int, Float]` はそれぞれ異なる identity として扱われます。特殊型 Thunk は引数0個の sigtype 名を1つ取ります。
+
+単一の大文字の型変数と Guarantee の `Self` は型名として宣言できません。failure 文脈の `Never` は空集合を表し、型位置の `Never` を使うには `type Never` が必要です。型の宣言だけでは値、コンストラクタ、Guarantee の能力、TypeGroup の所属は生成されません。将来の struct／class もこの登録表を使う想定です。
 
 内部 catalog / AST の `impl` target と、ソースでも利用できる `register` target・`typegroup` member は **concrete identity position** です。ここで concrete identity は、symbolic type variable または contextual `Self` を再帰的な型引数にも含まない TypeRef を指します。
 
 | identity の例 | 上記3か所での使用 |
 |---|---|
-| `Box[Int]`、`Box[Float]`、`Box[MissingType]`、`Pair[Int, Float]` | 合法 |
+| `Box[Int]`、`Box[Float]`、`Box[MissingType]`、`Pair[Int, Float]` | 各具体型名を登録済みなら合法 |
 | `T`、`Box[T]`、`Box[Box[T]]`、`Pair[Int, T]`、`Self`、`Box[Self]` | 違法 |
 
 内部宣言での `impl Box[Int] guarantees G` の登録は `Box[Int]` にのみ適用し、`Box[Float]` や引数なしの `Box` には適用しません。register と typegroup も同じく完全な identity を区別します。`impl Box[T] guarantees G`、`register G { Box[T] }`、`typegroup Group { Box[T] }` は未対応で、宣言時に拒否します。generic / wildcard / constructor-wide impl、generic register、generic typegroup の意味付けはありません。
@@ -254,7 +297,7 @@ TypeRef は open-world です。canonical type registry による型名の存在
 
 capture は従来の `env.copy()` による shallow mapping snapshot と immutable Cell の共有です。通常の再代入後も Thunk は capture 時の binding を保持します。FunctionEnv の copy も mapping だけを新しくし、Cell・type_bindings を共有して call_frame_id を保持します。generic retained frame / nested Thunk の型置換と nonmemoized evaluation は変わりません。
 
-これは runtime 全体の deep immutability ではありません。captured environment の mapping contents、FunctionEnv metadata、outer が参照する環境、opaque list / dict / custom object の内部、raw checked AST と child list は引き続き mutable です。`t.env["x"].value = ...` は拒否しますが、`t.env["x"] = Cell(...)` は可能です。標準 scalar の正常 payload は実質 immutable ですが、open-world payload の `.append(...)` 等は妨げません。
+これは runtime 全体の deep immutability ではありません。captured environment の mapping contents、FunctionEnv metadata、outer が参照する環境、opaque list / dict / custom object の内部、raw checked AST と child list は引き続き mutable です。`t.env["x"].value = ...` は拒否しますが、`t.env["x"] = Cell(...)` は可能です。標準 scalar の正常 payload は実質 immutable ですが、opaque payload の `.append(...)` 等は妨げません。
 
 Phase 3C では custom builtin に opaque ThunkHandle を渡し、identity return は adapter が元の internal ThunkValue に戻します。host constructor は low-level/internal 用に残ります。frozen 化は constructor input 全体の安全性を保証しません。builtin return / custom call argument / force entry の saved ⊆ public 検査、および identifier / widening / typed write / user return / force success の consumer-side validation は引き続き必要です。tests の mapping replacement や expression result replacement は test-only fault injection であり language semantics ではありません。
 
@@ -272,8 +315,8 @@ ExecutionResult の環境は従来の mapping proxy に加え binding record の
 | Ordering | canonical tuple `("Ordering", "Left" / "Flat" / "Right")` |
 | Slope | canonical tuple `("Slope", "Rising" / "Flat" / "Falling")` |
 | Unit | `None` |
-| open-world type | raw opaque Python payload |
-| Thunk[T]<F> | opaque `ginger.extension.ThunkHandle` |
+| 登録済みの opaque 型 | raw opaque Python payload |
+| Thunk[SigTypeName] | opaque `ginger.extension.ThunkHandle` |
 
 ```python
 from ginger.extension import ThunkHandle
@@ -290,7 +333,7 @@ ThunkHandle は field を持たない identity-based Python object で、repr �
 
 handle は同一 execution 内で受け取り、Python 側に保存し、別 callable に渡し、後の builtin call から返せます。identity return は capture / frame / saved contract を含め元の internal ThunkValue をそのまま復元します。別 `run()` / RuntimeContext への持ち越しは拒否します。独立して発行された handle が同じ underlying Thunk を表すかは API 契約にせず、Ginger に Thunk equality / identity operation を追加しません。
 
-adapter は direct Thunk 型だけに適用します。nested Thunk は outer handle 1個になり、Ginger `force(...)` が一層ずつ評価します。Box / Pair / MissingType などの open-world payload は再帰変換せず、alias / mutable payload も維持します。内部に raw ThunkValue や ThunkHandle があってもそのままです。opaque payload から取り出した handle を正式 Thunk return として返す際には current registry membership を検査します。
+adapter は direct Thunk 型だけに適用します。nested Thunk は outer handle 1個になり、Ginger `force(...)` が一層ずつ評価します。Box / Pair / MissingType などの opaque payload は再帰変換せず、alias / mutable payload も維持します。内部に raw ThunkValue や ThunkHandle があってもそのままです。opaque payload から取り出した handle を正式 Thunk return として返す際には current registry membership を検査します。
 
 新しい language Thunk の正式 factory、Python host force、result type / public failure contract inspection、serialization、cross-execution transfer は提供しません。作成・評価には Ginger source の `thunk(expr)` / `force(...)` intrinsic を使います。`ThunkValue(...)` constructor と直接 `call_builtin(...)` は low-level/internal responsibility として raw semantics を維持します。これは Python reflection に対する sandbox ではありません。captured env の read-only 化、AST isolation、persistent environment、LanguageThunk / ExtensionThunk 分離も今回の対象外です。
 
@@ -311,11 +354,11 @@ print(result)
 
 - 同名の `sig` が `func` より先に存在する必要があります。
 - 引数数が等しく、各位置の型が型名と再帰的な型引数まで一致する必要があります。
-- `Thunk[Int]<Never>` と `Thunk[Float]<Never>` は異なる型として照合します。
+- `Thunk[DeferredInt]` と `Thunk[DeferredFloat]` は異なる型として照合します。
 - 引数名は照合に使用しません。sig は引数型のみを持ちます。
 - 型変数名の読み替えは行いません。`T` と `U` は同一視しません。
 - 呼び出しは位置引数で、値も位置順に束縛します。同名 sig のオーバーロードはありません。
-- return の型は sig の戻り値と照合します（Thunkの潜在failureは上限包含を許可）。return がなければ Unit を要求します。
+- return の型は sig の戻り値と照合します。return がなければ Unit を要求します。
 
 型変数は現在、原則として1文字の大文字で表します。generic 呼び出しは **sig の仮引数 TypeRef と実引数の静的 TypeRef のみ**から call site ごとに局所推論します。外側の assignment / argument / return の expected type や、func 本体から型変数を逆算しません。
 
@@ -333,13 +376,14 @@ print(result)
 generic position では symbolic TypeRef を使用できます。例えば次の宣言では、引数の `Box[Int]` から T = Int を推論し、戻り値へ置換します。
 
 ```ginger
+type Box
 sig extract(Box[T]) -> T {
 }
 ```
 
 T を inference する場所では `Box[T]` を使えますが、concrete identity を登録する場所では使えません。
 
-TypeRef は再帰的に照合・置換するため、`Thunk[T]<Never>` と `Thunk[Int]<Never>` から T = Int を得られます。`SomeType[T]` のような既存 TypeRef 構造も同様ですが、型コンストラクタの不一致は拒否します。置換後の引数全体を既存 compatibility で検査するため、Thunk の結果型を含む型引数の variance は追加しません。generic 本体で推論した Thunk の条件付き潜在 effect は TypeRef に保持し、具体的な binding で既存の FailureSet に置換します。failure 型変数や集合の推論・統合は導入しません。同じ裸の T に異なる latent failure を持つ Thunk 型が渡された場合も、集合の共通上限を新たに推論しません。
+TypeRef の型引数は再帰的に照合します。Thunk の契約名は型変数の推論対象から除きます。
 
 型変数決定後に guarantee / typegroup の要件を検査します。`add(1,2i64)` は T = Int64 まで解決した後、Int64 が Addable を持たないため拒否します。Int64 算術は未解禁です。
 
@@ -383,7 +427,7 @@ resolve result {
 print(result)
 ```
 
-`failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[Int]<Never>` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
+`failure { Never }` に置き換えると IntegerOverflow の上限違反です。`return add(x,1)` に宣言戻り値型を渡す推論は行いません。型変数は sig と実引数からの call-site 推論で解決します。ローカルにも `Thunk[DeferredInt]` などを保存でき、latent failure・force・作成時の環境スナップショットは既存の Thunk 規則を維持します。
 
 ## 名前解決と名前の衝突
 
@@ -394,6 +438,7 @@ Ginger はすべての識別子を単一の名前表から検索しません。�
 | 関数 × Guarantee / TypeGroup / FailureSet | 同名可能 |
 | Guarantee × FailureSet | 同名可能 |
 | TypeGroup × FailureSet | 同名可能 |
+| 具体型 × TypeGroup | 同名禁止（標準 catalog を含む） |
 | Guarantee × TypeGroup | 同名禁止（標準 catalog を含む） |
 | FailureSet × FailureId / Never | 同名禁止 |
 | 関数 × 変数 / 仮引数 / 具体型名 | 同名可能 |
@@ -413,7 +458,7 @@ Ginger はすべての識別子を単一の名前表から検索しません。�
 | `failure { Shared }` | 個別 FailureId または FailureSet の展開 |
 | `failure { IOErr when T in Shared }` | 条件の `Shared` は TypeGroup |
 | `resolve` の handler 名 | 個別 FailureId のみ。FailureSet 名や Never は不可 |
-| 型注釈の `Int` など | open-world の TypeRef（下記の境界に注意） |
+| 型注釈の `Int` など | 登録済みの具体型 |
 
 Guarantee を TypeGroup として、また TypeGroup を Guarantee として参照することはできません。TypeGroup 所属は Guarantee の能力証明になりません。FailureSet と FailureId は正規の宣言経路で同名にできないため、両方に一致した場合の優先順位は言語仕様として定義しません。
 
@@ -454,17 +499,11 @@ print(Shared)
 
 宣言は全体から収集されるため、呼び出しを宣言群より前に置けます。Guarantee・FailureSet・sig・func は、sig が func より先という制約の範囲で順序を変えても、Shared の解決・集合展開・呼び出し先・runtime 契約・実行結果は変わりません。無関係な宣言を間に挟んでも同じです。TypeGroup 所属も全宣言・register の収集後に確定します。これは変数の前方参照を許す規則ではありません。
 
-### 型名と特殊呼び出しの境界（第2段階の検討事項）
+### 具体型名と TypeGroup 名
 
-型名は open-world で、存在確認用の独立した型名登録表はありません。未知の具体型名も TypeRef として受理しますが、値の生成機能を与えるものではありません。関数 `Int` と型注釈 `Int` は共存できます。一方、TypeGroup と具体型名の完全な独立性はありません。
+具体型と TypeGroup に同じ名前を付けると宣言順にかかわらずエラーになります。標準型と標準 TypeGroup も対象です。関数 `Int` と型注釈 `Int` は共存できます。
 
-```ginger
-typegroup Int { Float }
-typegroup Other {}
-register Other { Int }
-```
-
-先頭の宣言単独は受理されますが、上記全体は `typegroup 'Int' is not a concrete register target` で拒否されます。`symbols_builder._build_failuresets` と `build_symbols` の register 検査が、登録する型の名前を TypeGroup 名と照合するためです。具体型名との衝突をどう扱うべきかは第2段階へ持ち越し、現状を望ましい仕様として固定するテストや新しい禁止規則は追加しません。
+初期メンバーと `register` はどちらも、型引数まで具体化した登録済みの型 identity を指定します。TypeGroup 自体をメンバーに指定することや、初期メンバーを同じグループへ再登録することはできません。
 
 ### thunk / force の intrinsic 名
 
@@ -537,7 +576,7 @@ registerのTypeGroup専用化と空guarantee禁止にあたり、次の用途を
 | `catalog/math.json`: Addable / Subtractable / Multipliable / Negatable | 操作能力。各々 add / sub / mul / neg メソッドを持ち、既存implとsigのguarantees要件でdispatchする。register依存なし、変更なし。 |
 | `catalog/ordering.json`: Ord、`catalog/io.json`: Printable | 操作能力。cmp / print メソッドと既存impl・sig要件を維持。標準catalog全体に空guarantee・registerによる能力登録なし。 |
 | README、`test_register_blocks.py`・`test_enumeration_blocks.py`: Mark | 型分類。TypeGroup宣言、register、`require T in Mark`へ移行。Int / Float / Int64等の所属と重複検査を維持。 |
-| `test_parameterized_type_identity.py`・`test_concrete_identity_positions.py`: Marker | 型分類。TypeGroupへ移行。Box・Pair・Thunkの完全な型identity、所属の分離、latent failureとは独立したidentityを維持。 |
+| `test_parameterized_type_identity.py`・`test_concrete_identity_positions.py`: Marker | 型分類。TypeGroupへ移行。Box・Pair・Thunkの完全な型identity、所属の分離、Thunk は契約名を含めて照合。 |
 | `test_requirement_typevars.py`・`test_requirement_references.py`: registerを伴うG | 型分類。IntまたはFloatの集合とrequireをTypeGroupへ移行。操作・builtin dispatchとの結び付きなし。 |
 | `scripts/Scene_33,34,81,83,84,153,156.ginger`: Mark / G | 型分類。公開名・全register要素を保持してTypeGroupへ移行。対応するrequireと所属拒否の期待診断も更新。 |
 | `test_guarantee_method_arity.py`・`Scene_92.ginger`: H | 分類Cの検査用契約。複数guarantee要件でdispatchしない検査を維持するため、witnessメソッドとcore.int.negによる対応implを追加。 |
@@ -546,7 +585,7 @@ registerのTypeGroup専用化と空guarantee禁止にあたり、次の用途を
 
 標準catalogのメソッド付き契約は分類Aとして維持しました。分類B（メソッドなし・有効な能力要件あり）は現行仕様に存在しません。残存する分類Cは検査用のみで、今回新たなTypeGroup移行はありません。既存TypeGroupの所属・registerによる拡張・可視範囲は変更していません。
 
-標準の型分類 `BoundedArithmetic` / `FiniteArithmetic` はすでにTypeGroupです。所属は条件付きfailureの具体化に使われ、演算能力を生成しません。parser / ASTのブロック展開、宣言収集、typecheckの能力検査、lowerの演算子変換、evalのdispatch、failure契約比較とruntimeは維持します。分類用の旧guarantee登録は有効例から除去し、拒否テストだけに残します。既存のopen-world規則により未知の具体型名は許可されますが、型変数・Selfなどの非具体identityは拒否します。
+標準の型分類 `BoundedArithmetic` / `FiniteArithmetic` はすでにTypeGroupです。所属は条件付きfailureの具体化に使われ、演算能力を生成しません。parser / ASTのブロック展開、宣言収集、typecheckの能力検査、lowerの演算子変換、evalのdispatch、failure契約比較とruntimeは維持します。分類用の旧guarantee登録は有効例から除去し、拒否テストだけに残します。未登録の具体型名や型変数・Selfなどの非具体identityは拒否します。
 
 `guarantee` method は capability method の型契約の canonical source、`sig` は public generic call surface と public failure/effect contract を定義します。guarantee 経由で dispatch する sig は、method の `Self` を require が指定する型変数へ再帰的に projection し、引数数・引数型・戻り値型を照合します。Thunk の潜在契約も正規化後に一致する必要があり、widening では代用しません。この照合は、func / 直接 builtin を持たず、guarantee requirement が1個で同名 method に対応する sig が対象です。
 
@@ -829,75 +868,23 @@ resolved event も履歴に残ります。CallFrame.pending_event_ids の参照�
 
 ## Thunk と遅延評価
 
-```ginger
-var x: Int = 1
-var t: Thunk[Int]<Never> = thunk(x)
-x = 2
-print(force(t))
-print(x)
-```
-
-現在の出力は `1`、`2` です。
-
-`thunk(expr)` は型検査後、実行時には式を評価せず保存します。`force(t)` は呼ぶたびに保存した式を再評価し、結果をキャッシュしません。どちらも引数は1個です。force の戻り値は期待型がある文脈では型照合します。
-
-現在は環境辞書を浅くコピーし、外側の環境は参照で保持します。トップレベルの再代入は Cell を置き換えるため、上の例では Thunk が作成時の値を読みます。これはすべての値を深くコピーするという保証ではありません。
-
-正式な型形式は `Thunk[結果型]<failure指定...>` です。`[]` は type arguments、`<>` は failure contract を表します。Thunk の型引数は結果型1個で、failure contract は必須です。`Thunk[Int]` は invalid で、暗黙の `<Never>` はありません。旧形式 `Thunk[Int, Never]` は廃止済みで受理しません。
-
-```text
-Thunk[Int]<IntegerOverflow>
-      ↑ type argument
-           ↑ failure contract
-```
-
-合法な形式は `Thunk[Int]<Never>`、`Thunk[Int]<IntegerOverflow>`、`Thunk[Int]<IntegerOverflow, DivideByZero>` です。`Never` は空の failure contract を表す特殊表現なので、`Thunk[Int]<Never, IntegerOverflow>`、`Thunk[Int]<IntegerOverflow, Never>`、空の `Thunk[Int]<>` はいずれも invalid です。failure contract postfix `<...>` は現時点では Thunk のみで、`Box[Int]<IntegerOverflow>` や `Int<Never>` は拒否します。
-
-generic Thunk も合法です。次の宣言では T のみが type inference の対象で、failure contract は type argument ではありません。
+型注釈は `Thunk[SigTypeName]` と書きます。指定する名前は引数が0個の登録済み sigtype です。宣言は使用箇所の後にも置けます。戻り値の型と潜在 failure の上限はこの宣言で決まります。
 
 ```ginger
-sig use(Thunk[T]<Never>) -> T {
+sigtype DeferredInt() -> Int {
+    failure { IntegerOverflow }
 }
-```
-
-```ginger
-failureset CalculationFailure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr }
-// 型の例: Thunk[Int]<Never>, Thunk[Int]<DivideByZero>, Thunk[Int]<CalculationFailure>
-var t: Thunk[Float]<CalculationFailure> = thunk(div(1.0, 0.0))
-var x: Float = force(t)
+var t: Thunk[DeferredInt] = thunk(add(9007199254740991, 1))
+var x: Int = force(t)
 resolve x {
-    DivideByZero {
-        x = 0
-    }
-    FloatOverflow {
-        x = 0
-    }
-    FloatUnderflow {
-        x = 0
-    }
-    IOErr {
-        x = 1
-    }
+    IntegerOverflow { x = 0 }
 }
 print(x)
 ```
 
-Thunkのfailure指定はforce時に発生しうるfailureの上限契約であり、Thunk作成時のfailureではありません。
-`thunk(expr)` は結果型とexprのfailure集合を保存し、作成式のcurrent failureは空です。
-`force(t)` は保存された契約をcurrent failureへ復元します。引数を評価するfailureも合算し、
-`print(force(t))` にも通常の引数effect伝播で届きます。`force(thunk(expr))` も同じ経路です。
-`force(t)` が initializer で失敗すると、対象 var に原因 event ID が保存され、通常の resolve と同じ規則で回復できます。handler 名は公開された潜在契約の個別 FailureId に限ります。潜在契約が failureset で書かれていても、handler にはその集合名を使用できません。正常な force で値を得た binding に対する resolve は no-op です。
+この例は `0` を出力します。`thunk(expr)` は式と作成時の環境を保存し、`force(t)` のたびに式を評価します。作成だけでは内部式の failure は発生しません。同じ注釈で `thunk(1)` も保存できます。その場合も force の静的な上限には IntegerOverflow が含まれます。
 
-failure指定には個別FailureId、failureset、単独のNeverを使えます。`Never` は failure contract が空であることを表し、通常の FailureId ではありません。例: `Thunk[Int]<Never>`、`Thunk[Int]<IntegerOverflow, DivideByZero>`。
-指定省略、未知名、Neverとの混在、同じ指定名の重複は拒否します。failureset展開後の重なりは統合します。
-代入・関数引数・戻り値では、結果型の完全一致とactualの潜在failure集合がdeclaredの部分集合であることを検査します。
-sig/funcの引数宣言は展開後の集合も含めて再帰的に完全一致させます。一般的な部分型や結果型のvarianceは導入していません。
-
-Thunkを返す関数の自身のfailureと、返したThunkの潜在failureは別契約です。
-`sig make() -> Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> { failure { Never } }` は有効です。
-静的に解決されたThunkは本体上限検証の対象です。
-ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時に検証します。catalogのthunk/forceのTはintrinsicのプレースホルダーで、
-実際の型・failureは専用規則で計算します。通常のcatalog Thunk型では`args`に結果型1個、`failures`に指定名配列を記述します。
+変数には型注釈が必要です。既存の Thunk 値の代入や引数渡しでは契約名が一致する必要があります。異なる sigtype 間の暗黙変換はありません。型変数や条件付き failure が未具体化の契約は Thunk に適用できません。旧形式 `Thunk[Int]<IntegerOverflow>` は廃止しました。
 
 ## 現在の制限・未確定事項
 
@@ -924,7 +911,7 @@ ThunkValue は既存の推論済み潜在 failure 契約を保持し、force 時
 
 `tests/test_name_resolution_contracts.py` は公開ソース経路で同名宣言の共存、Shared の全12有効宣言順序・前方呼び出し・runtime契約、関数とbinding / 型名の区別、TypeGroup / FailureSet の文脈別解決、catalog builtin / Guarantee / generic dispatch、同種宣言の重複拒否を確認します。衝突・能力証明・resolve・メソッド重複の既存テストはそれぞれ `test_typegroup_contracts.py`、`test_requirement_references.py`、`test_generic_guarantees.py`、`test_failureset.py`、`test_guarantee_method_uniqueness.py` にあります。
 
-`tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・open-world・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
+`tests/test_parameterized_type_identity.py` は再帰的 identity・specialized dispatch・登録済み opaque 型・effect との分離、`tests/test_concrete_identity_positions.py` は登録位置の symbolic / Self 拒否と generic inference の維持を確認します。`tests/test_thunk_syntax.py` は新構文・旧構文拒否・Never、`tests/test_guarantee_method_signature.py` は Self projection と型契約の一致、`tests/test_requirement_typevars.py` は parameter から inferable な requirement target を確認します。
 
 `tests/test_empty_guarantees.py` は空・コメントのみの定義、require / implからの前方参照、複数宣言、内部ASTとcatalogの拒否、および標準能力・ジェネリックfailuresetとThunkの維持を確認します。能力要件のみのguaranteeと、それに対する正当な空implは現行仕様に存在しないため、正常系を追加していません。
 
@@ -986,7 +973,7 @@ symbols 構築時に名前を個別の FailureId 集合へ展開し、既存の 
 要素は直接の既知 FailureId（ジェネリック定義では以下の条件付き指定も可）に限定します。未知の要素、要素の重複、`Never`、
 集合名の重複、ネスト（自己参照を含む）はエラーです。空の定義は現段階では未対応として
 拒否します。FailureId および `Never` と同名の集合は曖昧になるため禁止し、
-guarantee・typegroup・関数とは同名を許容します。型名は open-world で独立した登録表を持ちません。文脈ごとの解決と衝突制約は「名前解決と名前の衝突」を参照してください。
+guarantee・typegroup・関数とは同名を許容します。具体型名とも同名を許容します。文脈ごとの解決と衝突制約は「名前解決と名前の衝突」を参照してください。
 
 型パラメータを1つ持つジェネリックfailuresetでは、TypeGroupによるfailure条件を名前付きで再利用できます。
 
@@ -996,18 +983,12 @@ failureset AddFailures(T) {
     FloatOverflow when T in FiniteArithmetic,
     FloatUnderflow when T in FiniteArithmetic,
 }
-sig delayed(T,T) -> Thunk[T]<AddFailures(T)> {
-    require T guarantees Addable
-}
-func delayed(a: T,b: T) {
-    return thunk(a + b)
-}
 sig inner(U,U) -> U {
     require U guarantees Addable
     failure { AddFailures(U) }
 }
 func inner(a: U,b: U) {
-    return force(delayed(a,b))
+    return a + b
 }
 print(inner(1,2))     // 3
 print(inner(1.0,2.0)) // 3.0
@@ -1091,9 +1072,9 @@ Phase 9でreturnの既存終了規則を確定し、Thunk/forceの潜在契約�
 
 正常値とpending failureは共存し、正常Unit `Value(None)` とNoValueは別です。未初期化bindingの値を別変数のinitializer・print・returnなどが要求すると EvalError で停止します。原因event IDはbindingに保持しますが、NoValueとして伝播せず、新eventも生成しません。
 
-Thunkは非memoizedです。作成時には式を実行せず、FailureEventも生成しません。作成時のlexical environmentと、型検査で推論した潜在failure契約を保持します。forceごとに再評価するため、実際に同じfailureが再発すれば別eventになります。既存の環境capture方式は変更していません。
+Thunkは非memoizedです。作成時には式を実行せず、FailureEventも生成しません。作成時のlexical environmentと、sigtype に宣言された潜在failure契約を保持します。forceごとに再評価するため、実際に同じfailureが再発すれば別eventになります。既存の環境capture方式は変更していません。
 
-force時は通常のEvalResult経路を使います。NoValueなら親演算を実行せず、正常値とpendingが共存するなら両方を保持します。builtinとユーザー関数の契約検証を通した後、今回のforce中に新しく生じたunresolved eventを、Thunkが保持する推論契約およびforce引数の公開Thunk型の潜在契約に照合します。契約外なら境界種別 `thunk`、境界名 `force` のFailureContractViolationとして停止し、既存eventを履歴へ残します。
+force時は通常のEvalResult経路を使います。NoValueなら親演算を実行せず、正常値とpendingが共存するなら両方を保持します。builtinとユーザー関数の契約検証を通した後、今回のforce中に新しく生じたunresolved eventを、Thunkが保持する宣言契約およびforce引数の公開Thunk型の潜在契約に照合します。契約外なら境界種別 `thunk`、境界名 `force` のFailureContractViolationとして停止し、既存eventを履歴へ残します。
 
 Phase 2.5 の builtin return 時の保存契約 subset 検査後も、この force 時の二重の failure 契約検証を維持します。Phase 3A では保存 metadata の契約超過を read / argument / force 開始時にも検出し、実 failure が出なくても停止します。その検証後に成功値だけを value contract で検査し、違反は `ExecutionResult.value_contract_violation` に記録します。FailureContractViolation と ValueContractViolation は別の診断です。
 

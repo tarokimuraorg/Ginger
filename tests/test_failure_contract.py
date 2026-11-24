@@ -180,10 +180,10 @@ func g() { f() }
             self.assertEqual(output(program), '0\n')
 
     def test_thunk_contract_validation_and_saved_force(self):
-        _, diags = checked("sig f(Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n"
-                           "func f(t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>) { return force(t) }")
+        _, diags = checked("sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nsig f(Thunk[DeferredDivision]) -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n"
+                           "func f(t: Thunk[DeferredDivision]) { return force(t) }")
         self.assertEqual(diags.items, [])
-        program, diags = checked("var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n"
+        program, diags = checked("sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))\n"
                                  "var x: Float = force(t)\n"
                                  "resolve x { DivideByZero { x = 0\nprint(0) } }")
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
@@ -191,7 +191,7 @@ func g() { f() }
 
     def test_thunk_return_type_still_checked(self):
         with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig f(Thunk[Float]<Never>) -> Int {}\nfunc f(t: Thunk[Float]<Never>) { return force(t) }")
+            checked("sigtype DeferredFloat() -> Float { failure { Never } }\nsig f(Thunk[DeferredFloat]) -> Int {}\nfunc f(t: Thunk[DeferredFloat]) { return force(t) }")
 
     def test_custom_builtin_declarations_are_still_trusted(self):
         program, _ = checked("sig raw(Float,Float) -> Float { builtin core.float.div }\n"
@@ -204,16 +204,16 @@ func g() { f() }
 class ExistingRegressionTests(unittest.TestCase):
     def test_parameter_and_return_typerefs(self):
         checked("sig identity(Int) -> Int {}\nfunc identity(x: Int) { return x }")
-        checked("sig identity(Thunk[Int]<Never>) -> Thunk[Int]<Never> {}\n"
-                "func identity(x: Thunk[Int]<Never>) { return x }")
-        with self.assertRaisesRegex(TypecheckError, "return type mismatch"):
-            checked("sig identity(Thunk[Int]<Never>) -> Thunk[Float]<Never> {}\n"
-                    "func identity(x: Thunk[Int]<Never>) { return x }")
+        checked("sigtype DeferredInt() -> Int { failure { Never } }\nsig identity(Thunk[DeferredInt]) -> Thunk[DeferredInt] {}\n"
+                "func identity(x: Thunk[DeferredInt]) { return x }")
+        with self.assertRaisesRegex(TypecheckError, "type mismatch"):
+            checked("sigtype DeferredInt() -> Int { failure { Never } }\nsigtype DeferredFloat() -> Float { failure { Never } }\nsig identity(Thunk[DeferredInt]) -> Thunk[DeferredFloat] {}\n"
+                    "func identity(x: Thunk[DeferredInt]) { return x }")
 
     def test_parameter_order_structure_and_declaration_order(self):
         checked("sig f(Int,Float) -> Unit {}\nfunc f(a: Int,b: Float) {}")
         for src in ("sig f(Int,Float) -> Unit {}\nfunc f(a: Float,b: Int) {}",
-                    "sig f(Thunk[Int]<Never>) -> Unit {}\nfunc f(a: Thunk[Float]<Never>) {}",
+                    "sigtype DeferredInt() -> Int { failure { Never } }\nsigtype DeferredFloat() -> Float { failure { Never } }\nsig f(Thunk[DeferredInt]) -> Unit {}\nfunc f(a: Thunk[DeferredFloat]) {}",
                     "sig f(Int) -> Unit {}\nfunc f(a: Int,b: Int) {}"):
             with self.subTest(src=src), self.assertRaisesRegex(TypecheckError, "positional types"):
                 checked(src)
@@ -223,9 +223,9 @@ class ExistingRegressionTests(unittest.TestCase):
     def test_thunk_force_arity_and_expected_type(self):
         for call in ("thunk()", "thunk(1,2)", "force()", "force(1,2)"):
             with self.subTest(call=call), self.assertRaisesRegex(TypecheckError, "argument count mismatch"):
-                checked(f"var t: Thunk[Int]<Never> = {call}")
+                checked(f"sigtype DeferredInt() -> Int {{ failure {{ Never }} }}\nvar t: Thunk[DeferredInt] = {call}")
         with self.assertRaisesRegex(TypecheckError, "type mismatch"):
-            checked("var t: Thunk[Float]<Never> = thunk(1.0)\nvar x: Int = force(t)")
+            checked("sigtype DeferredFloat() -> Float { failure { Never } }\nvar t: Thunk[DeferredFloat] = thunk(1.0)\nvar x: Int = force(t)")
         with self.assertRaisesRegex(TypecheckError, "force expects Thunk"):
             checked("var x: Int = force(1)")
 

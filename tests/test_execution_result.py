@@ -121,7 +121,7 @@ class ExecutionResultTests(unittest.TestCase):
     def test_frozen_binding_records_do_not_deep_freeze_opaque_payload(self):
         payload = []
         with patch.dict(BUILTINS, {'test.make': lambda: payload}):
-            result, _ = self.capture('sig make() -> Box[Int] { builtin test.make }\n'
+            result, _ = self.capture('type Box\nsig make() -> Box[Int] { builtin test.make }\n'
                                      'var x: Box[Int] = make()')
         cell = result.environment['x']
         for field, value in [('value', []), ('typ', None), ('mutable', False)]:

@@ -106,11 +106,11 @@ class CallInferenceTests(unittest.TestCase):
     def test_unresolved_variables_not_filled_from_any_outer_boundary(self):
         for declaration, call in [('sig make() -> T {}', 'make()'),
                                   ('sig strange(Int) -> T {}', 'strange(1)'),
-                                  ('sig make() -> SomeType[T] {}', 'make()')]:
+                                  ('type SomeType\nsig make() -> SomeType[T] {}', 'make()')]:
             for context in [f'var x: Int = {call}', f'print({call})',
                             f'sig f() -> Int {{}}\nfunc f() {{ return {call} }}',
                             f'sig f() -> Int {{}}\nfunc f() {{ let x: Int = {call}\nreturn x }}',
-                            f'var t: Thunk[Int]<Never> = thunk({call})']:
+                            f'sigtype DeferredInt() -> Int {{ failure {{ Never }} }}\nvar t: Thunk[DeferredInt] = thunk({call})']:
                 with self.subTest(declaration=declaration, context=context), self.assertRaisesRegex(
                         TypecheckError, "cannot determine type variable 'T'"):
                     checked(declaration + '\n' + context)
@@ -138,34 +138,34 @@ class CallInferenceTests(unittest.TestCase):
                 checked(FIRST + f'print(first({args}))')
 
     def test_recursive_typeref_and_thunk_runtime(self):
-        source = ('sig unwrap(Thunk[T]<Never>) -> T {}\n'
-                  'func unwrap(t: Thunk[T]<Never>) { return force(t) }\n'
-                  'print(unwrap(thunk(1)))\nprint(unwrap(thunk(2i64)))')
-        self.assertEqual(output(checked(source)[0]), '1\n2\n')
+        source = ('sigtype Deferred() -> Int64 {}\n'
+                  'sig unwrap(Thunk[Deferred]) -> Int64 {}\n'
+                  'func unwrap(t: Thunk[Deferred]) { return force(t) }\n'
+                  'print(unwrap(thunk(2i64)))')
+        self.assertEqual(output(checked(source)[0]), '2\n')
         program, syms, _, _ = self.annotated(source)
         unwrap = program.items[-1].expr.args[0].expr
-        self.assertEqual(syms.resolved_calls[id(unwrap)].parameter_types,
-                         (TypeRef('Thunk', (TypeRef('Int64'),), latent_failures=EMPTY_FAILURES),))
-        generic = ('sig extract(SomeType[T]) -> T { builtin test.extract }\n'
+        self.assertEqual(syms.resolved_calls[id(unwrap)].parameter_types[0].sigtype_name, 'Deferred')
+        generic = ('type SomeType\nsig extract(SomeType[T]) -> T { builtin test.extract }\n'
                    'sig box() -> SomeType[Int] { builtin test.box }\n')
         with patch.dict(BUILTINS, {'test.extract': lambda box: box[0], 'test.box': lambda: (1,)}):
             program, syms, _, _ = self.annotated(generic + 'var x: Int = extract(box())')
             self.assertEqual(syms.resolved_calls[id(program.items[-1].expr)].type_bindings['T'], TypeRef('Int'))
             with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-                checked(generic + 'var x: Int = extract(thunk(1))')
+                checked(generic + 'sigtype D() -> Int {} var t: Thunk[D] = thunk(1) var x: Int = extract(t)')
 
     def test_recursive_matching_does_not_add_constructor_variance(self):
-        prefix = ('sig pair(Thunk[T]<Never>,T) -> T {}\n'
-                  'func pair(a: Thunk[T]<Never>,b: T) { return b }\n')
+        prefix = ('sigtype D() -> Float {} sig pair(Thunk[D],T) -> T {}\n'
+                  'func pair(a: Thunk[D],b: T) { return b }\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix + 'var x: Float = pair(thunk(1),2.0)')
         checked(prefix + 'var x: Float = pair(thunk(1.0),2)')
-        prefix = ('sig take(Thunk[T]<Never>) -> T {}\n'
-                  'func take(t: Thunk[T]<Never>) { return force(t) }\n')
+        prefix = ('sigtype D() -> Int {} sig take(Thunk[D]) -> Int {}\n'
+                  'func take(t: Thunk[D]) { return force(t) }\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(prefix + 'var x: Int = take(thunk(add(1,2)))')
-        checked('sig take(Thunk[T]<IntegerOverflow>) -> T { failure { IntegerOverflow } }\n'
-                'func take(t: Thunk[T]<IntegerOverflow>) { return force(t) }\n'
+        checked('sigtype D() -> Int { failure { IntegerOverflow } } sig take(Thunk[D]) -> Int { failure { IntegerOverflow } }\n'
+                'func take(t: Thunk[D]) { return force(t) }\n'
                 'var x: Int = take(thunk(1))')
 
     def test_user_function_parameters_are_coerced_to_resolved_type(self):
@@ -185,10 +185,10 @@ class CallInferenceTests(unittest.TestCase):
         source = IDENTITY + ('sig relay(U) -> U {}\nfunc relay(x: U) { let y: U = identity(x)\nreturn y }\n'
                              'print(add(identity(1),2))\nprint(relay(2.0))\nprint(relay(3i64))')
         self.assertEqual(output(checked(source)[0]), '3\n2.0\n3\n')
-        source = ('sig wrap(T) -> Thunk[T]<Never> {}\n'
-                  'func wrap(x: T) { let y: T = x\nreturn thunk(y) }\n'
-                  'print(force(wrap(1)))\nprint(force(wrap(2.0)))')
-        self.assertEqual(output(checked(source)[0]), '1\n2.0\n')
+        source = ('sigtype D() -> Float {} sig wrap(T,Float) -> Thunk[D] {}\n'
+                  'func wrap(tag: T,x: Float) { let y: Float = x\nreturn thunk(y) }\n'
+                  'print(force(wrap(1,1.0)))\nprint(force(wrap(2.0,2.0)))')
+        self.assertEqual(output(checked(source)[0]), '1.0\n2.0\n')
 
     def test_integer_overflow_effect_and_resolve_eligibility(self):
         program, diags = checked(f'var x: Int = {INT_MAX}\nvar y: Int = add(x,1)\n'
@@ -223,15 +223,15 @@ class CallInferenceTests(unittest.TestCase):
         self.assertEqual(output(program), '3.0\n')
 
     def test_thunk_latent_effect_uses_selected_implementation(self):
-        source = ('let a: Thunk[Int]<IntegerOverflow> = thunk(add(1,2))\n'
-                  'let b: Thunk[Float]<FloatOverflow> = thunk(add(1,2.0))\n')
+        source = ('sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\nsigtype CheckedFloat() -> Float { failure { FloatOverflow } }\nlet a: Thunk[CheckedInt] = thunk(add(1,2))\n'
+                  'let b: Thunk[CheckedFloat] = thunk(add(1,2.0))\n')
         program, _, bindings, diags = self.annotated(source)
         self.assertEqual(bindings['a'].ty.latent_failures, OVERFLOW)
         self.assertEqual(bindings['b'].ty.latent_failures, FLOAT_OVERFLOW)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked('var t: Thunk[Float]<IntegerOverflow> = thunk(add(1,2))')
+            checked('sigtype DeferredFloatIntegerOverflow() -> Float { failure { IntegerOverflow } }\nvar t: Thunk[DeferredFloatIntegerOverflow] = thunk(add(1,2))')
 
     def test_structural_matching_and_body_are_not_inference_sources(self):
         for source in ['sig f(T) -> T {}\nfunc f(x: U) { return x }',

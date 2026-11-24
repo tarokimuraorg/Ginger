@@ -17,15 +17,18 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-failureset Calculation { 
+sigtype DeferredFloatCalculation() -> Float { failure { Calculation } }
+sigtype DeferredIntDivideByZero() -> Int { failure { DivideByZero } }
+
+failureset Calculation {
     DivideByZero,
     FloatOverflow,
     FloatUnderflow,
-    IOErr 
+    IOErr
 }
 
-var narrow: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
-var wide: Thunk[Float]<Calculation> = narrow
+var narrow: Thunk[DeferredFloatCalculation] = thunk(div(1.0,0.0))
+var wide: Thunk[DeferredFloatCalculation] = narrow
 
 wide = thunk(1.0)
 
@@ -34,22 +37,22 @@ wide = thunk(1.0)
 
 var x: Float = force(wide)
 
-resolve x { 
-    IOErr { 
-        x = 99 
-    } 
+resolve x {
+    IOErr {
+        x = 99
+    }
 }
 
 print(x)
 
-sig make() -> Thunk[Int]<DivideByZero> { 
-    failure { 
-        IOErr 
-    } 
+sig make() -> Thunk[DeferredIntDivideByZero] {
+    failure {
+        IOErr
+    }
 }
 
-func make() { 
-    return thunk(2) 
+func make() {
+    return thunk(2)
 }
 
 print(force(make()))

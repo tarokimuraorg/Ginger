@@ -1,5 +1,5 @@
 // Purpose:
-// parameterized type identity は latent failure と独立
+// TypeGroup は Thunk の契約名ごとに所属を判定
 // Based on tests (source-visible behavior; host/internal assertions remain unit tests):
 // tests/test_concrete_identity_positions.py::test_concrete_and_open_world_targets_remain_valid
 // tests/test_parameterized_type_identity.py::test_distinct_registers_allowed_but_exact_duplicate_rejected
@@ -18,9 +18,15 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+sigtype DeferredInt() -> Int { failure { Never } }
+
+type Box
+type Pair
+type MissingType
+
 typegroup Mark {}
-register Mark { Thunk[Int]<Never> }
-typegroup IntThunks { Thunk[Int]<Never> }
+register Mark { Thunk[DeferredInt] }
+typegroup IntThunks { Thunk[DeferredInt] }
 
 sig keep(T) -> T { 
     require T in Mark
@@ -29,8 +35,13 @@ sig keep(T) -> T {
 
 func keep(x: T) { return x }
 
-print(force(keep(thunk(1))))
-print(force(keep(thunk(add(1,2)))))
+var one: Thunk[DeferredInt] = thunk(1)
+print(force(keep(one)))
+sigtype Checked() -> Int { failure { IntegerOverflow } }
+register Mark { Thunk[Checked] }
+register IntThunks { Thunk[Checked] }
+var sum: Thunk[Checked] = thunk(add(1,2))
+print(force(keep(sum)))
 
 register Mark { Box[Int] }
 register Mark { Box[Float] }

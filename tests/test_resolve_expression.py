@@ -86,9 +86,9 @@ print(add(calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
                 'let y: Float = resolve x { DivideByZero { return 0.0 } }')
 
     def test_thunk_and_function_return_in_handler(self):
-        _, context, out = self.run_source('sig f() -> Float { failure { Never } }\n'
+        _, context, out = self.run_source('sigtype DeferredDivision() -> Float { failure { DivideByZero,FloatOverflow,FloatUnderflow } }\nsig f() -> Float { failure { Never } }\n'
             'func f() { return 7.0 }\n'
-            'let t: Thunk[Float]<DivideByZero,FloatOverflow,FloatUnderflow> = '
+            'let t: Thunk[DeferredDivision] = '
             'thunk(resolve div(1.0,0.0) { DivideByZero { return f() } })\nprint(force(t))')
         self.assertEqual(out, '7.0\n')
         self.assertEqual(context.get_event(1).status, FailureStatus.RESOLVED)

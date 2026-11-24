@@ -85,13 +85,13 @@ class UnaryMinusTests(unittest.TestCase):
     def test_invalid_types_match_neg_diagnostics(self):
         # Bool literals do not exist yet; eq supplies a real Bool value.
         for typ, expr in [('Bool', 'eq(1, 1)'), ('Ordering', 'cmp(1, 2)'),
-                          ('Unit', 'print(1)'), ('Thunk[Int]<Never>', 'thunk(1)'),
+                          ('Unit', 'print(1)'), ('Thunk[Deferred]', 't'),
                           ('Int', 'true')]:
             messages = []
             for form in [f'-{expr}', f'neg({expr})']:
                 with self.subTest(form=form):
                     with self.assertRaises(TypecheckError) as raised:
-                        checked(f'var result: {typ} = {form}')
+                        checked('sigtype Deferred() -> Int {} var t: Thunk[Deferred] = thunk(1) ' + f'var result: {typ} = {form}')
                     messages.append(str(raised.exception))
             self.assertEqual(*messages)
 
@@ -141,7 +141,7 @@ class UnaryMinusTests(unittest.TestCase):
         self.assertEqual(output(program), '8\n')
 
     def test_thunk_preserves_latent_and_force_failures(self):
-        prefix = FLOAT_IDENTITY + 'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk((-(div(1.0, 0.0))))\n'
+        prefix = FLOAT_IDENTITY + 'sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredDivision] = thunk((-(div(1.0, 0.0))))\n'
         program, diags = checked(prefix)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
@@ -151,7 +151,7 @@ class UnaryMinusTests(unittest.TestCase):
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '9\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(prefix.replace('Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>', 'Thunk[Float]<Never>'))
+            checked(prefix.replace('failure { DivideByZero, FloatOverflow, FloatUnderflow }', 'failure { Never }'))
 
     def test_arithmetic_precedence_and_associativity(self):
         for expr, expected in [('(1 + 2 * 3)', '7'), ('((1 + 2) * 3)', '9'),

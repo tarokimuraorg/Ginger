@@ -15,5 +15,8 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-guarantee G { op(self: Self, other: Thunk[Self]<Never>) -> Self }
-sig op(T,Thunk[T]<IntegerOverflow>) -> T { require T guarantees G }
+sigtype DeferredSelf() -> Int { failure { Never } }
+sigtype DeferredTIntegerOverflow() -> Int { failure { IntegerOverflow } }
+
+guarantee G { op(self: Self, other: Thunk[DeferredSelf]) -> Self }
+sig op(T,Thunk[DeferredTIntegerOverflow]) -> T { require T guarantees G }

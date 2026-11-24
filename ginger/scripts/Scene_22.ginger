@@ -10,15 +10,17 @@
 // Expected normal failure:
 // none
 // Expected fatal:
-// TypecheckError
-// cannot combine 'Never' with other failures in Thunk
-// Expected completion: stops at TypecheckError
+// SyntaxError
+// cannot combine 'Never' with other failures
+// Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig bad(Thunk[Int]<IntegerOverflow,Never>) -> Int {
+sigtype CheckedIntNever() -> Int { failure { IntegerOverflow,Never } }
+
+sig bad(Thunk[CheckedIntNever]) -> Int {
 }
 
-func bad(t:Thunk[Int]<IntegerOverflow,Never>) {
+func bad(t:Thunk[CheckedIntNever]) {
     return force(t)
 }

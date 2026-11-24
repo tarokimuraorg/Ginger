@@ -42,9 +42,6 @@ def same_type(a: TypeRef, b: TypeRef) -> bool:
     return _same_type(a, b)
 
 def compatible(actual, declared):
-    if actual.name == declared.name == "Thunk":
-        return (same_type(actual.args[0], declared.args[0])
-                and not uncovered_contract(latent_contract(actual), latent_contract(declared)).potential_failures())
     return same_type(actual, declared) or can_widen(actual, declared)
 
 
@@ -83,7 +80,7 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
         typ = syms.expression_types.get(id(arg))
         if typ is None:
             typ = type_expr(arg, None, env, syms)
-        return union_contracts(symbolic_effect_expr(arg, env, syms), latent_contract(typ))
+        return union_contracts(symbolic_effect_expr(arg, env, syms), syms.sigtypes[typ.sigtype_name].failures)
 
     # sig は引数名がないので named args 禁止
     if call.arg_style != "pos":
@@ -130,14 +127,13 @@ def symbolic_effect_call(call: CallExpr, env: Dict[str, Binding], syms) -> Failu
 # =====================
 
 def resolve_typeref(t: TypeRef, tmap: Dict[str, TypeRef], typegroups=None) -> TypeRef:
+    if t.sigtype_name is not None:
+        return t
     if is_typevar(t.name):
         if t.name not in tmap:
             raise TypecheckError(f"cannot determine type variable '{t.name}'")
         return tmap[t.name]
-    latent = substitute_contract(latent_contract(t), tmap, typegroups or {})
-    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, typegroups) for a in t.args),
-                   latent_failures=latent.unconditional if t.latent_failures is not None else None,
-                   latent_conditions=latent.conditional)
+    return TypeRef(t.name, tuple(resolve_typeref(a, tmap, typegroups) for a in t.args))
 
 # =====================
 # Typechecking
@@ -282,7 +278,7 @@ def typecheck_func_bodies(syms) -> None:
 
         def check_local(st, env):
             if isinstance(st, ReturnStmt):
-                rt = type_expr(st.expr, expected=None, env=env, syms=syms, tv_guars=tv_guars)
+                rt = type_expr(st.expr, expected=sig.ret if sig.ret.name == "Thunk" else None, env=env, syms=syms, tv_guars=tv_guars)
                 ret_types.append(sig.ret if can_widen(rt, sig.ret) else rt)
             elif isinstance(st, ExprStmt):
                 type_expr(st.expr, expected=None, env=env, syms=syms, tv_guars=tv_guars)
@@ -460,7 +456,7 @@ def _type_expr(expr: Expr, expected: Optional[TypeRef], env: Dict[str, Binding],
         tv_guars = {}
 
     if isinstance(expr, ResolveExpr):
-        typ = type_expr(expr.expr, None, env, syms, tv_guars)
+        typ = type_expr(expr.expr, expected, env, syms, tv_guars)
         seen = set()
         for handler in expr.handlers:
             try:
@@ -578,10 +574,16 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             )
         arg_expr = call.args[0].expr
 
-        t = type_expr(arg_expr, None, env, syms, tv_guars)
-        contract = symbolic_effect_expr(arg_expr, env, syms)
-        return TypeRef("Thunk", (t,), latent_failures=contract.unconditional,
-                       latent_conditions=contract.conditional)
+        if expected is None or not expected.sigtype_name:
+            raise TypecheckError("thunk requires an explicit Thunk[SigTypeName] context")
+        named = syms.sigtypes[expected.sigtype_name]
+        result = type_expr(arg_expr, named.declaration.ret, env, syms, tv_guars)
+        if not same_type(result, named.declaration.ret):
+            raise TypecheckError(f"Thunk result type mismatch: expected {named.declaration.ret}, got {result}")
+        effect = symbolic_effect_expr(arg_expr, env, syms)
+        if uncovered_contract(effect, named.failures).potential_failures():
+            raise TypecheckError(f"type mismatch: Thunk expression exceeds failure contract '{expected.sigtype_name}'")
+        return expected
 
     # =====================
     # special: force
@@ -597,7 +599,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
         if t.name != "Thunk":
             raise TypecheckError("force expects Thunk")
 
-        result_type = t.args[0]
+        result_type = syms.sigtypes[t.sigtype_name].declaration.ret
         if expected is not None and not compatible(result_type, expected):
             raise TypecheckError(f"type mismatch: expected {expected}, got {result_type}")
 
@@ -623,8 +625,10 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
             f"expected {len(sig.params)}, got {len(call.args)}"
         )
 
-    # Infer every argument independently; outer expected types are not evidence.
-    actual_types = [type_expr(a.expr, None, env, syms, tv_guars) for a in call.args]
+    # Explicit Thunk parameters supply the contract for creation. Generic
+    # bindings still come exclusively from the types of the actual arguments.
+    actual_types = [type_expr(a.expr, formal if formal.name == "Thunk" else None, env, syms, tv_guars)
+                    for a, formal in zip(call.args, sig.params)]
     evidence: Dict[str, list[TypeRef]] = {}
     for formal, actual in zip(sig.params, actual_types):
         try:
@@ -677,8 +681,7 @@ def type_call(call: CallExpr,expected: Optional[TypeRef],env: Dict[str, Binding]
                     f"{concrete} does not guarantee {req.guarantee_name}"
                 )
 
-    # Validate substituted contracts, including invariant constructor arguments
-    # and the existing Thunk latent-failure upper bound.
+    # Validate substituted parameters, including nominal Thunk contracts.
     for actual, parameter in zip(actual_types, parameter_types):
         if not compatible(actual, parameter):
             if call.callee == "div":

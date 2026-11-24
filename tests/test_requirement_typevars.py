@@ -43,11 +43,11 @@ class RequirementTypeVariableTests(unittest.TestCase):
 
     def test_nested_parameter_variable(self):
         compile('guarantee G { witness(self: Self) -> Self }\n'
-                'sig extract(Box[Box[T]]) -> T { require T guarantees G }')
+                'type Box\nsig extract(Box[Box[T]]) -> T { require T guarantees G }')
 
     def test_nested_parameter_binding(self):
         source = ('typegroup G {}\nregister G { Int }\n'
-                  'sig box() -> Box[Box[Int]] { builtin test.box }\n'
+                  'type Box\nsig box() -> Box[Box[Int]] { builtin test.box }\n'
                   'sig keep(Box[Box[T]]) -> Box[Box[T]] { require T in G }\n'
                   'func keep(x: Box[Box[T]]) { return x }\n'
                   'var x: Box[Box[Int]] = keep(box())')
@@ -62,14 +62,14 @@ class RequirementTypeVariableTests(unittest.TestCase):
 
     def test_thunk_parameter_binding(self):
         source = ('typegroup G {}\nregister G { Int }\n'
-                  'sig use(Thunk[T]<Never>) -> T { require T in G }\n'
-                  'func use(x: Thunk[T]<Never>) { return force(x) }\n'
-                  'var x: Int = use(thunk(1))')
+                  'sigtype Deferred() -> Int {}\nsig use(T,Thunk[Deferred]) -> Int { require T in G }\n'
+                  'func use(tag: T,x: Thunk[Deferred]) { return force(x) }\n'
+                  'var x: Int = use(1,thunk(1))')
         self.assertEqual(run(source).environment['x'].value, 1)
 
     def test_latent_failure_name_is_not_a_type_variable(self):
-        self.assert_rejected('failureset U { IntegerOverflow }\nguarantee G { witness(self: Self) -> Self }\n'
-                             'sig op(Thunk[Int]<U>) -> Int { require U guarantees G }',
+        self.assert_rejected('sigtype DeferredIntU() -> Int { failure { U } }\nfailureset U { IntegerOverflow }\nguarantee G { witness(self: Self) -> Self }\n'
+                             'sig op(Thunk[DeferredIntU]) -> Int { require U guarantees G }',
                              variable='U')
 
     def test_variable_constructor_stops_inference_traversal(self):

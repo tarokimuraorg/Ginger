@@ -20,8 +20,10 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+sigtype CheckedInt() -> Int { failure { IntegerOverflow } }
+
 var x: Int = 1
-var t1: Thunk[Int]<IntegerOverflow> = thunk(x)
+var t1: Thunk[CheckedInt] = thunk(x)
 x = 2
 print(force(t1))
 print(x)
@@ -40,14 +42,14 @@ print(force(t1))
 //    }
 //}
 
-// エラー：ginger.errors.TypecheckError: Thunk requires a result type and explicit failure contract
+// エラー：ginger.errors.TypecheckError: unknown sigtype 'Int'
 //var t2: Thunk[Int] = thunk(10)
 //print(t2)
 
-// エラー：ginger.errors.TypecheckError: Thunk requires a result type and explicit failure contract
+// エラー：ginger.errors.TypecheckError: unknown sigtype 'Int'
 //var t3: Thunk[Int] = thunk(1)
 //print(force(t3))
 
-// エラー：ginger.errors.TypecheckError: Thunk expects one type argument; write failure contract as Thunk[T]<...>
+// エラー：ginger.errors.TypecheckError: 契約名を1つ指定します
 //var t4: Thunk[Int, Never] = thunk(1)
 //print(force(t4))

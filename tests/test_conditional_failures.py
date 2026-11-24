@@ -145,8 +145,8 @@ class ConditionalFailureTests(unittest.TestCase):
 
     def test_thunk_uses_instantiated_latent_failures_and_remains_nonmemoized(self):
         source = (addition('(a + b)') +
-                  f'var intThunk: Thunk[Int]<IntegerOverflow> = thunk(addTwo({INT_MAX},1))\n'
-                  'var floatThunk: Thunk[Float]<FloatOverflow> = thunk(addTwo(1.0,2.0))\n')
+                  f'sigtype CheckedInt() -> Int {{ failure {{ IntegerOverflow }} }}\nsigtype CheckedFloat() -> Float {{ failure {{ FloatOverflow }} }}\nvar intThunk: Thunk[CheckedInt] = thunk(addTwo({INT_MAX},1))\n'
+                  'var floatThunk: Thunk[CheckedFloat] = thunk(addTwo(1.0,2.0))\n')
         program, syms, env, diagnostics = self.annotated(source)
         self.assertEqual(env['intThunk'].ty.latent_failures, OVERFLOW)
         self.assertEqual(env['floatThunk'].ty.latent_failures, FLOAT_OVERFLOW)
@@ -159,41 +159,13 @@ class ConditionalFailureTests(unittest.TestCase):
         self.assertEqual([e.failure_id for e in context.failure_history],
                          [FailureId.IntegerOverflow, FailureId.IntegerOverflow])
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(addition() + 'var t: Thunk[Int]<Never> = thunk(addTwo(1,2))')
+            checked(addition() + 'sigtype DeferredInt() -> Int { failure { Never } }\nvar t: Thunk[DeferredInt] = thunk(addTwo(1,2))')
 
-    def test_generic_force_thunk_preserves_symbolic_and_runtime_contracts(self):
-        for arithmetic in ['add(a,b)', '(a + b)']:
-            body = f'force(thunk({arithmetic}))'
-            source = addition(body) + f'var x: Int = addTwo({INT_MAX},1)\nvar y: Float = addTwo(1.0,2.0)'
-            program, syms, _, _ = self.annotated(source)
-            force = syms.funcs['addTwo'].body.stmts[0].expr
-            thunk = force.args[0].expr
-            latent = syms.expression_types[id(thunk)]
-            self.assertEqual(latent.args, (TypeRef('T'),))
-            self.assertEqual(latent.latent_failures, EMPTY_FAILURES)
-            self.assertEqual(latent.latent_conditions, frozenset({BOUNDED_OVERFLOW, FINITE_OVERFLOW}))
-            env = {'a': Binding(TypeRef('T'), False), 'b': Binding(TypeRef('T'), False)}
-            self.assertEqual(symbolic_effect_expr(force, env, syms), CONDITIONAL_OVERFLOW)
-            self.assertEqual(symbolic_effect_expr(thunk, env, syms), FailureContract())
-            created = []
-            def observe(expr, env, syms, outer=None):
-                result = eval_call(expr, env, syms, outer)
-                if expr.callee == 'thunk':
-                    created.append(result.value_result.value)
-                return result
-            with patch('ginger.eval.eval_call', side_effect=observe):
-                result = eval_program(program)
-            self.assertIsNone(result.contract_violation)
-            self.assertIsInstance(result.environment['x'], UninitializedBinding)
-            self.assertEqual(result.environment['y'].value, 3.0)
-            self.assertEqual([event.failure_id for event in result.failure_history], [FailureId.IntegerOverflow])
-            self.assertEqual([thunk.potential_failure_contract for thunk in created], [OVERFLOW, FLOAT_OVERFLOW])
-            self.assertTrue(all(isinstance(thunk, ThunkValue) for thunk in created))
-            self.assertTrue(all(isinstance(thunk.potential_failure_contract, frozenset) for thunk in created))
-            self.assertEqual([f.declared_failure_contract for f in list(result.call_frames.values())[1:]],
-                             [OVERFLOW, FLOAT_OVERFLOW])
-            with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
-                checked(addition(body, contract='failure { Never }'))
+    def test_generic_thunk_requires_a_concrete_contract(self):
+        for body in ['add(a,b)', '(a + b)']:
+            with self.subTest(body=body), self.assertRaisesRegex(TypecheckError, 'fully concrete'):
+                checked('sigtype Deferred() -> T {} ' + addition(body).replace(
+                    'return ' + body, 'let saved: Thunk[Deferred] = thunk(' + body + ') return force(saved)'))
 
     def test_nested_generic_condition_substitutes_u_to_t(self):
         source = ('sig inner(U,U) -> U { require U guarantees Addable '
@@ -404,7 +376,7 @@ class ConditionalFailureTests(unittest.TestCase):
         call = program.items[-1].expr
         self.assertEqual(syms.resolved_calls[id(call)].type_bindings, {'T': TypeRef('Int')})
         self.assertEqual(effect_expr(call, env, syms), OVERFLOW)
-        source = (addition() + f'var t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'
+        source = (addition() + f'sigtype CheckedInt() -> Int {{ failure {{ IntegerOverflow }} }}\nvar t: Thunk[CheckedInt] = thunk(add({INT_MAX},1))\n'
                   'var x: Float = addTwo(toFloat(force(t)),2.0)\n'
                   'resolve x { IntegerOverflow { x = 0 } }')
         program, syms, env, diagnostics = self.annotated(source)

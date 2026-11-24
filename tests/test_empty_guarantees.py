@@ -95,12 +95,12 @@ class EmptyGuaranteeTests(unittest.TestCase):
     FloatOverflow when T in FiniteArithmetic,
     FloatUnderflow when T in FiniteArithmetic,
 }
-sig delayed(T,T) -> Thunk[T]<AddFailures(T)> {
-    require T guarantees Addable
-}
-func delayed(a: T,b: T) { return thunk(a + b) }
-var integer: Int = force(delayed(1,2))
-var floating: Float = force(delayed(1.0,2.0))
+sigtype IntegerSum() -> Int { failure { AddFailures(Int) } }
+sigtype FloatSum() -> Float { failure { AddFailures(Float) } }
+var i: Thunk[IntegerSum] = thunk(1 + 2)
+var f: Thunk[FloatSum] = thunk(1.0 + 2.0)
+var integer: Int = force(i)
+var floating: Float = force(f)
 ''')
         self.assertEqual(result.environment['integer'].value, 3)
         self.assertEqual(result.environment['floating'].value, 3.0)

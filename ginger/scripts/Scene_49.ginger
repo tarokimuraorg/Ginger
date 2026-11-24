@@ -18,6 +18,8 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+sigtype CheckedInt() -> Int { failure { IntegerOverflow } }
+
 sig identity(Float) -> Float {
     failure {FloatOverflow, IntegerOverflow}
 }
@@ -36,7 +38,7 @@ resolve widened {
 
 print(widened)
 
-var t: Thunk[Int]<IntegerOverflow> = thunk(add(9007199254740991,1))
+var t: Thunk[CheckedInt] = thunk(add(9007199254740991,1))
 var x: Float = identity(add(toFloat(force(t)),2.0))
 
 resolve x { 

@@ -23,13 +23,15 @@
 //    return force(t)
 //}
 
-sig f(Thunk[Int]<IntegerOverflow>) -> Int {
+sigtype CheckedInt() -> Int { failure { IntegerOverflow } }
+
+sig f(Thunk[CheckedInt]) -> Int {
     failure { IntegerOverflow }
 }
 
-func f(t: Thunk[Int]<IntegerOverflow>) {
+func f(t: Thunk[CheckedInt]) {
     return force(t)
 }
 
-var a: Thunk[Int]<IntegerOverflow> = thunk(3)
+var a: Thunk[CheckedInt] = thunk(3)
 print(f(a))

@@ -12,7 +12,9 @@ from test_failure_contract import checked, recorded
 
 IDENTITY = 'sig identity(Float) -> Float {}\nfunc identity(x: Float) { return x }\n'
 IGNORE = 'sig ignore(Float) -> Float { failure { Never } }\nfunc ignore(x: Float) { return 10.0 }\n'
-THUNK = 'var t: Thunk[Int]<IntegerOverflow> = thunk(add(9007199254740991,1))\n'
+CONTRACT = 'sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\n'
+BINDING = 'var t: Thunk[CheckedInt] = thunk(add(9007199254740991,1))\n'
+THUNK = CONTRACT + BINDING
 FAILED = 'add(toFloat(force(t)),2.0)'
 DIV_FAILURES = 'DivideByZero,FloatOverflow,FloatUnderflow'
 
@@ -137,8 +139,8 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         self.assert_events(context)
 
     def test_snapshot_read_in_same_frame_remains_fatal(self):
-        source = ('sig capture(Float) -> Float {}\nfunc capture(x: Float) {\n'
-                  'var t: Thunk[Float]<Never> = thunk(x)\nreturn force(t) }\n'
+        source = ('sigtype DeferredFloat() -> Float { failure { Never } }\nsig capture(Float) -> Float {}\nfunc capture(x: Float) {\n'
+                  'var t: Thunk[DeferredFloat] = thunk(x)\nreturn force(t) }\n'
                   'var result: Float = capture(div(1.0,0.0))')
         context = RuntimeContext()
         with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
@@ -156,10 +158,10 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         self.assert_events(context, (1,))
 
     def test_resolved_snapshot_does_not_restore_value(self):
-        source = ('sig capture(Float) -> Thunk[Float]<Never> {}\nfunc capture(x: Float) {\n'
-                  'var t: Thunk[Float]<Never> = thunk(x)\n'
+        source = ('sigtype DeferredFloat() -> Float { failure { Never } }\nsig capture(Float) -> Thunk[DeferredFloat] {}\nfunc capture(x: Float) {\n'
+                  'var t: Thunk[DeferredFloat] = thunk(x)\n'
                   'var y: Float = resolve x { DivideByZero { return 3.0 } }\nreturn t }\n'
-                  'var t: Thunk[Float]<Never> = capture(div(1.0,0.0))\nprint(force(t))')
+                  'var t: Thunk[DeferredFloat] = capture(div(1.0,0.0))\nprint(force(t))')
         context = RuntimeContext()
         with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
             evaluator._eval_program_with_context(checked(source)[0], context)
@@ -173,7 +175,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         self.assert_events(context)
 
     def test_wrapper_ignore_never_is_rejected(self):
-        source = IGNORE + ('sig wrapper() -> Float { failure { Never } }\nfunc wrapper() {\n' + THUNK +
+        source = IGNORE + CONTRACT + ('sig wrapper() -> Float { failure { Never } }\nfunc wrapper() {\n' + BINDING +
             'var x: Float = ignore(toFloat(force(t)))\n'
             'resolve x { IntegerOverflow { x = 2.0 } }\nreturn x }\nvar result: Float = wrapper()')
         with self.assertRaisesRegex(TypecheckError, "func 'wrapper'.*IntegerOverflow"):

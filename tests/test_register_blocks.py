@@ -46,9 +46,9 @@ class RegisterBlockTests(unittest.TestCase):
         for blocks in ['register Mark { Int, Int }',
                        'register Mark { Int, Float }\nregister Mark { Int }',
                        'register Mark { Box[Int], Box[Int] }',
-                       'register Mark { Thunk[Int]<Never>, Thunk[Int]<IntegerOverflow> }']:
+                       'sigtype DeferredInt() -> Int { failure { Never } }\nsigtype CheckedInt() -> Int { failure { IntegerOverflow } }\nregister Mark { Thunk[DeferredInt], Thunk[DeferredInt] }']:
             with self.subTest(blocks=blocks), self.assertRaisesRegex(TypecheckError, 'duplicate register'):
-                compile('typegroup Mark {}\n' + blocks)
+                compile('type Box\ntypegroup Mark {}\n' + blocks)
 
     def test_unknown_destination(self):
         with self.assertRaisesRegex(TypecheckError, "unknown register target 'Missing'"):
@@ -95,7 +95,7 @@ class RegisterBlockTests(unittest.TestCase):
         group = 'typegroup Numbers { Int, Float }\n'
         registration = 'typegroup Mark {}\nregister Mark { Numbers }\n'
         for source in [group + registration, registration + group]:
-            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'not a concrete register target'):
+            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, "unknown type 'Numbers'"):
                 compile(source)
 
     def test_existing_catalog_format_and_duplicate_with_source(self):

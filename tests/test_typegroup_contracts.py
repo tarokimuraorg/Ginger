@@ -41,7 +41,7 @@ class TypeGroupContractTests(unittest.TestCase):
                        'typegroup Group {}\nregister Group { Int, Int }',
                        'register Group { Int }\ntypegroup Group { Int }',
                        'typegroup Group {}\nregister Group { Int }\nregister Group { Int }',
-                       'typegroup Group { Thunk[Int]<Never>, Thunk[Int]<IOErr> }']:
+                       'sigtype DeferredInt() -> Int { failure { Never } }\nsigtype DeferredIntIOErr() -> Int { failure { IOErr } }\ntypegroup Group { Thunk[DeferredInt], Thunk[DeferredInt] }']:
             with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'duplicate'):
                 self.symbols(source)
         with self.assertRaisesRegex(TypecheckError, 'unknown register target'):

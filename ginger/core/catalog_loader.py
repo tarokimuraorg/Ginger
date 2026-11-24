@@ -4,6 +4,7 @@ from typing import Any, List, Union
 
 from ginger.ast import (
     GuaranteeDecl,
+    TypeDecl,
     TypeGroupDecl,
     FuncSig,
     Param,
@@ -23,6 +24,8 @@ def _type_ref(obj: Any) -> TypeRef:
 
     if isinstance(obj, dict) and "ref" in obj and isinstance(obj["ref"], str):
         name = obj["ref"]
+        if name == "Thunk" and isinstance(obj.get("sigtype"), str) and not ({"args", "failures"} & obj.keys()):
+            return TypeRef(name, sigtype_name=obj["sigtype"])
         args = [_type_ref(a) for a in obj.get("args", [])]
         return TypeRef(name, tuple(args),
                        tuple(obj["failures"]) if "failures" in obj else None)
@@ -87,6 +90,11 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         raise ValueError("Catalog JSON root must be an object")
 
     out: List[Any] = []
+
+    for typ in data.get("types", []):
+        if not isinstance(typ, dict) or not isinstance(typ.get("name"), str):
+            raise ValueError(f"Invalid type declaration: {typ!r}")
+        out.append(TypeDecl(typ["name"], catalog=p.name, special=typ.get("special")))
 
     # --- guarantees ---
     for g in data.get("guarantees", []):

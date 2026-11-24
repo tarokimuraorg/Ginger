@@ -16,8 +16,10 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
+sigtype DeferredFloat() -> Float { failure { Never } }
+
 var a: Float = div(1.0,0.0)
-var t: Thunk[Float]<Never> = thunk(a)
+var t: Thunk[DeferredFloat] = thunk(a)
 a = 10.0
 print(force(t))
 print(999)

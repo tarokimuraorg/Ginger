@@ -81,7 +81,7 @@ class ComparisonApiTests(unittest.TestCase):
                 self.assertEqual(generic.environment['x'].value, direct.environment['x'].value)
 
     def test_custom_cmp_only_impl(self):
-        prefix = ('impl Box guarantees Ord { cmp = builtin test.compare }\n'
+        prefix = ('type Box\nimpl Box guarantees Ord { cmp = builtin test.compare }\n'
                   'sig make() -> Box { builtin test.make }\n')
         for name, ret in RETURNS.items():
             for generic, tag in itertools.product([False, True], ['Left', 'Flat', 'Right']):

@@ -8,7 +8,7 @@ class Token:
     pos: int
 
 KEYWORDS = {
-    "guarantee", "typegroup", "register", "impl",
+    "guarantee", "type", "typegroup", "register", "impl",
     "failureset", "func", "sig", "require","failure", "return",
     "guarantees", "in", "when",
     "builtin",

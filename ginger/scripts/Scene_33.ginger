@@ -22,6 +22,8 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+type Box
+
 sig keep(T) -> T { 
     require T in Mark
     require T in Mark

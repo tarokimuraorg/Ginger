@@ -354,7 +354,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_force_failure_can_be_resolved_from_initializer_binding(self):
         result, stdout = self.public_result(
-            'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n'
+            'sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nresolve x { DivideByZero { x = 0 } }\nprint(x)')
         self.assertEqual(stdout, '0.0\n')
         self.assertEqual(result.environment['x'].value, 0.0)
@@ -366,7 +366,7 @@ class ResolveTests(unittest.TestCase):
 
     def test_repeated_force_produces_distinct_binding_causes(self):
         result, _ = self.public_result(
-            'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))\n'
+            'sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))\n'
             'var x: Float = force(t)\nvar y: Float = force(t)\n'
             'resolve x { DivideByZero { x = 0 } }')
         self.assertEqual([e.event_id for e in result.failure_history], [1, 2])
@@ -596,7 +596,7 @@ class LatestWriteTests(unittest.TestCase):
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])
 
     def test_thunk_force_does_not_write_thunk_binding(self):
-        source = ('var t: Thunk[Int]<IntegerOverflow> = thunk(add(9007199254740991,1))\n'
+        source = ('sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\nvar t: Thunk[CheckedInt] = thunk(add(9007199254740991,1))\n'
                   'print(force(t))\n')
         result, _ = self.public_result(source)
         self.assertEqual(len(result.unresolved_events), 1)
@@ -605,7 +605,7 @@ class LatestWriteTests(unittest.TestCase):
 
     def test_force_assignment_can_recover(self):
         result, stdout = self.public_result(
-            'var t: Thunk[Int]<IntegerOverflow> = thunk(add(9007199254740991,1))\n'
+            'sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\nvar t: Thunk[CheckedInt] = thunk(add(9007199254740991,1))\n'
             'var x: Int = 10\nx = force(t)\n'
             'resolve x { IntegerOverflow { x = 1 } }\nprint(x)')
         self.assertEqual(stdout, '1\n')

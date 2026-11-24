@@ -4,10 +4,10 @@ from .ast import (
     ResolveExpr, HandlerReturnStmt,
     Program, TopLevel,
     TypeRef, Param, FuncSig,
-    FailureSetDecl, FailureSetRef, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
+    FailureSetDecl, FailureSetRef, GuaranteeDecl, TypeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    ConditionalFailureDecl, SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
+    ConditionalFailureDecl, SigDecl, SigRefDecl, SigTypeDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
     BlockStmt, ReturnStmt, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, Int64Lit, FloatLit,
     Arg, PosArg, NamedArg,
@@ -89,6 +89,12 @@ class Parser:
         # --- catalog/decl ---
         if self.match("KW", "guarantee"):
             return self.parse_guarantee()
+        if self.match("KW", "type"):
+            self.eat("KW", "type")
+            name = self.eat("IDENT").text
+            if not (self.match("NEWLINE") or self.match("EOF")):
+                raise SyntaxError("type declaration expects a single name")
+            return TypeDecl(name)
         if self.match("KW", "typegroup"):
             return self.parse_typegroup()
         if self.match("KW", "register"):
@@ -99,6 +105,8 @@ class Parser:
             return self.parse_func()
         if self.match("KW", "sig"):
             return self.parse_sig()
+        if self.match("IDENT", "sigtype") and self.toks[self.i + 1].kind == "IDENT":
+            return self.parse_sig(named_contract=True)
         
         # --- let/var (toplevel statement) ---
         if self.match("KW", "let"):
@@ -135,6 +143,13 @@ class Parser:
     
     def parse_type(self) -> TypeRef:
         name = self.eat("IDENT").text
+        if name == "Thunk":
+            self.eat("SYM", "[")
+            contract = self.eat("IDENT").text
+            self.eat("SYM", "]")
+            if self.match("SYM", "<"):
+                raise SyntaxError("legacy Thunk syntax: use Thunk[SigTypeName]")
+            return TypeRef(name, sigtype_name=contract)
         args = []
         if self.match("SYM", "["):
             self.eat("SYM", "[")
@@ -337,10 +352,16 @@ class Parser:
 
     # ---- sig ----
 
-    def parse_sig(self) -> SigDecl:
+    def parse_sig(self, named_contract: bool = False) -> SigDecl | SigRefDecl | SigTypeDecl:
 
-        self.eat("KW", "sig")
+        if named_contract:
+            self.eat("IDENT", "sigtype")
+        else:
+            self.eat("KW", "sig")
         name = self.eat("IDENT").text
+        if not named_contract and self.match("SYM", ":"):
+            self.eat("SYM", ":")
+            return SigRefDecl(name, self.eat("IDENT").text)
         self.eat("SYM", "(")
         params = self.parse_sig_param_types()
         self.eat("SYM", ")")
@@ -409,7 +430,7 @@ class Parser:
                 self.eat("SYM", "}")
                 continue
 
-            if self.match("KW", "builtin"):
+            if self.match("KW", "builtin") and not named_contract:
                 self.reject_source_builtin()
 
                 self.eat("KW", "builtin")
@@ -425,6 +446,8 @@ class Parser:
 
         self.eat("SYM", "}")
 
+        if named_contract:
+            return SigTypeDecl(name, params, ret, requires, failures)
         return SigDecl(
             name=name,
             params=params,

@@ -111,9 +111,9 @@ class FailedArgumentTests(unittest.TestCase):
         self.assertEqual(context.unresolved_pending(1), (1,))
 
     def test_thunk_snapshot_of_failed_parameter_stops_only_when_forced(self):
-        source = ('sig capture(Float) -> Thunk[Float]<Never> {}\n'
+        source = ('sigtype DeferredFloat() -> Float { failure { Never } }\nsig capture(Float) -> Thunk[DeferredFloat] {}\n'
                   'func capture(x: Float) { return thunk(x) }\n'
-                  'var t: Thunk[Float]<Never> = capture(div(1.0,0.0))\n'
+                  'var t: Thunk[DeferredFloat] = capture(div(1.0,0.0))\n'
                   'print(5)\nprint(force(t))\nprint(4)')
         self.assert_stopped(source, 'x', '5\n')
 

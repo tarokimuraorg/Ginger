@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from ginger.ast import FailureSetDecl, Program
+from ginger.core.prelude import prelude_items
 from ginger.core.catalog_loader import load_core_catalog_json
 from ginger.core.failure_spec import FailureId
 from ginger.errors import TypecheckError
@@ -114,7 +115,7 @@ var x: Float = f()
             path.write_text(json.dumps({'sigs': [{'name': 'f', 'params': [], 'ret': 'Unit',
                                                 'failures': ['CalculationFailure']}]}))
             catalog = load_core_catalog_json(path)
-        with patch('ginger.symbols_builder.prelude_items', side_effect=lambda: list(catalog)):
+        with patch('ginger.symbols_builder.prelude_items', return_value=prelude_items() + catalog):
             self.assertEqual(build_symbols(parse(SET)).sig_failures['f'], EXPECTED)
         with self.assertRaisesRegex(TypecheckError, 'unknown failure'):
             build_symbols(Program(catalog))
@@ -124,8 +125,8 @@ var x: Float = f()
             'sig f() -> Unit { %s }\n'
             'func f() { print(div(1.0,0.0)) }\n'
             'sig g() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }\nfunc g() { f() }\nf()',
-            'sig f(Thunk[Float]<Never>) -> Float { %s }\n'
-            'func f(t: Thunk[Float]<Never>) { return force(t) }',
+            'sigtype DeferredFloat() -> Float { failure { Never } }\nsig f(Thunk[DeferredFloat]) -> Float { %s }\n'
+            'func f(t: Thunk[DeferredFloat]) { return force(t) }',
             'sig h(Int) -> Unit { %s builtin core.int.print }\n'
             'sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }\nfunc f() { h(1) }',
         ]

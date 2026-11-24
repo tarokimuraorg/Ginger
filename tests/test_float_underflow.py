@@ -35,7 +35,7 @@ class FloatUnderflowTests(unittest.TestCase):
                          '0.' + '0' * 400 + '1']:
             for expr in [spelling, f'-{spelling}', f'thunk({spelling})']:
                 with self.subTest(expr=expr), self.assertRaisesRegex(TypecheckError, 'must not round to zero'):
-                    checked(f'print({expr})')
+                    checked('sigtype D() -> Float {} var t: Thunk[D] = ' + expr if expr.startswith('thunk(') else f'print({expr})')
 
     def test_exact_zero_including_sign(self):
         for expr, expected in [('mul(0.0,0.5)', 0.0), ('mul(-0.0,0.5)', -0.0),
@@ -93,7 +93,7 @@ class FloatUnderflowTests(unittest.TestCase):
                   'failure { IntegerOverflow when U in BoundedArithmetic } '
                   'failure { FloatOverflow when U in FiniteArithmetic } '
                   'failure { FloatUnderflow when U in FiniteArithmetic } }\n'
-                  'func inner(a: U,b: U) { return force(thunk(mul(a,b))) }\n'
+                  'func inner(a: U,b: U) { return mul(a,b) }\n'
                   'sig safe(T,T) -> T { require T guarantees Multipliable failure { Never } }\n'
                   'func safe(a: T,b: T) { var x: T = inner(a,b)\n'
                   'resolve x { IntegerOverflow { x = a } FloatOverflow { x = a } '
@@ -112,7 +112,7 @@ class FloatUnderflowTests(unittest.TestCase):
     def test_static_upper_bound_thunk_and_resolve_qualification(self):
         for source in [
             'sig f() -> Float { failure { FloatOverflow } }\nfunc f() { return mul(1.0,2.0) }',
-            'var t: Thunk[Float]<FloatOverflow> = thunk(mul(1.0,2.0))',
+            'sigtype CheckedFloat() -> Float { failure { FloatOverflow } }\nvar t: Thunk[CheckedFloat] = thunk(mul(1.0,2.0))',
             'var x: Float = neg(1.0)\nresolve x { FloatUnderflow { x = 0.0 } }',
             'sig f(T,T) -> T { require T guarantees Multipliable '
             'failure { IntegerOverflow when T in BoundedArithmetic } '
@@ -134,7 +134,7 @@ class FloatUnderflowTests(unittest.TestCase):
 
     def test_repeated_force_records_distinct_underflows(self):
         result, _, out = self.execute(
-            'var t: Thunk[Float]<FloatOverflow, FloatUnderflow> = thunk(mul(5e-324,0.5))\n'
+            'sigtype DeferredFloatArithmetic() -> Float { failure { FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredFloatArithmetic] = thunk(mul(5e-324,0.5))\n'
             'var x: Float = force(t)\nresolve x { FloatUnderflow { x = 0.0 } }\n'
             'print(x)\nvar y: Float = force(t)')
         self.assertEqual(out, '0.0\n')
@@ -169,7 +169,7 @@ class FloatUnderflowTests(unittest.TestCase):
                 ('print(42.0)', 'call_argument'),
                 ('sig f(Float) -> Float {}\nfunc f(a: Float) { return a }\nvar x: Float = f(42.0)', 'call_argument'),
                 ('sig f() -> Float {}\nfunc f() { return 42.0 }\nvar x: Float = f()', 'function_return'),
-                ('var x: Float = force(thunk(42.0))', 'thunk')]:
+                ('sigtype D() -> Float {} var t: Thunk[D] = thunk(42.0) var x: Float = force(t)', 'thunk')]:
                 with self.subTest(boundary=boundary, payload=payload), patch('ginger.eval.eval_expr', side_effect=injected):
                     result, _, out = self.execute(source)
                 self.assertEqual(out, str(payload) + '\n' if source == 'print(42.0)' else '')
@@ -184,7 +184,7 @@ class FloatUnderflowTests(unittest.TestCase):
                       ('Addable' if op == 'add' else 'Subtractable') +
                       ' failure { IntegerOverflow when T in BoundedArithmetic } '
                       'failure { FloatOverflow when T in FiniteArithmetic } }\n' +
-                      f'func f(a: T,b: T) {{ return force(thunk({op}(a,b))) }}\n')
+                      f'func f(a: T,b: T) {{ return {op}(a,b) }}\n')
             result, diagnostics, _ = self.execute(source + 'var x: Float = f(5e-324,5e-324)')
             self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatOverflow'])
             self.assertEqual(result.failure_history, ())

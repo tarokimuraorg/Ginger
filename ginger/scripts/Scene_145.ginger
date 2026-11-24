@@ -15,4 +15,6 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-var t: Thunk[Int]<Never> = thunk(1,2)
+sigtype DeferredInt() -> Int { failure { Never } }
+
+var t: Thunk[DeferredInt] = thunk(1,2)

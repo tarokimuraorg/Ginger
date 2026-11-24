@@ -50,7 +50,7 @@ class EnumerationBlockTests(unittest.TestCase):
             with self.subTest(contents=contents), self.assertRaises(SyntaxError):
                 parse(self.source('failure', contents))
         for kind in ['typegroup', 'register']:
-            compile(self.source(kind, 'Never,'))
+            compile('type Never\n' + self.source(kind, 'Never,'))
         with self.assertRaisesRegex(TypecheckError, 'Never is not allowed'):
             compile(self.source('failureset', 'Never,'))
 

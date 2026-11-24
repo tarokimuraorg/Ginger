@@ -213,10 +213,14 @@ class GenericGuaranteeTests(unittest.TestCase):
                     'func relay(a: U,b: U) { return addTwo(a,b) }')
 
     def test_thunk_captures_generic_dispatch_binding(self):
-        source = ('sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow> { require T guarantees Addable }\n'
-                    'func delayed(a: T,b: T) { return thunk((a + b)) }\n'
-                    'print(force(delayed(1,2)))\nprint(force(delayed(1.0,2.0)))')
-        self.assertEqual(output(checked(source)[0]), '3\n3.0\n')
+        source = ('sigtype DeferredComparison() -> Bool {}\n'
+                  'sig delayed(T,T) -> Thunk[DeferredComparison] { require T guarantees Ord }\n'
+                  'func delayed(a: T,b: T) { return thunk(eq(a,b)) }\n'
+                  'var first: Bool = force(delayed(1,1))\n'
+                  'var second: Bool = force(delayed(1.0,2.0))')
+        result = eval_program(checked(source)[0])
+        self.assertIs(result.environment['first'].value, True)
+        self.assertIs(result.environment['second'].value, False)
 
     def test_runtime_uses_ginger_binding_for_equal_python_value_types(self):
         source = ('guarantee Tagged { tag(self: Self) -> Self }\n'

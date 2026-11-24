@@ -16,4 +16,6 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-var t: Thunk[Int]<Missing> = thunk(1)
+sigtype DeferredIntMissing() -> Int { failure { Missing } }
+
+var t: Thunk[DeferredIntMissing] = thunk(1)

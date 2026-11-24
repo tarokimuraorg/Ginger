@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import Dict, Tuple
 from .builtin import BUILTINS
@@ -5,20 +6,25 @@ from .type_identity import TypeIdentityKey, type_identity_key
 from .errors import TypecheckError
 from ginger.core.failure_spec import FailureId, FailureSet
 from ginger.core.failure_contract import (
-    ConditionalFailure, FailureContract, substitute_contract, union_contracts,
+    ConditionalFailure, FailureContract, substitute_contract,
 )
 from ginger.core.prelude import prelude_items
 
 from .ast import (
     Program,
+    TypeDecl,
     TypeRef,
+    is_typevar as _is_typevar,
     FailureSetDecl,
     FailureSetRef,
     GuaranteeDecl,
     TypeGroupDecl,
     RegisterDecl,
     ImplDecl,
+    ComputationContract,
+    SigTypeDecl,
     SigDecl,
+    SigRefDecl,
     RequireGuarantees,
     RequireIn,
     ConditionalFailureDecl,
@@ -43,12 +49,20 @@ class ResolvedCall:
 
 
 @dataclass(frozen=True)
+class NamedContract:
+    declaration: SigTypeDecl
+    failures: FailureContract
+
+
+@dataclass(frozen=True)
 class Symbols:
 
+    types: Dict[str, TypeDecl]
     guarantees: Dict[str, GuaranteeDecl]
     typegroups: Dict[str, set[TypeIdentityKey]]      # group -> concrete type identities
     type_guarantees: Dict[TypeIdentityKey, set[str]]     # concrete type identity -> guarantees
     sigs: Dict[str, SigDecl]
+    sigtypes: dict[str, NamedContract]
     sig_failures: Dict[str, FailureSet]
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]]
     failuresets: "FailureSets"
@@ -59,12 +73,8 @@ class Symbols:
     resolved_calls: Dict[int, ResolvedCall]  # Shared by effects and runtime; keyed by expression id.
 
 
-def _is_typevar(name: str) -> bool:
-    # T, Uのような1文字大文字を型変数扱い
-    return len(name) == 1 and name.isupper()
-
 def _validate_concrete_identity(typ: TypeRef, position: str) -> None:
-    """Validate normalized registration targets, without closing the type world."""
+    """Reject symbolic components of a concrete registration target."""
     if _is_typevar(typ.name):
         raise TypecheckError(
             f"symbolic type variable '{typ.name}' is not allowed in {position}"
@@ -76,7 +86,7 @@ def _validate_concrete_identity(typ: TypeRef, position: str) -> None:
     for arg in typ.args:
         _validate_concrete_identity(arg, position)
 
-def _collect_inferable_param_typevars(sig: SigDecl) -> set[str]:
+def _collect_inferable_param_typevars(sig: ComputationContract) -> set[str]:
     """Collect current argument-inference sources, excluding returns and contracts."""
     variables: set[str] = set()
 
@@ -93,16 +103,8 @@ def _collect_inferable_param_typevars(sig: SigDecl) -> set[str]:
     return variables
 
 def _same_type(a: TypeRef, b: TypeRef) -> bool:
-    """Compare normalized types, including recursive arguments and latent contracts."""
-    if a.latent_failures != b.latent_failures:
-        return False
-    if a.latent_conditions != b.latent_conditions:
-        return False
-    if a.name != b.name:
-        return False
-    if len(a.args) != len(b.args):
-        return False
-    return all(_same_type(x, y) for x, y in zip(a.args, b.args))
+    """Contract names participate in type identity at every nesting depth."""
+    return type_identity_key(a) == type_identity_key(b)
 
 
 def _project_method_type(typ: TypeRef, required_type_var: str) -> TypeRef:
@@ -124,10 +126,55 @@ class FailureSets(dict):
     """Named definitions plus the complete membership environment for expansion."""
     def __init__(self, typegroups):
         super().__init__()
+        self.sigtypes = None
         self.typegroups = typegroups
 
 
-def _build_failuresets(items):
+def _collect_type_declarations(items):
+    types = {}
+    groups = {}
+    for item in items:
+        if isinstance(item, TypeDecl):
+            name = item.name
+            if _is_typevar(name):
+                raise TypecheckError(f"cannot declare type '{name}': reserved type variable name")
+            if name == "Self":
+                raise TypecheckError("cannot declare type 'Self': reserved type name")
+            if name in types:
+                raise TypecheckError(f"duplicate type '{name}'")
+            types[name] = item
+        elif isinstance(item, TypeGroupDecl):
+            if item.name in groups:
+                raise TypecheckError(f"duplicate typegroup '{item.name}'")
+            groups[item.name] = set()
+    for name in groups:
+        if name in types:
+            raise TypecheckError(f"type/typegroup name conflict '{name}'")
+    return types, groups
+
+
+def _validate_type_names(node, types):
+    """Walk the original AST, including type arguments inside failure references."""
+    if isinstance(node, TypeRef):
+        if node.name != "Self" and not _is_typevar(node.name) and node.name not in types:
+            raise TypecheckError(f"unknown type '{node.name}'")
+    if isinstance(node, (list, tuple)):
+        for child in node:
+            _validate_type_names(child, types)
+    elif is_dataclass(node):
+        for field in fields(node):
+            _validate_type_names(getattr(node, field.name), types)
+
+
+def _register_member(groups, group, typ, position):
+    _validate_concrete_identity(typ, position)
+    key = type_identity_key(typ)
+    if key in groups[group]:
+        raise TypecheckError(f"duplicate register in typegroup '{group}': '{key}'")
+    groups[group].add(key)
+
+
+def _build_failuresets(items, groups):
     declarations: Dict[str, FailureSetDecl] = {}
     reserved = {fid.value for fid in FailureId} | {"Never"}
     for item in items:
@@ -140,26 +187,12 @@ def _build_failuresets(items):
         declarations[item.name] = item
 
     # Collect membership before expansion; source order must not affect contracts.
-    groups = {}
     for item in items:
         if isinstance(item, TypeGroupDecl):
             for member in item.members:
-                _validate_concrete_identity(member, "typegroup member")
-            if item.name in groups:
-                raise TypecheckError(f"duplicate typegroup '{item.name}'")
-            members = {type_identity_key(t) for t in item.members}
-            if len(members) != len(item.members):
-                raise TypecheckError(f"duplicate register in typegroup '{item.name}'")
-            groups[item.name] = members
-    for item in items:
-        if isinstance(item, RegisterDecl) and item.guarantee in groups:
-            _validate_concrete_identity(item.typ, "register target")
-            if item.typ.name in groups:
-                raise TypecheckError(f"typegroup '{item.typ.name}' is not a concrete register target")
-            key = type_identity_key(item.typ)
-            if key in groups[item.guarantee]:
-                raise TypecheckError(f"duplicate register in typegroup '{item.guarantee}': '{key}'")
-            groups[item.guarantee].add(key)
+                _register_member(groups, item.name, member, "typegroup member")
+        elif isinstance(item, RegisterDecl) and item.guarantee in groups:
+            _register_member(groups, item.guarantee, item.typ, "register target")
     resolved = FailureSets(groups)
     for name, decl in declarations.items():
         if decl.type_param is not None and not _is_typevar(decl.type_param):
@@ -246,15 +279,43 @@ def expand_failure_reference(ref, failuresets, variables):
                                failuresets.typegroups)
 
 
+def _contains_placeholder(typ: TypeRef) -> bool:
+    return typ.name == "Self" or _is_typevar(typ.name) or any(
+        _contains_placeholder(arg) for arg in typ.args
+    )
+
+
+def _normalize_thunk(typ: TypeRef, sigtypes) -> TypeRef:
+    if not typ.sigtype_name or typ.args or typ.failure_specs is not None:
+        raise TypecheckError("Thunk requires Thunk[SigTypeName]")
+    if sigtypes is None:
+        # Initial pass over sigtype declarations. Retain edges by name so
+        # forward and recursive references never require expanding a result.
+        return typ
+    contract = sigtypes.get(typ.sigtype_name)
+    if contract is None:
+        raise TypecheckError(f"unknown sigtype '{typ.sigtype_name}'")
+    decl = contract.declaration
+    if decl.params:
+        raise TypecheckError(
+            f"Thunk requires a zero-argument sigtype: '{decl.name}' declares "
+            f"{len(decl.params)} argument(s)"
+        )
+    if _contains_placeholder(decl.ret) or decl.requires or contract.failures.conditional:
+        raise TypecheckError(f"Thunk requires a fully concrete sigtype: '{decl.name}'")
+    # The runtime value validator takes a concrete TypeRef without Symbols.
+    return replace(typ, latent_failures=contract.failures.unconditional)
+
+
 def normalize_types(value, failuresets, variables=frozenset()):
     """Expand named contracts into the existing symbolic representation in scope."""
     if isinstance(value, FailureSetDecl):
         return value
-    if isinstance(value, (SigDecl, FuncDecl)):
-        types = ([*value.params, value.ret] if isinstance(value, SigDecl)
+    if isinstance(value, (ComputationContract, FuncDecl)):
+        types = ([*value.params, value.ret] if isinstance(value, ComputationContract)
                  else [p.typ for p in value.params])
         variables = set().union(*(_type_variables(t) for t in types))
-    if isinstance(value, SigDecl):
+    if isinstance(value, ComputationContract):
         references = [f for f in value.failures if isinstance(f, FailureSetRef)]
         if len(set(references)) != len(references):
             raise TypecheckError(f"duplicate failure in sig '{value.name}'")
@@ -270,26 +331,9 @@ def normalize_types(value, failuresets, variables=frozenset()):
                     expanded.append(entry)
         value = replace(value, failures=expanded)
     if isinstance(value, TypeRef):
-        args = tuple(normalize_types(a, failuresets, variables) for a in value.args)
         if value.name == "Thunk":
-            if len(args) != 1:
-                raise TypecheckError("Thunk expects one type argument; write failure contract as Thunk[T]<...>")
-            if value.latent_failures is None and not value.failure_specs:
-                raise TypecheckError("Thunk requires a result type and explicit failure contract")
-            latent = FailureContract(value.latent_failures or frozenset(), value.latent_conditions)
-            if value.latent_failures is None:
-                specs = value.failure_specs
-                if len(set(specs)) != len(specs):
-                    raise TypecheckError("duplicate failure in Thunk")
-                if "Never" in specs and len(specs) > 1:
-                    raise TypecheckError("cannot combine 'Never' with other failures in Thunk")
-                latent = union_contracts(
-                    FailureContract(normalize_failures([f for f in specs if isinstance(f, str)],
-                                                       failuresets, "Thunk")),
-                    *(expand_failure_reference(f, failuresets, variables)
-                      for f in specs if isinstance(f, FailureSetRef)))
-            return TypeRef("Thunk", args, latent_failures=latent.unconditional,
-                           latent_conditions=latent.conditional)
+            return _normalize_thunk(value, getattr(failuresets, "sigtypes", {}))
+        args = tuple(normalize_types(a, failuresets, variables) for a in value.args)
         if value.failure_specs is not None:
             raise TypecheckError("failure contract postfix is allowed only on Thunk")
         return replace(value, args=args)
@@ -301,11 +345,40 @@ def normalize_types(value, failuresets, variables=frozenset()):
     return value
 
 
+def _contract_key(contract: NamedContract):
+    decl = contract.declaration
+    variables = {}
+
+    def rename(typ):
+        name = typ.name
+        if _is_typevar(name):
+            # Source identifiers cannot contain '#'.
+            name = variables.setdefault(name, f"#{len(variables)}")
+        return replace(typ, name=name, args=tuple(rename(arg) for arg in typ.args))
+
+    # Assign slots from type positions before visiting unordered conditions.
+    types = [rename(t) for t in [*decl.params, decl.ret]]
+
+    def conditions(clauses):
+        return frozenset(replace(c, type_var=variables[c.type_var]) for c in clauses)
+
+    type_keys = tuple(type_identity_key(t) for t in types)
+    # Preserve multiplicity: guarantee dispatch counts guarantee requirements.
+    requirements = []
+    for req in decl.requires:
+        if isinstance(req, RequireIn):
+            requirements.append(("in", variables[req.type_var], req.group_name))
+        else:
+            requirements.append(("guarantees", variables[req.type_var], req.guarantee_name))
+    return (type_keys[:-1], type_keys[-1], contract.failures.unconditional,
+            conditions(contract.failures.conditional), tuple(sorted(requirements)))
+
+
 def build_symbols(prog: Program) -> Symbols:
 
     guarantees: Dict[str, GuaranteeDecl] = {}
-    typegroups: Dict[str, set[TypeIdentityKey]] = {}
     type_guarantees: Dict[TypeIdentityKey, set[str]] = {}
+    named_declarations = {}
     sigs: Dict[str, SigDecl] = {}
     sig_failures: Dict[str, FailureSet] = {}
     sig_conditional_failures: Dict[str, frozenset[ConditionalFailure]] = {}
@@ -313,8 +386,10 @@ def build_symbols(prog: Program) -> Symbols:
     impls: Dict[Tuple[TypeIdentityKey, str, str], str] = {}
     seen_impl_pairs: set[Tuple[TypeIdentityKey, str]] = set()
 
-    items = prelude_items()
-    items += list(prog.items)
+    items = prelude_items() + prog.items
+
+    types, groups = _collect_type_declarations(items)
+    _validate_type_names(items, types)
 
     # Validate definitions before resolving references, for source, internal AST,
     # and catalog declarations alike. GuaranteeDecl currently supports methods
@@ -335,10 +410,9 @@ def build_symbols(prog: Program) -> Symbols:
             seen_methods.add(method.name)
 
     # Resolve named sets before sig normalization, including catalog sigs.
-    failuresets = _build_failuresets(items)
+    failuresets = _build_failuresets(items, groups)
     typegroups = failuresets.typegroups
 
-    items = normalize_types(items, failuresets)
     for item in items:
 
         if isinstance(item, GuaranteeDecl):
@@ -347,10 +421,74 @@ def build_symbols(prog: Program) -> Symbols:
             
             guarantees[item.name] = item
         
-        if isinstance(item, TypeGroupDecl):
-            pass  # Membership was collected before contract normalization.
+        elif isinstance(item, SigTypeDecl):
+            if item.name in named_declarations:
+                raise TypecheckError(f"duplicate sigtype '{item.name}'")
+            if item.name in types or item.name in groups:
+                raise TypecheckError(f"sigtype name conflict '{item.name}' with type or typegroup")
+            named_declarations[item.name] = normalize_types(item, failuresets)
 
-        elif isinstance(item, SigDecl):
+    syms = Symbols(
+        types=types,
+        guarantees=guarantees,
+        typegroups=typegroups,
+        type_guarantees=type_guarantees,
+        sigs=sigs,
+        sigtypes={},
+        sig_failures=sig_failures,
+        sig_conditional_failures=sig_conditional_failures,
+        failuresets=failuresets,
+        funcs=funcs,
+        impls=impls,
+        binding_types={},
+        expression_types={},
+        resolved_calls={},
+    )
+
+    owners = {}
+    for name, decl in named_declarations.items():
+        _validate_requirements(decl, syms)
+        unconditional = _unconditional_failures(decl, failuresets)
+        failures = FailureContract(unconditional, _conditional_failures(decl, syms, unconditional))
+        contract = NamedContract(decl, failures)
+        key = _contract_key(contract)
+        if key in owners:
+            raise TypecheckError(f"duplicate sigtype contract: '{name}' has the same contract as '{owners[key]}'")
+        owners[key] = name
+        syms.sigtypes[name] = contract
+
+    # All contract names and normalized failure sets now exist. Validate every
+    # application, including types nested inside failureset references.
+    failuresets.sigtypes = syms.sigtypes
+    items = normalize_types(items, failuresets)
+    for item in items:
+        if isinstance(item, GuaranteeDecl):
+            guarantees[item.name] = item
+        if isinstance(item, SigTypeDecl):
+            syms.sigtypes[item.name] = replace(syms.sigtypes[item.name], declaration=item)
+
+    applied = {}
+    for item in items:
+        if isinstance(item, SigRefDecl):
+            if item.name in sigs:
+                previous = applied.get(item.name, "direct sig")
+                raise TypecheckError(
+                    f"function '{item.name}' has multiple signature declarations: "
+                    f"{previous} and '{item.sigtype_name}'"
+                )
+            contract = syms.sigtypes.get(item.sigtype_name)
+            if contract is None:
+                raise TypecheckError(f"unknown sigtype '{item.sigtype_name}'")
+            applied[item.name] = repr(item.sigtype_name)
+            decl = deepcopy(contract.declaration)
+            item = SigDecl(item.name, decl.params, decl.ret, decl.requires, decl.failures)
+        elif isinstance(item, SigDecl) and item.name in applied:
+            raise TypecheckError(
+                f"function '{item.name}' has multiple signature declarations: "
+                f"{applied[item.name]} and direct sig"
+            )
+
+        if isinstance(item, SigDecl):
 
             if item.name in sigs:
                 raise TypecheckError(f"duplicate sig '{item.name}'")
@@ -369,11 +507,7 @@ def build_symbols(prog: Program) -> Symbols:
                 if b not in BUILTINS:
                     raise TypecheckError(f"unknown builtin '{b}' for sig '{item.name}'")
                 
-            # Keep concrete FailureSets independent of conditional clauses.
-            fnames = list(getattr(item, "failures", []) or [])
-
-            sig_failures[item.name] = normalize_failures(
-                [f for f in fnames if isinstance(f, str)], failuresets, f"sig '{item.name}'")
+            sig_failures[item.name] = _unconditional_failures(item, failuresets)
 
         elif isinstance(item, FuncDecl):
 
@@ -445,32 +579,15 @@ def build_symbols(prog: Program) -> Symbols:
     for item in items:
         if not isinstance(item, RegisterDecl):
             continue
-        _validate_concrete_identity(item.typ, "register target")
         target = item.guarantee
-        if item.typ.name in typegroups:
-            raise TypecheckError(f"typegroup '{item.typ.name}' is not a concrete register target")
         if target in typegroups:
             continue  # Already validated and registered before normalization.
+        _validate_concrete_identity(item.typ, "register target")
         if target in guarantees:
             raise TypecheckError(
                 f"register target must be a typegroup: {target} is a guarantee"
             )
         raise TypecheckError(f"unknown register target '{target}'; expected typegroup")
-
-    syms = Symbols(
-        guarantees=guarantees,
-        typegroups=typegroups,
-        type_guarantees=type_guarantees,
-        sigs=sigs,
-        sig_failures=sig_failures,
-        sig_conditional_failures=sig_conditional_failures,
-        failuresets=failuresets,
-        funcs=funcs,
-        impls=impls,
-        binding_types={},
-        expression_types={},
-        resolved_calls={},
-    )
 
     _validate_catalog(syms)
     return syms
@@ -478,67 +595,71 @@ def build_symbols(prog: Program) -> Symbols:
 # =====================
 # Catalog validation
 # =====================
-def _validate_catalog(syms: Symbols) -> None:
-    # Reference validity is independent of use, dispatch, and satisfaction.
-    # All source and prelude declarations have been collected and normalized.
-    for name, sig in syms.sigs.items():
-        inferable_typevars = _collect_inferable_param_typevars(sig)
-        for requirement in sig.requires:
-            if requirement.type_var not in inferable_typevars:
-                raise TypecheckError(
-                    f"requirement type variable '{requirement.type_var}' is not inferable "
-                    f"from parameters of function '{name}'"
-                )
-            if isinstance(requirement, RequireGuarantees):
-                if requirement.guarantee_name not in syms.guarantees:
-                    raise TypecheckError(
-                        f"unknown guarantee '{requirement.guarantee_name}' "
-                        f"in requirement for function '{name}'"
-                    )
-            elif isinstance(requirement, RequireIn):
-                if requirement.group_name not in syms.typegroups:
-                    raise TypecheckError(
-                        f"unknown typegroup '{requirement.group_name}' "
-                        f"in requirement for function '{name}'"
-                    )
+def _unconditional_failures(sig, failuresets):
+    return normalize_failures([f for f in sig.failures if isinstance(f, str)],
+                              failuresets, f"sig '{sig.name}'")
 
-    # Validate conditions after all declarations and named sets are available.
+
+def _validate_requirements(sig, syms):
+    name = sig.name
+    inferable_typevars = _collect_inferable_param_typevars(sig)
+    for requirement in sig.requires:
+        if requirement.type_var not in inferable_typevars:
+            raise TypecheckError(
+                f"requirement type variable '{requirement.type_var}' is not inferable "
+                f"from parameters of function '{name}'"
+            )
+        if isinstance(requirement, RequireGuarantees):
+            if requirement.guarantee_name not in syms.guarantees:
+                raise TypecheckError(
+                    f"unknown guarantee '{requirement.guarantee_name}' "
+                    f"in requirement for function '{name}'"
+                )
+        elif isinstance(requirement, RequireIn):
+            if requirement.group_name not in syms.typegroups:
+                raise TypecheckError(
+                    f"unknown typegroup '{requirement.group_name}' "
+                    f"in requirement for function '{name}'"
+                )
+
+
+def _conditional_failures(sig, syms, unconditional):
+    name = sig.name
+    variables = set().union(*(_type_variables(t) for t in [*sig.params, sig.ret]))
+    clauses = set()
+    for failure in sig.failures:
+        if isinstance(failure, str):
+            continue
+        if not isinstance(failure, ConditionalFailureDecl):
+            raise TypecheckError(f"invalid failure clause in sig '{name}'")
+        if failure.failure_name == "Never":
+            raise TypecheckError("conditional Never is not allowed")
+        if failure.failure_name in syms.failuresets:
+            raise TypecheckError("conditional failureset is not supported; use an individual FailureId")
+        try:
+            fid = FailureId(failure.failure_name)
+        except ValueError:
+            raise TypecheckError(f"unknown failure '{failure.failure_name}' in sig '{name}'") from None
+        if failure.type_var not in variables:
+            raise TypecheckError(f"unknown type variable '{failure.type_var}' in failure condition of sig '{name}'")
+        if failure.group_name not in syms.typegroups:
+            raise TypecheckError(f"unknown typegroup '{failure.group_name}' in failure condition of sig '{name}'")
+        clause = ConditionalFailure(fid, failure.type_var, failure.group_name)
+        if clause in clauses:
+            raise TypecheckError(f"duplicate conditional failure in sig '{name}'")
+        if fid in unconditional:
+            raise TypecheckError(f"redundant conditional failure '{fid.value}' in sig '{name}'")
+        if "Never" in sig.failures:
+            raise TypecheckError(f"cannot combine 'Never' with other failures in sig '{name}'")
+        clauses.add(clause)
+    return frozenset(clauses)
+
+
+def _validate_catalog(syms: Symbols) -> None:
+    for sig in syms.sigs.values():
+        _validate_requirements(sig, syms)
     for name, sig in syms.sigs.items():
-        variables = set()
-        def collect(typ):
-            if _is_typevar(typ.name):
-                variables.add(typ.name)
-            for arg in typ.args:
-                collect(arg)
-        for typ in [*sig.params, sig.ret]:
-            collect(typ)
-        clauses = set()
-        for failure in sig.failures:
-            if isinstance(failure, str):
-                continue
-            if not isinstance(failure, ConditionalFailureDecl):
-                raise TypecheckError(f"invalid failure clause in sig '{name}'")
-            if failure.failure_name == "Never":
-                raise TypecheckError("conditional Never is not allowed")
-            if failure.failure_name in syms.failuresets:
-                raise TypecheckError("conditional failureset is not supported; use an individual FailureId")
-            try:
-                fid = FailureId(failure.failure_name)
-            except ValueError:
-                raise TypecheckError(f"unknown failure '{failure.failure_name}' in sig '{name}'") from None
-            if failure.type_var not in variables:
-                raise TypecheckError(f"unknown type variable '{failure.type_var}' in failure condition of sig '{name}'")
-            if failure.group_name not in syms.typegroups:
-                raise TypecheckError(f"unknown typegroup '{failure.group_name}' in failure condition of sig '{name}'")
-            clause = ConditionalFailure(fid, failure.type_var, failure.group_name)
-            if clause in clauses:
-                raise TypecheckError(f"duplicate conditional failure in sig '{name}'")
-            if fid in syms.sig_failures[name]:
-                raise TypecheckError(f"redundant conditional failure '{fid.value}' in sig '{name}'")
-            if "Never" in sig.failures:
-                raise TypecheckError(f"cannot combine 'Never' with other failures in sig '{name}'")
-            clauses.add(clause)
-        syms.sig_conditional_failures[name] = frozenset(clauses)
+        syms.sig_conditional_failures[name] = _conditional_failures(sig, syms, syms.sig_failures[name])
 
     # 1) impl が参照する guarantee は存在するか
     for t, gs in syms.type_guarantees.items():

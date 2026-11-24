@@ -151,7 +151,7 @@ class BuiltinValueContractTests(unittest.TestCase):
                 with self.subTest(typ=typ, call=call):
                     with patch.dict(BUILTINS, {'test.make': lambda: payload,
                                                'test.box_int_op': lambda v: v}):
-                        result = self.evaluate(CAPABILITY + implementation(typ) + use(typ, call))
+                        result = self.evaluate('type Box\ntype Pair\ntype MissingType\ntype String\ntype SomeType\n' + CAPABILITY + implementation(typ) + use(typ, call))
                     self.assertIsNone(result.value_contract_violation)
                     self.assertIs(result.environment['result'].value, payload)
 
@@ -159,8 +159,8 @@ class BuiltinValueContractTests(unittest.TestCase):
         expr = parse('var x: Int = 1').items[0].expr
         for payload in [ThunkValue(expr, {}, None, EMPTY_FAILURES)]:
             with patch.dict(BUILTINS, {'test.value': lambda: payload}):
-                result = self.evaluate('sig make() -> Thunk[Int]<Never> { builtin test.value }\n'
-                                       'var x: Thunk[Int]<Never> = make()')
+                result = self.evaluate('sigtype DeferredInt() -> Int { failure { Never } }\nsig make() -> Thunk[DeferredInt] { builtin test.value }\n'
+                                       'var x: Thunk[DeferredInt] = make()')
             self.assertEqual(result.value_contract_violation.reason, 'wrong_python_type')
             self.assertNotIn('x', result.environment)
             self.assertEqual(result.failure_history, ())

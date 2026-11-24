@@ -108,10 +108,11 @@ class LocalResolveTests(unittest.TestCase):
         self.assertFalse(result.unresolved_events)
 
     def test_thunk_creation_and_force_result(self):
-        prefix = 'var t: Thunk[Int]<IntegerOverflow> = thunk(x + 1)\n'
+        declaration = 'sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\n'
+        prefix = 'var t: Thunk[CheckedInt] = thunk(x + 1)\n'
         with self.assertRaisesRegex(TypecheckError, 'latest write'):
-            checked(self.program(prefix + 'resolve t { IntegerOverflow { print(1) } }\nreturn 1'))
-        result, stdout = self.public_result(self.program(prefix + 'var y: Int = force(t)\n'
+            checked(declaration + self.program(prefix + 'resolve t { IntegerOverflow { print(1) } }\nreturn 1'))
+        result, stdout = self.public_result(declaration + self.program(prefix + 'var y: Int = force(t)\n'
             'resolve y { IntegerOverflow { y = 888 } }\nreturn y') + 'print(f(9007199254740991))')
         self.assertEqual(stdout, '888\n')
         self.assertFalse(result.unresolved_events)

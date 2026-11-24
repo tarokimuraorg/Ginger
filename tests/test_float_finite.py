@@ -92,7 +92,7 @@ class FloatFiniteTests(unittest.TestCase):
             for expression in [spelling, f'(-{spelling})', f'thunk({spelling})']:
                 with self.subTest(expression=expression), self.assertRaisesRegex(
                         TypecheckError, 'Float literal must be finite'):
-                    checked(f'print({expression})')
+                    checked('sigtype D() -> Float {} var t: Thunk[D] = ' + expression if expression.startswith('thunk(') else f'print({expression})')
 
     def test_malformed_exponent_diagnostic(self):
         for mantissa in ['1', '1.0']:
@@ -161,7 +161,7 @@ class FloatFiniteTests(unittest.TestCase):
         huge = '9' * 400 + '.0'
         for expression in [huge, f'(-{huge})', f'cmp({huge},1.0)', f'thunk({huge})']:
             with self.subTest(expression=expression), self.assertRaisesRegex(TypecheckError, 'Float literal must be finite'):
-                checked(f'print({expression})')
+                checked('sigtype D() -> Float {} var t: Thunk[D] = ' + expression if expression.startswith('thunk(') else f'print({expression})')
 
     def test_nan_inf_remain_identifiers_not_literals(self):
         for name in ['nan', 'inf', 'infinity', 'NaN']:
@@ -290,7 +290,7 @@ class FloatFiniteTests(unittest.TestCase):
             'sig inner(U,U) -> U { require U guarantees Addable '
             'failure { IntegerOverflow when U in BoundedArithmetic } '
             'failure { FloatOverflow when U in FiniteArithmetic, FloatUnderflow when U in FiniteArithmetic } }\n'
-            'func inner(a: U,b: U) { return force(thunk(add(a,b))) }\n'
+            'func inner(a: U,b: U) { return add(a,b) }\n'
             'sig outer(T,T) -> T { require T guarantees Addable '
             'failure { IntegerOverflow when T in BoundedArithmetic } '
             'failure { FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic } }\n'
@@ -320,7 +320,7 @@ class FloatFiniteTests(unittest.TestCase):
             contract = 'FloatOverflow, FloatUnderflow, DivideByZero' if operation == 'div' else 'FloatOverflow, FloatUnderflow'
             expression = f'{operation}({literal(a)},{literal(b)})'
             for delayed in [False, True]:
-                prefix = f'var t: Thunk[Float]<{contract}> = thunk({expression})\n' if delayed else ''
+                prefix = f'sigtype D() -> Float {{ failure {{ {contract} }} }} var t: Thunk[D] = thunk({expression})\n' if delayed else ''
                 expr = 'force(t)' if delayed else expression
                 result, _, stdout = self.execute(prefix + f'var x: Float = {expr}\n'
                     'resolve x { FloatOverflow { x = 0.0 } }\nprint(x)\n' + f'var y: Float = {expr}')
@@ -329,7 +329,7 @@ class FloatFiniteTests(unittest.TestCase):
                                  [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
                 self.assertIsInstance(result.environment['y'], UninitializedBinding)
                 if delayed:
-                    expected = (failures(FailureId.FloatOverflow) if operation in ('add', 'sub') else FLOAT_OVERFLOW) | (failures(FailureId.DivideByZero) if operation == 'div' else EMPTY_FAILURES)
+                    expected = frozenset(FailureId(name.strip()) for name in contract.split(','))
                     self.assertEqual(result.environment['t'].value.potential_failure_contract, expected)
 
 
