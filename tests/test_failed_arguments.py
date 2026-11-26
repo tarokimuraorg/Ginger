@@ -12,9 +12,9 @@ from ginger.runtime.failures import FailureStatus
 from test_failure_contract import checked, recorded
 
 
-MARK = 'sig mark(Int) -> Float {}\nfunc mark(x: Int) { print(x) return toFloat(x) }\n'
+MARK = 'sig mark(Int) -> Float {}\nfunc mark(x: Int) { print[Int](x) return toFloat(x) }\n'
 COMBINE = ('sig combine(Float,Float,Float) -> Float {}\n'
-           'func combine(a: Float,b: Float,c: Float) { print(99) return %s }\n')
+           'func combine(a: Float,b: Float,c: Float) { print[Int](99) return %s }\n')
 
 
 class FailedArgumentTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class FailedArgumentTests(unittest.TestCase):
                                         ('div(1.0,0.0)', '1\n3\n99\n1.0\n4\n', 1)]:
             with self.subTest(middle=middle):
                 program, diagnostics = checked(MARK + COMBINE % 'a' +
-                    f'print(combine(mark(1),{middle},mark(3)))\nprint(4)')
+                    f'print[Float](combine(mark(1),{middle},mark(3)))\nprint[Int](4)')
                 _, context, stdout = recorded(program)
                 self.assertEqual(stdout, expected)
                 self.assertEqual(len(context.failure_history), count)
@@ -38,8 +38,8 @@ class FailedArgumentTests(unittest.TestCase):
             seen.append(env.copy())
             return original(block, env, *args, **kwargs)
         # T must be inferred from failed arguments too; the successful Int widens.
-        source = ('sig first(T,T,T) -> T {}\nfunc first(a: T,b: T,c: T) { return a }\n'
-                  'var result: Float = first(1,div(1.0,0.0),div(2.0,0.0))')
+        source = ('sig first[T](T,T,T) -> T {}\nfunc first(a: T,b: T,c: T) { return a }\n'
+                  'var result: Float = first[Float](1,div(1.0,0.0),div(2.0,0.0))')
         with patch('ginger.eval.eval_block', side_effect=observe):
             env, context, _ = recorded(checked(source)[0])
         self.assertEqual(env['result'].value, 1.0)
@@ -67,12 +67,12 @@ class FailedArgumentTests(unittest.TestCase):
         self.assertEqual(context.unresolved_pending(1), (1,))
 
     def test_parameter_read_propagates_and_builtin_consumer_skips(self):
-        for body in ['b', 'neg(b)']:
+        for body in ['b', 'neg[Float](b)']:
             with self.subTest(body=body):
                 builtin = Mock(return_value=0.0)
                 with patch.dict(BUILTINS, {'core.float.neg': builtin}):
                     _, context, out = recorded(checked(COMBINE % body +
-                        'print(combine(1.0,div(1.0,0.0),3.0))\nprint(4)')[0])
+                        'print[Float](combine(1.0,div(1.0,0.0),3.0))\nprint[Int](4)')[0])
                     self.assertEqual(out, '99\n4\n')
                     self.assertEqual(context.unresolved_pending(1), (1,))
                     self.assertEqual(context.next_event_id, 2)
@@ -80,13 +80,13 @@ class FailedArgumentTests(unittest.TestCase):
 
     def test_fatal_argument_read_stops_later_arguments_and_body(self):
         self.assert_stopped(MARK + COMBINE % 'a' +
-            'var x: Float = div(1.0,0.0)\nprint(combine(mark(1),x,mark(3)))\nprint(4)', 'x', '1\n')
+            'var x: Float = div(1.0,0.0)\nprint[Float](combine(mark(1),x,mark(3)))\nprint[Int](4)', 'x', '1\n')
 
     def test_failed_argument_keeps_earlier_side_effects(self):
         prefix = ('sig fail() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                  'func fail() { print(2) return div(1.0,0.0) }\n')
+                  'func fail() { print[Int](2) return div(1.0,0.0) }\n')
         _, context, stdout = recorded(checked(prefix + MARK + COMBINE % 'a' +
-            'print(combine(mark(1),fail(),mark(3)))')[0])
+            'print[Float](combine(mark(1),fail(),mark(3)))')[0])
         self.assertEqual(stdout, '1\n2\n3\n99\n1.0\n')
         self.assertEqual(context.unresolved_pending(1), (1,))
 
@@ -100,11 +100,11 @@ class FailedArgumentTests(unittest.TestCase):
             return original(expr, *args, **kwargs)
         with patch('ginger.eval.eval_expr', side_effect=corrupt):
             with self.assertRaises(ValueContractViolation):
-                recorded(checked(COMBINE % 'a' + 'print(combine(42.0,div(1.0,0.0),3.0))')[0])
+                recorded(checked(COMBINE % 'a' + 'print[Float](combine(42.0,div(1.0,0.0),3.0))')[0])
 
     def test_generic_type_inferred_entirely_from_failed_value(self):
-        source = ('sig ignore(T) -> Int {}\nfunc ignore(x: T) { return 7 }\n'
-                  'print(ignore(div(1.0,0.0)))')
+        source = ('sig ignore[T](T) -> Int {}\nfunc ignore(x: T) { return 7 }\n'
+                  'print[Int](ignore[Float](div(1.0,0.0)))')
         _, context, stdout = recorded(checked(source)[0])
         self.assertEqual(stdout, '7\n')
         self.assertEqual(context.get_call(2).type_bindings, {'T': TypeRef('Float')})
@@ -114,7 +114,7 @@ class FailedArgumentTests(unittest.TestCase):
         source = ('sigtype DeferredFloat() -> Float { failure { Never } }\nsig capture(Float) -> Thunk[DeferredFloat] {}\n'
                   'func capture(x: Float) { return thunk(x) }\n'
                   'var t: Thunk[DeferredFloat] = capture(div(1.0,0.0))\n'
-                  'print(5)\nprint(force(t))\nprint(4)')
+                  'print[Int](5)\nprint[Float](force(t))\nprint[Int](4)')
         self.assert_stopped(source, 'x', '5\n')
 
     def test_each_parameter_read_reports_its_own_event(self):

@@ -31,13 +31,13 @@ sig failed() -> Float {
 
 func failed() {
     return div(1.0,0.0)
-    print(99)
+    print[Int](99)
     return 4.0
 }
 
 var absent: Float = failed()
-//print(absent)
-print(3)
+//print[Float](absent)
+print[Int](3)
 
 sig value() -> Int {
     failure {
@@ -48,7 +48,7 @@ sig value() -> Int {
 }
 
 func value() {
-    print(div(1.0,0.0))
+    print[Float](div(1.0,0.0))
     return 4
 }
 
@@ -61,10 +61,10 @@ sig unit() -> Unit {
 }
 
 func unit() {
-    print(div(1.0,0.0))
-    return print(2)
+    print[Float](div(1.0,0.0))
+    return print[Int](2)
 }
 
-print(value())
+print[Int](value())
 
 unit()

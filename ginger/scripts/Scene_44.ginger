@@ -25,15 +25,15 @@ sigtype DeferredInt() -> Int { failure { Never } }
 sig effect() -> Int {}
 
 func effect() { 
-    print(7) 
+    print[Int](7)
     return 3 
 }
 
 var t: Thunk[DeferredInt] = thunk(effect())
 
-print(0)
-print(force(t))
-print(force(t))
+print[Int](0)
+print[Int](force(t))
+print[Int](force(t))
 
 sig snapshot() -> Int {}
 
@@ -48,15 +48,15 @@ func snapshot() {
     // xは2に更新されるが、savedは1を保持する
     x = 2
 
-    print(x)
+    print[Int](x)
     return force(saved)
 
 }
 
-print(snapshot())
+print[Int](snapshot())
 
 var replaceable: Thunk[DeferredInt] = thunk(1)
 
 replaceable = thunk(2)
 
-print(force(replaceable))
+print[Int](force(replaceable))

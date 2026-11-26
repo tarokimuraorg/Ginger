@@ -12,13 +12,14 @@ from ginger.typecheck import typecheck_program
 
 
 def declaration(params, ret, sig_params, sig_ret, variable='T'):
+    variables = "T,U" if sig_params == "T,U" else variable
     return (
         'sigtype Pure() -> Int {} sigtype Checked() -> Int { failure { IntegerOverflow } }\n'
         'sigtype Outer() -> Thunk[Checked] {} sigtype Nested() -> Thunk[Pure] {}\n'
-        'type SomeType\ntype OtherType\n'
+        'type SomeType[T]\ntype OtherType[T]\n'
         f'guarantee G {{ op({params}) -> {ret} }}\n'
         'impl Int guarantees G { op = builtin test.op }\n'
-        f'sig op({sig_params}) -> {sig_ret} {{ require {variable} guarantees G }}\n'
+        f'sig op[{variables}]({sig_params}) -> {sig_ret} {{ require {variable} guarantees G }}\n'
     )
 
 
@@ -41,12 +42,12 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
     def test_parameter_mismatch(self):
         self.assert_rejected(
             declaration('self: Self, other: Float', 'Self', 'T,T', 'T'),
-            "parameter type mismatch.*'op'.*argument 2", 'var x: Int = op(1,2)')
+            "parameter type mismatch.*'op'.*argument 2", 'var x: Int = op[Int](1,2)')
 
     def test_return_mismatch(self):
         self.assert_rejected(
             declaration('self: Self', 'Float', 'T', 'T'),
-            "return type mismatch.*'op'", 'var x: Int = op(1)')
+            "return type mismatch.*'op'", 'var x: Int = op[Int](1)')
 
     def test_concrete_parameter_and_return_are_preserved(self):
         for ret, sig_ret, result_type, implementation, expected in [
@@ -56,14 +57,14 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
             source = declaration('receiver: Self, other: Float', ret, 'U,Float', sig_ret, 'U')
             builtin = Mock(side_effect=implementation)
             with self.subTest(ret=ret), patch.dict(BUILTINS, {'test.op': builtin}):
-                result = run(source + f'var x: {result_type} = op(1,2.5)')
+                result = run(source + f'var x: {result_type} = op[Int](1,2.5)')
             self.assertEqual(result.environment['x'].value, expected)
             builtin.assert_called_once_with(1, 2.5)
 
     def test_required_variable_is_not_inferred_from_position(self):
         source = declaration('other: Float, receiver: Self', 'Self', 'Float,U', 'U', 'U')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: b}):
-            self.assertEqual(run(source + 'var x: Int = op(2.5,1)').environment['x'].value, 1)
+            self.assertEqual(run(source + 'var x: Int = op[Int](2.5,1)').environment['x'].value, 1)
 
     def test_sig_only_variable_is_not_a_projection(self):
         self.assert_rejected(
@@ -98,7 +99,7 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
             ('Thunk[Checked]', 'Thunk[Pure]'),
             ('Thunk[Nested]', 'Thunk[Outer]'),
             ('SomeType[Self]', 'OtherType[T]'),
-            ('SomeType[Self]', 'SomeType[T,Int]'),
+            ('SomeType[Self]', 'SomeType[SomeType[T]]'),
         ]:
             with self.subTest(method_type=method_type, sig_type=sig_type):
                 self.assert_rejected(
@@ -112,10 +113,10 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
         source = declaration('self: Self, other: Thunk[Pure]',
                              'Thunk[Pure]', 'T,Thunk[Pure]', 'Thunk[Pure]')
         source += (
-            'sig relay(U,Thunk[Pure]) -> Thunk[Pure] { require U guarantees G }\n'
-            'func relay(a: U,b: Thunk[Pure]) { return op(a,b) }\n'
-            'var concrete: Int = force(op(1,thunk(2)))\n'
-            'var deferred: Int = force(relay(3,thunk(4)))')
+            'sig relay[U](U,Thunk[Pure]) -> Thunk[Pure] { require U guarantees G }\n'
+            'func relay(a: U,b: Thunk[Pure]) { return op[U](a,b) }\n'
+            'var concrete: Int = force(op[Int](1,thunk(2)))\n'
+            'var deferred: Int = force(relay[Int](3,thunk(4)))')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: b}):
             result = run(source)
         self.assertEqual(result.environment['concrete'].value, 2)
@@ -135,13 +136,13 @@ class GuaranteeMethodSignatureTests(unittest.TestCase):
                             source.replace('require T guarantees G',
                                            'builtin test.op')]:
                 with self.subTest(program=program):
-                    self.assertEqual(run(program + 'var x: Int = op(1)').environment['x'].value, 1)
+                    self.assertEqual(run(program + 'var x: Int = op[Int](1)').environment['x'].value, 1)
 
     def test_absent_method_and_multiple_requirements_unchanged(self):
         for source in [
-            'guarantee G { witness(self: Self) -> Self }\nsig op(T) -> T { require T guarantees G }',
+            'guarantee G { witness(self: Self) -> Self }\nsig op[T](T) -> T { require T guarantees G }',
             'guarantee G { op(self: Self) -> Float }\nguarantee H { witness(self: Self) -> Self }\n'
-            'sig op(T) -> T { require T guarantees G require T guarantees H }',
+            'sig op[T](T) -> T { require T guarantees G require T guarantees H }',
         ]:
             with self.subTest(source=source):
                 compile(source)

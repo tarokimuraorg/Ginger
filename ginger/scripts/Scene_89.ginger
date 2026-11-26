@@ -16,4 +16,4 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 guarantee G { op(self: Self) -> Float }
-sig op(T) -> T { require T guarantees G }
+sig op[T](T) -> T { require T guarantees G }

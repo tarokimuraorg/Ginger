@@ -19,4 +19,4 @@ sig h(Float) -> Unit { failure { IOErr } }
 func h(x: Float) {}
 var t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))
 var x: Unit = h(force(t))
-resolve x { DivideByZero { x = print(8) } }
+resolve x { DivideByZero { x = print[Int](8) } }

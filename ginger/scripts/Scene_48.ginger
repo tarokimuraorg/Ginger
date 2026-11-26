@@ -83,10 +83,10 @@ func outerFloat(a: Float,b: Float) {
     return innerFloat(a,b)
 }
 
-print(force(delayedInt(1,2)))
-print(force(delayedFloat(1.0,2.0)))
-print(outerInt(6,4))
-print(outerFloat(2.5,7.4))
+print[Int](force(delayedInt(1,2)))
+print[Float](force(delayedFloat(1.0,2.0)))
+print[Int](outerInt(6,4))
+print[Float](outerFloat(2.5,7.4))
 var i: Int = outerInt(9007199254740991,1)
 
 resolve i {
@@ -103,5 +103,5 @@ resolve f {
     }
 }
 
-print(i)
-print(f)
+print[Int](i)
+print[Float](f)

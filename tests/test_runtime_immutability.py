@@ -60,7 +60,7 @@ class RuntimeImmutabilityTests(unittest.TestCase):
                 BUILTINS, {'test.inspect': lambda handle: None}), redirect_stdout(out):
             result = run('sigtype DeferredInt() -> Int { failure { Never } }\nsig inspect(Thunk[DeferredInt]) -> Unit { builtin test.inspect }\n'
                          'var x: Int = 1\nvar t: Thunk[DeferredInt] = thunk(x)\n'
-                         'inspect(t)\nx = 2\nprint(force(t))\nprint(x)')
+                         'inspect(t)\nx = 2\nprint[Int](force(t))\nprint[Int](x)')
         self.assertEqual(out.getvalue(), '1\n2\n')
         self.assertIs(result.environment['t'].value.env['x'], captured[0])
         self.assertIsNot(result.environment['x'], captured[0])
@@ -84,10 +84,10 @@ class RuntimeImmutabilityTests(unittest.TestCase):
             return t
         for typ, literal, expected in [('Int', '1', 1), ('Float', '1.5', 1.5)]:
             with self.subTest(typ=typ), patch.dict(BUILTINS, {'test.identity': identity}):
-                result = run(f'sigtype Inner() -> {typ} {{}}\nsigtype Outer() -> Thunk[Inner] {{}}\nsig capture(T,{typ}) -> Thunk[Outer] {{}}\n'
+                result = run(f'sigtype Inner() -> {typ} {{}}\nsigtype Outer() -> Thunk[Inner] {{}}\nsig capture[T](T,{typ}) -> Thunk[Outer] {{}}\n'
                              f'func capture(tag: T,a: {typ}) {{ return thunk(thunk(a)) }}\n'
                              'sig identity(Thunk[Outer]) -> Thunk[Outer] { builtin test.identity }\n'
-                             f'var t: Thunk[Outer] = capture({literal},{literal})\n'
+                             f'var t: Thunk[Outer] = capture[{typ}]({literal},{literal})\n'
                              f'var u: Thunk[Outer] = identity(t)\n'
                              f'var inner: Thunk[Inner] = force(u)\n'
                              f'var x: {typ} = force(inner)')

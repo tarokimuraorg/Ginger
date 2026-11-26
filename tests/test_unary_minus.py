@@ -25,17 +25,17 @@ class UnaryMinusTests(unittest.TestCase):
                   'sig f(Int) -> Int {}\nfunc f(n: Int) { return n }\n')
         cases = {
             '(-1)': '-1', '(-2.5)': '-2.5', '(-x)': '-3',
-            '(-(a + b))': '-6', '(neg(x))': '-3',
+            '(-(a + b))': '-6', '(neg[Int](x))': '-3',
             '1 - (-2)': '3', '1 + (-2)': '-1', 'x * (-2)': '-6',
-            'f((-2))': '-2', 'neg(x)': '-3', 'neg(neg(x))': '3',
+            'f((-2))': '-2', 'neg[Int](x)': '-3', 'neg[Int](neg[Int](x))': '3',
             '(x)': '3', '(-x) + 1': '-2', '(-2) * 3': '-6',
             '( - x )': '-3', '1-(-2)': '3', 'f(( - 2 ))': '-2',
-            '(((-x)))': '-3', '(-neg(x))': '3',
+            '(((-x)))': '-3', '(-neg[Int](x))': '3',
         }
         for expr, expected in cases.items():
             with self.subTest(expr=expr):
                 typ = 'Float' if '.' in expected else 'Int'
-                program, diags = checked(prefix + f'var result: {typ} = {expr}\nprint(result)')
+                program, diags = checked(prefix + f'var result: {typ} = {expr}\nprint[{typ}](result)')
                 arithmetic = {'(-(a + b))', '1 - (-2)', '1 + (-2)', 'x * (-2)',
                               '(-x) + 1', '(-2) * 3', '1-(-2)'}
                 self.assertEqual([d.message for d in diags],
@@ -46,7 +46,7 @@ class UnaryMinusTests(unittest.TestCase):
         expressions = ['1--2', '1 - -2', 'x * -2', '(1--2)',
                        '--x', '- -x', '(- -x)', '(-)', '+x', '++x']
         for expr in expressions:
-            for template in ['var result: Int = {}', 'print({})',
+            for template in ['var result: Int = {}', 'print[Int]({})',
                              'sig f() -> Int {{}}\nfunc f() {{ return {} }}']:
                 with self.subTest(expr=expr, template=template):
                     with self.assertRaises(SyntaxError):
@@ -64,17 +64,16 @@ class UnaryMinusTests(unittest.TestCase):
     def test_ast_and_lowering_equivalence(self):
         source = 'var x: Int = (-(1 + 2))'
         self.assertIsInstance(parse(source).items[0].expr, UnaryMinusExpr)
-        self.assertEqual(lower_program(parse(source)),
-                         lower_program(parse('var x: Int = neg(1 + 2)')))
-        self.assertEqual(lower_program(parse('print((neg(1)))')),
-                         lower_program(parse('print(neg(1))')))
+        self.assertEqual(lower_program(parse(source)).items[0].expr.args, lower_program(parse('var x: Int = neg[Int](1 + 2)')).items[0].expr.args)
+        self.assertEqual(lower_program(parse('print[Int]((neg[Int](1)))')),
+                         lower_program(parse('print[Int](neg[Int](1))')))
 
     def test_types_and_neg_results_match(self):
         for typ, literal in [('Int', '2'), ('Int64', '2i64'), ('Float', '2.5')]:
             with self.subTest(typ=typ):
                 program, diags = checked(
                     f'var x: {typ} = {literal}\nvar a: {typ} = -x\n'
-                    f'var b: {typ} = neg(x)\nprint(a)\nprint(b)')
+                    f'var b: {typ} = neg[{typ}](x)\nprint[{typ}](a)\nprint[{typ}](b)')
                 env = typecheck_program(program, Diagnostics())
                 self.assertEqual(env['a'].ty, TypeRef(typ))
                 self.assertEqual(env['a'].ty, env['b'].ty)
@@ -84,11 +83,11 @@ class UnaryMinusTests(unittest.TestCase):
 
     def test_invalid_types_match_neg_diagnostics(self):
         # Bool literals do not exist yet; eq supplies a real Bool value.
-        for typ, expr in [('Bool', 'eq(1, 1)'), ('Ordering', 'cmp(1, 2)'),
-                          ('Unit', 'print(1)'), ('Thunk[Deferred]', 't'),
+        for typ, expr in [('Bool', 'eq[Int](1, 1)'), ('Ordering', 'cmp[Int](1, 2)'),
+                          ('Unit', 'print[Int](1)'), ('Thunk[Deferred]', 't'),
                           ('Int', 'true')]:
             messages = []
-            for form in [f'-{expr}', f'neg({expr})']:
+            for form in [f'-{expr}', f'neg[{typ}]({expr})']:
                 with self.subTest(form=form):
                     with self.assertRaises(TypecheckError) as raised:
                         checked('sigtype Deferred() -> Int {} var t: Thunk[Deferred] = thunk(1) ' + f'var result: {typ} = {form}')
@@ -96,9 +95,9 @@ class UnaryMinusTests(unittest.TestCase):
             self.assertEqual(*messages)
 
     def test_argument_inference_without_expected_type(self):
-        for form in ['(-1)', 'neg(1)']:
-            for source in [f'print({form})',
-                           f'sig f() -> Int {{}}\nfunc f() {{ return {form} }}\nprint(f())']:
+        for form in ['(-1)', 'neg[Int](1)']:
+            for source in [f'print[Int]({form})',
+                           f'sig f() -> Int {{}}\nfunc f() {{ return {form} }}\nprint[Int](f())']:
                 with self.subTest(source=source):
                     program, diags = checked(source)
                     self.assertEqual(diags.items, [])
@@ -114,10 +113,10 @@ class UnaryMinusTests(unittest.TestCase):
                              EMPTY_FAILURES)
 
     def test_inner_failure_warning_resolve_and_runtime(self):
-        for expr in ['(-(div(1.0, 0.0)))', 'neg(div(1.0, 0.0))',
+        for expr in ['(-(div(1.0, 0.0)))', 'neg[Float](div(1.0, 0.0))',
                      '(-(1.0 / 0.0))']:
             with self.subTest(expr=expr):
-                program, diags = checked(FLOAT_IDENTITY + f'print(identity({expr}))')
+                program, diags = checked(FLOAT_IDENTITY + f'print[Float](identity({expr}))')
                 self.assertEqual([d.message for d in diags],
                                  ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow'])
                 _, context, out = recorded(program)
@@ -125,7 +124,7 @@ class UnaryMinusTests(unittest.TestCase):
                 self.assertEqual(context.unresolved_pending(1), (1,))
                 self.assertEqual(context.next_event_id, 2)
                 program, diags = checked(FLOAT_IDENTITY + f'var x: Float = identity({expr})\n'
-                                         'resolve x { DivideByZero { x = 0\nprint(7) } }')
+                                         'resolve x { DivideByZero { x = 0\nprint[Int](7) } }')
                 self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
                 self.assertEqual(output(program), '7\n')
 
@@ -136,7 +135,7 @@ class UnaryMinusTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: DivideByZero'):
             checked(source % '')
         program, diags = checked((source % 'failure { DivideByZero, FloatOverflow, FloatUnderflow }') +
-                                 'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint(8) } }')
+                                 'var x: Float = f()\nresolve x { DivideByZero { x = 0\nprint[Int](8) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '8\n')
 
@@ -147,7 +146,7 @@ class UnaryMinusTests(unittest.TestCase):
         self.assertEqual(output(program), '')
         program, diags = checked(prefix +
                                  'var x: Float = identity((-force(t)))\n'
-                                 'resolve x { DivideByZero { x = 0\nprint(9) } }')
+                                 'resolve x { DivideByZero { x = 0\nprint[Int](9) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '9\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
@@ -160,9 +159,9 @@ class UnaryMinusTests(unittest.TestCase):
                                ('(1 + (-2) * 3)', '-5')]:
             with self.subTest(expr=expr):
                 typ = 'Float' if '.' in expected else 'Int'
-                program, _ = checked(f'var result: {typ} = {expr}\nprint(result)')
+                program, _ = checked(f'var result: {typ} = {expr}\nprint[{typ}](result)')
                 self.assertEqual(output(program), expected + '\n')
-        program, _ = checked('print((1 / 2))')
+        program, _ = checked('print[Float]((1 / 2))')
         self.assertEqual(output(program), '0.5\n')
 
     def test_all_sample_baselines(self):

@@ -79,7 +79,7 @@ class NameResolutionContractsTests(unittest.TestCase):
 
     def test_function_and_variable(self):
         program, _, _ = checked('sig Shared() -> Int {}\nfunc Shared() { return 9 }\n'
-                                'var Shared: Int = 4\nprint(Shared())\nprint(Shared)')
+                                'var Shared: Int = 4\nprint[Int](Shared())\nprint[Int](Shared)')
         result, stdout = execute(program)
         self.assertEqual(stdout, '9\n4\n')
         self.assertEqual(result.environment['Shared'].value, 4)
@@ -87,17 +87,17 @@ class NameResolutionContractsTests(unittest.TestCase):
     def test_function_and_parameter(self):
         program, _, _ = checked('sig Shared() -> Int {}\nfunc Shared() { return 9 }\n'
                                 'sig relay(Int) -> Int {}\n'
-                                'func relay(Shared: Int) { print(Shared())\nreturn Shared }\n'
-                                'print(relay(4))')
+                                'func relay(Shared: Int) { print[Int](Shared())\nreturn Shared }\n'
+                                'print[Int](relay(4))')
         self.assertEqual(execute(program)[1], '9\n4\n')
 
     def test_bare_function_name_is_not_a_value(self):
         with self.assertRaisesRegex(TypecheckError, "unknown identifier 'Shared'"):
-            checked('sig Shared() -> Int {}\nfunc Shared() { return 9 }\nprint(Shared)')
+            checked('sig Shared() -> Int {}\nfunc Shared() { return 9 }\nprint[Int](Shared)')
 
     def test_function_and_concrete_type_name(self):
         program, symbols, _ = checked('sig Int(Int) -> Int {}\n'
-                                      'func Int(x: Int) { return x }\nvar x: Int = Int(9)\nprint(x)')
+                                      'func Int(x: Int) { return x }\nvar x: Int = Int(9)\nprint[Int](x)')
         self.assertEqual(symbols.sigs['Int'].ret, TypeRef('Int'))
         result, stdout = execute(program)
         self.assertEqual((result.environment['x'].value, stdout), (9, '9\n'))
@@ -105,11 +105,11 @@ class NameResolutionContractsTests(unittest.TestCase):
     def test_typegroup_failureset_and_function_use_their_own_contexts(self):
         group = 'typegroup Shared { Int }\n'
         failureset = 'failureset Shared { IOErr }\n'
-        functions = ('sig Shared(T) -> T { require T in Shared failure { Shared } }\n'
+        functions = ('sig Shared[T](T) -> T { require T in Shared failure { Shared } }\n'
                      'func Shared(x: T) { return x }\n'
-                     'sig conditional(T) -> T { failure { IOErr when T in Shared } }\n'
+                     'sig conditional[T](T) -> T { failure { IOErr when T in Shared } }\n'
                      'func conditional(x: T) { return x }\n')
-        calls = 'var a: Int = Shared(4)\nvar b: Int = conditional(9)\nvar c: Float = conditional(2.0)'
+        calls = 'var a: Int = Shared[Int](4)\nvar b: Int = conditional[Int](9)\nvar c: Float = conditional[Float](2.0)'
         for declarations in (group + failureset + functions, failureset + functions + group,
                              functions + group + failureset):
             with self.subTest(declarations=declarations):
@@ -128,14 +128,14 @@ class NameResolutionContractsTests(unittest.TestCase):
                                  [IOERR, IOERR, frozenset()])
                 self.assertFalse(result.failure_history)
                 with self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
-                    checked(declarations + 'Shared(2.0)')
+                    checked(declarations + 'Shared[Float](2.0)')
 
     def test_same_names_do_not_change_catalog_builtin_or_deferred_dispatch(self):
-        body = ('sig relay(T,T) -> T { require T guarantees Addable '
+        body = ('sig relay[T](T,T) -> T { require T guarantees Addable '
                 'failure { IntegerOverflow, FloatOverflow } }\n'
-                'func relay(a: T,b: T) { return add(a,b) }\n'
-                'var direct: Float = toFloat(4)\nvar concrete: Int = add(2,3)\n'
-                'var deferred: Int = relay(6,7)')
+                'func relay(a: T,b: T) { return add[T](a,b) }\n'
+                'var direct: Float = toFloat(4)\nvar concrete: Int = add[Int](2,3)\n'
+                'var deferred: Int = relay[Int](6,7)')
         for extra in ('', 'guarantee add { witness(self: Self) -> Self }\n'
                       'failureset add { IOErr }\ntypegroup toFloat { Int }\n'
                       'failureset toFloat { IOErr }\n'):
@@ -160,7 +160,7 @@ class NameResolutionContractsTests(unittest.TestCase):
         # Existing catalog sigs supply the required preceding declarations.
         for source, name, expected in [
             ('func toFloat(x: Int) { return 9.0 }\nvar x: Float = toFloat(4)', 'toFloat', 9.0),
-            ('func add(a: T,b: T) { return a }\nvar x: Int = add(2,3)', 'add', 2),
+            ('func add(a: T,b: T) { return a }\nvar x: Int = add[Int](2,3)', 'add', 2),
         ]:
             with self.subTest(name=name):
                 program, symbols, _ = checked(source)

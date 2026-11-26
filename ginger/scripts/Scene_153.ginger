@@ -21,7 +21,7 @@ sigtype DeferredFloat() -> Float { failure { Never } }
 
 typegroup Mark {}
 register Mark { Thunk[DeferredInt] }
-sig keep(T) -> T { require T in Mark }
+sig keep[T](T) -> T { require T in Mark }
 func keep(x: T) { return x }
 var value: Thunk[DeferredFloat] = thunk(1.0)
-var bad: Thunk[DeferredFloat] = keep(value)
+var bad: Thunk[DeferredFloat] = keep[Thunk[DeferredFloat]](value)

@@ -23,7 +23,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 // 1. 正常時はresolveが何もしない
-var a: Int = add(1, 2)
+var a: Int = add[Int](1, 2)
 
 resolve a {
     IntegerOverflow {
@@ -31,10 +31,10 @@ resolve a {
     }
 }
 
-print(a)
+print[Int](a)
 
 // 2. 本当に回復する
-var b: Int = mul(9007199254740991, 2)
+var b: Int = mul[Int](9007199254740991, 2)
 
 resolve b {
     IntegerOverflow {
@@ -42,19 +42,19 @@ resolve b {
     }
 }
 
-print(b)
+print[Int](b)
 
 // 3. handlerが値を直さなければ未解決のまま
-var c: Int = mul(9007199254740991, 2)
+var c: Int = mul[Int](9007199254740991, 2)
 
 resolve c {
     IntegerOverflow {
-        print(999)
+        print[Int](999)
     }
 }
 
 // c が resolve されず、正常な値を持たないためエラー
-//print(c)
+//print[Float](c)
 
 resolve c {
     IntegerOverflow {
@@ -62,11 +62,11 @@ resolve c {
     }
 }
 
-print(c)
+print[Int](c)
 
 // 4. 同種failureを取り違えない
-var x: Int = mul(9007199254740991, 2)
-var y: Int = mul(9007199254740991, 2)
+var x: Int = mul[Int](9007199254740991, 2)
+var y: Int = mul[Int](9007199254740991, 2)
 
 resolve x {
     IntegerOverflow {
@@ -74,7 +74,7 @@ resolve x {
     }
 }
 
-print(x)
+print[Int](x)
 
 // y でなく x に値を再代入
 resolve y {
@@ -83,7 +83,7 @@ resolve y {
     }
 }
 
-print(x)
+print[Int](x)
 
 //y は resolve されず、正常な値を持たないためエラー
-//print(y)
+//print[Int](y)

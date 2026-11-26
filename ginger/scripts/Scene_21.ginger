@@ -24,4 +24,4 @@ func good(t: Thunk[DeferredInt]) {
     return force(t)
 }
 
-print(good(thunk(0)))
+print[Int](good(thunk(0)))

@@ -143,19 +143,19 @@ class ThunkValueContractTests(unittest.TestCase):
         for typ in ['Box[Int]', 'Box[Float]', 'Box[Box[Int]]', 'Pair[Int, Float]',
                     'MissingType', 'Box[MissingType]']:
             with self.subTest(typ=typ):
-                result = self.run_source('type Box\ntype Pair\ntype MissingType\n' + self.source(typ), self.thunk(payload))
+                result = self.run_source('type Box[T]\ntype Pair[T, U]\ntype MissingType\n' + self.source(typ), self.thunk(payload))
                 self.assertIsNone(result.value_contract_violation)
                 self.assertIs(result.environment['x'].value, payload)
-                self.assertIsNotNone(self.run_source('type Box\ntype Pair\ntype MissingType\n' + self.source(typ), payload).value_contract_violation)
+                self.assertIsNotNone(self.run_source('type Box[T]\ntype Pair[T, U]\ntype MissingType\n' + self.source(typ), payload).value_contract_violation)
 
     def test_fatal_prevents_assignment_resolve_and_continuation(self):
         for statement in ['var x: Float = force(make())', 'var x: Float = 7.0\nx = force(make())',
-                          'var x: Float = add(force(make()), 1.0)']:
+                          'var x: Float = add[Float](force(make()), 1.0)']:
             later = Mock()
             source = self.source(contract='FloatOverflow', tail=statement)
             if '= 7.0' not in statement:
                 source += '\nresolve x { FloatOverflow { x = 0.0 } }'
-            source += '\nprint(3)'
+            source += '\nprint[Int](3)'
             with patch.dict(BUILTINS, {'core.int.print': later, 'core.float.add': later}):
                 result = self.run_source(source, self.thunk(float('nan')))
             later.assert_not_called()

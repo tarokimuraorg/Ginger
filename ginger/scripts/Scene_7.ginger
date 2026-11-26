@@ -20,15 +20,15 @@
 
 let x: Int = 2
 
-let a: Int = neg(x)
+let a: Int = neg[Int](x)
 let b: Int = (-x)
 let c: Int = 1 - (-2)
 let d: Int = 1 - a
 
-print(a)
-print(b)
-print(c)
-print(d)
+print[Int](a)
+print[Int](b)
+print[Int](c)
+print[Int](d)
 
 //let y: Int = 1 - -2
-//print(y)
+//print[Int](y)

@@ -35,7 +35,7 @@ class EmptyGuaranteeTests(unittest.TestCase):
 
     def test_require_reference_in_either_order(self):
         definition = 'guarantee Empty {}\n'
-        reference = 'sig keep(T) -> T { require T guarantees Empty }\n'
+        reference = 'sig keep[T](T) -> T { require T guarantees Empty }\n'
         for source in [definition + reference, reference + definition]:
             with self.subTest(source=source):
                 self.assert_empty_rejected(lambda: compile(source))
@@ -64,7 +64,7 @@ class EmptyGuaranteeTests(unittest.TestCase):
                     self.assert_empty_rejected(lambda: compile(''))
 
     def test_method_contract_and_forward_generic_requirement(self):
-        compile('sig keep(T) -> T { require T guarantees Valid }\n'
+        compile('sig keep[T](T) -> T { require T guarantees Valid }\n'
                 'func keep(x: T) { return x }\n'
                 'guarantee Valid { witness(self: Self) -> Self }')
 

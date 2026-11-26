@@ -24,13 +24,13 @@ class RemovedAttributesTests(unittest.TestCase):
             '@attr.io\n@attr.io\nsig notify() -> Unit {}',
             '@attr.io sig notify() -> Unit {}',
             'sig notify() -> Unit {}\n@attr.io\nfunc notify() {}',
-            'func notify() {\n@attr.io\nprint(1)\n}',
+            'func notify() {\n@attr.io\nprint[Int](1)\n}',
             '@attr.io',
         ]
         for decl in ('var x: Int = 1', 'guarantee G {}',
                      'impl Int guarantees G {}', 'typegroup G {}',
                      'register G { Int }', 'failureset F { IOErr }',
-                     'resolve x { IOErr { print(1) } }'):
+                     'resolve x { IOErr { print[Int](1) } }'):
             sources.extend(f'@attr.{name}\n{decl}' for name in ('io', 'handled'))
         for source in sources:
             for entry in (parse, run):
@@ -41,7 +41,7 @@ class RemovedAttributesTests(unittest.TestCase):
     def test_plain_function_prints(self):
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            run('sig notify() -> Unit {}\nfunc notify() { print(1) }\nnotify()')
+            run('sig notify() -> Unit {}\nfunc notify() { print[Int](1) }\nnotify()')
         self.assertEqual(stdout.getvalue(), '1\n')
 
     def test_ast_reconstruction_without_attributes(self):

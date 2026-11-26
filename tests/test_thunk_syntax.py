@@ -21,12 +21,12 @@ class ThunkSyntaxTests(unittest.TestCase):
                         'sig f() -> TYPE {}', 'sigtype F(Box[TYPE]) -> Int {}',
                         'typegroup Members { TYPE }', 'typegroup Members {} register Members { TYPE }']:
                 with self.subTest(spelling=spelling, use=use), self.assertRaises((TypecheckError, SyntaxError)):
-                    compile('type Box sigtype A() -> Int {} ' + use.replace('TYPE', spelling))
+                    compile('type Box[T]\nsigtype A() -> Int {} ' + use.replace('TYPE', spelling))
 
     def test_inapplicable_contracts(self):
         for declaration, message in [('sigtype A(Int) -> Int {}', 'zero-argument'),
-                                     ('sigtype A() -> T {}', 'fully concrete'),
-                                     ('sigtype A() -> T { failure { IOErr when T in BoundedArithmetic } }', 'fully concrete'),
+                                     ('sigtype A() -> T {}', 'unknown type variable'),
+                                     ('sigtype A() -> T { failure { IOErr when T in BoundedArithmetic } }', 'unknown type variable'),
                                      ('sig A() -> Int {}', 'unknown sigtype')]:
             with self.subTest(declaration=declaration), self.assertRaisesRegex(TypecheckError, message):
                 compile(declaration + ' var t: Thunk[A] = thunk(1)')
@@ -52,7 +52,7 @@ class ThunkSyntaxTests(unittest.TestCase):
             compile(source + ' sigtype Consumer() -> Int { failure { Tagged(Thunk[Missing]) } }')
 
     def test_same_contract_name_in_nested_duplicate_signature(self):
-        source = ('type Box\nsigtype Consumer(Box[Thunk[A]]) -> Unit {} '
+        source = ('type Box[T]\nsigtype Consumer(Box[Thunk[A]]) -> Unit {} '
                   'sigtype Other(Box[Thunk[A]]) -> Unit {} sigtype A() -> Int {}')
         with self.assertRaisesRegex(TypecheckError, 'duplicate sigtype contract'):
             compile(source)
@@ -76,13 +76,13 @@ class ThunkSyntaxTests(unittest.TestCase):
 
     def test_thunk_name_is_not_a_generic_binding(self):
         decl = 'sigtype A() -> Int {} '
-        source = ('sig keep(A,Thunk[A]) -> A {} func keep(x: A,t: Thunk[A]) { return x } '
-                  'var x: Float = keep(1.5,thunk(1))')
+        source = ('sig keep[V](V,Thunk[A]) -> V {} func keep(x: V,t: Thunk[A]) { return x } '
+                  'var x: Float = keep[Float](1.5,thunk(1))')
         self.assertEqual(run(decl + source).environment['x'].value, 1.5)
         with self.assertRaisesRegex(TypecheckError, "unknown sigtype 'A'"):
             compile(source)
 
     def test_require_cannot_supply_a_thunk_result(self):
-        with self.assertRaisesRegex(TypecheckError, 'not inferable'):
+        with self.assertRaisesRegex(TypecheckError, 'unknown type variable'):
             compile('sigtype Deferred() -> T { require T guarantees Addable } '
                     'var t: Thunk[Deferred] = thunk(1)')

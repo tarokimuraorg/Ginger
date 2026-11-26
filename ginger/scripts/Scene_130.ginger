@@ -18,5 +18,5 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 failureset Arithmetic { IntegerOverflow }
-var x: Int = add(9007199254740991,1)
+var x: Int = add[Int](9007199254740991,1)
 resolve x { Arithmetic { x = 0 } }

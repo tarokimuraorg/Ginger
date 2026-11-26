@@ -106,7 +106,7 @@ class ExtensionThunkHandleTests(unittest.TestCase):
             # Box payload is deliberately opaque; only issued TypeRef identity matters.
             source_expr = 'make()' if 'Box' in source_ret else '1'
             result = self.evaluate(
-                'type Box\nsig make() -> Box[Int] { builtin test.make }\n'
+                'type Box[T]\nsig make() -> Box[Int] { builtin test.make }\n'
                 f'sigtype Source() -> {source_ret} {{ failure {{ {source_failure} }} }}\n'
                 f'sigtype Target() -> {target_ret} {{ failure {{ {target_failure} }} }}\n'
                 f'sig store(Thunk[Source]) -> Unit {{ builtin test.store }}\n'
@@ -152,7 +152,7 @@ class ExtensionThunkHandleTests(unittest.TestCase):
             payload.append(handle)
             return payload
         result = self.evaluate(
-            'sigtype DeferredInt() -> Int { failure { Never } }\ntype Box\nsig box(Thunk[DeferredInt]) -> Box[Thunk[DeferredInt]] { builtin test.box }\n'
+            'sigtype DeferredInt() -> Int { failure { Never } }\ntype Box[T]\nsig box(Thunk[DeferredInt]) -> Box[Thunk[DeferredInt]] { builtin test.box }\n'
             'sig alias(Box[Thunk[DeferredInt]]) -> Box[Thunk[DeferredInt]] { builtin test.alias }\n'
             'sig extract(Box[Thunk[DeferredInt]]) -> Thunk[DeferredInt] { builtin test.extract }\n'
             'var a: Box[Thunk[DeferredInt]] = box(thunk(5))\n'

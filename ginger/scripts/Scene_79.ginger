@@ -16,6 +16,6 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 guarantee G { witness(self: Self) -> Self }
-sig keep(T) -> T { require T guarantees G }
+sig keep[T](T) -> T { require T guarantees G }
 func keep(x: T) { return x }
-print(keep(1))
+print[Int](keep[Int](1))

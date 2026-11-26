@@ -20,4 +20,4 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-print(add(1,2i64))
+print[Int64](add[Int64](1,2i64))

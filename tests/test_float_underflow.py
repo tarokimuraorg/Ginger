@@ -35,12 +35,12 @@ class FloatUnderflowTests(unittest.TestCase):
                          '0.' + '0' * 400 + '1']:
             for expr in [spelling, f'-{spelling}', f'thunk({spelling})']:
                 with self.subTest(expr=expr), self.assertRaisesRegex(TypecheckError, 'must not round to zero'):
-                    checked('sigtype D() -> Float {} var t: Thunk[D] = ' + expr if expr.startswith('thunk(') else f'print({expr})')
+                    checked('sigtype D() -> Float {} var t: Thunk[D] = ' + expr if expr.startswith('thunk(') else f'print[Int]({expr})')
 
     def test_exact_zero_including_sign(self):
-        for expr, expected in [('mul(0.0,0.5)', 0.0), ('mul(-0.0,0.5)', -0.0),
-                               ('sub(1.0,1.0)', 0.0), ('add(1e-307,-1e-307)', 0.0),
-                               ('div(-0.0,1e308)', -0.0), ('neg(0.0)', -0.0)]:
+        for expr, expected in [('mul[Float](0.0,0.5)', 0.0), ('mul[Float](-0.0,0.5)', -0.0),
+                               ('sub[Float](1.0,1.0)', 0.0), ('add[Float](1e-307,-1e-307)', 0.0),
+                               ('div(-0.0,1e308)', -0.0), ('neg[Float](0.0)', -0.0)]:
             with self.subTest(expr=expr):
                 result, _, _ = self.execute(f'var x: Float = {expr}')
                 self.assertEqual(result.failure_history, ())
@@ -57,7 +57,7 @@ class FloatUnderflowTests(unittest.TestCase):
                  ('div', 5e-324, 2.0), ('div', -5e-324, 2.0), ('div', 1e-307, 1e308), ('div', -1e-307, 1e308)]
         for op, a, b in cases:
             with self.subTest(op=op, a=a, b=b):
-                result, diagnostics, stdout = self.execute(f'var x: Float = {op}({a!r},{b!r})\nprint(7)')
+                result, diagnostics, stdout = self.execute(f'var x: Float = {op}{"" if op == "div" else "[Float]"}({a!r},{b!r})\nprint[Int](7)')
                 expected = {'add': lambda: a+b, 'sub': lambda: a-b, 'mul': lambda: a*b, 'div': lambda: a/b}[op]()
                 if expected != 0.0:
                     self.assertEqual(result.environment['x'].value, expected)
@@ -75,30 +75,30 @@ class FloatUnderflowTests(unittest.TestCase):
                 self.assertEqual(result.incomplete_statements[0].related_event_ids, (event.event_id,))
 
     def test_normal_boundary_results(self):
-        for expr in [f'mul({sys.float_info.min!r},1.0)', f'div({sys.float_info.min!r},1.0)',
-                     f'add({sys.float_info.min!r},0.0)', f'sub({sys.float_info.min!r},0.0)']:
+        for expr in [f'mul[Float]({sys.float_info.min!r},1.0)', f'div({sys.float_info.min!r},1.0)',
+                     f'add[Float]({sys.float_info.min!r},0.0)', f'sub[Float]({sys.float_info.min!r},0.0)']:
             result, _, _ = self.execute(f'var x: Float = {expr}')
             self.assertEqual(result.environment['x'].value, sys.float_info.min)
             self.assertEqual(result.failure_history, ())
 
     def test_failed_write_explicit_recovery_preserves_history(self):
-        result, _, out = self.execute('var x: Float = 9.0\nx = mul(5e-324,0.5)\n'
-            'resolve x { FloatUnderflow { x = 0.0 } }\nprint(x)')
+        result, _, out = self.execute('var x: Float = 9.0\nx = mul[Float](5e-324,0.5)\n'
+            'resolve x { FloatUnderflow { x = 0.0 } }\nprint[Float](x)')
         self.assertEqual(out, '0.0\n')
         self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
         self.assertEqual(result.unresolved_events, ())
 
     def test_generic_thunk_and_function_local_resolve(self):
-        source = ('sig inner(U,U) -> U { require U guarantees Multipliable '
+        source = ('sig inner[U](U,U) -> U { require U guarantees Multipliable '
                   'failure { IntegerOverflow when U in BoundedArithmetic } '
                   'failure { FloatOverflow when U in FiniteArithmetic } '
                   'failure { FloatUnderflow when U in FiniteArithmetic } }\n'
-                  'func inner(a: U,b: U) { return mul(a,b) }\n'
-                  'sig safe(T,T) -> T { require T guarantees Multipliable failure { Never } }\n'
-                  'func safe(a: T,b: T) { var x: T = inner(a,b)\n'
+                  'func inner(a: U,b: U) { return mul[U](a,b) }\n'
+                  'sig safe[T](T,T) -> T { require T guarantees Multipliable failure { Never } }\n'
+                  'func safe(a: T,b: T) { var x: T = inner[T](a,b)\n'
                   'resolve x { IntegerOverflow { x = a } FloatOverflow { x = a } '
                   'FloatUnderflow { x = a } }\nreturn x }\n'
-                  'print(safe(1e-307,1e-307))')
+                  'print[Float](safe[Float](1e-307,1e-307))')
         result, diagnostics, out = self.execute(source)
         self.assertEqual(diagnostics.items, [])
         self.assertEqual(out, '1e-307\n')
@@ -111,13 +111,13 @@ class FloatUnderflowTests(unittest.TestCase):
 
     def test_static_upper_bound_thunk_and_resolve_qualification(self):
         for source in [
-            'sig f() -> Float { failure { FloatOverflow } }\nfunc f() { return mul(1.0,2.0) }',
-            'sigtype CheckedFloat() -> Float { failure { FloatOverflow } }\nvar t: Thunk[CheckedFloat] = thunk(mul(1.0,2.0))',
-            'var x: Float = neg(1.0)\nresolve x { FloatUnderflow { x = 0.0 } }',
-            'sig f(T,T) -> T { require T guarantees Multipliable '
+            'sig f() -> Float { failure { FloatOverflow } }\nfunc f() { return mul[Float](1.0,2.0) }',
+            'sigtype CheckedFloat() -> Float { failure { FloatOverflow } }\nvar t: Thunk[CheckedFloat] = thunk(mul[Float](1.0,2.0))',
+            'var x: Float = neg[Float](1.0)\nresolve x { FloatUnderflow { x = 0.0 } }',
+            'sig f[T](T,T) -> T { require T guarantees Multipliable '
             'failure { IntegerOverflow when T in BoundedArithmetic } '
             'failure { FloatOverflow when T in FiniteArithmetic } }\n'
-            'func f(a: T,b: T) { return mul(a,b) }']:
+            'func f(a: T,b: T) { return mul[T](a,b) }']:
             with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'FloatUnderflow|contract|cannot resolve'):
                 checked(source)
 
@@ -134,9 +134,9 @@ class FloatUnderflowTests(unittest.TestCase):
 
     def test_repeated_force_records_distinct_underflows(self):
         result, _, out = self.execute(
-            'sigtype DeferredFloatArithmetic() -> Float { failure { FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredFloatArithmetic] = thunk(mul(5e-324,0.5))\n'
+            'sigtype DeferredFloatArithmetic() -> Float { failure { FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredFloatArithmetic] = thunk(mul[Float](5e-324,0.5))\n'
             'var x: Float = force(t)\nresolve x { FloatUnderflow { x = 0.0 } }\n'
-            'print(x)\nvar y: Float = force(t)')
+            'print[Float](x)\nvar y: Float = force(t)')
         self.assertEqual(out, '0.0\n')
         self.assertEqual([e.failure_id for e in result.failure_history], [FailureId.FloatUnderflow] * 2)
         self.assertEqual([e.status for e in result.failure_history],
@@ -149,7 +149,7 @@ class FloatUnderflowTests(unittest.TestCase):
             consumer = Mock(return_value=("Ordering", "Right"))
             with patch.dict(BUILTINS, {'test.bad': lambda: payload, 'core.float.cmp': consumer}):
                 result, _, out = self.execute('sig bad() -> Float { builtin test.bad }\n'
-                    'var x: Float = bad()\nprint(cmp(x,1.0))')
+                    'var x: Float = bad()\nprint[Ordering](cmp[Float](x,1.0))')
             consumer.assert_called_once_with(payload, 1.0)
             self.assertEqual(out, 'Right\n')
             self.assertEqual(result.environment['x'].value, payload)
@@ -166,13 +166,13 @@ class FloatUnderflowTests(unittest.TestCase):
             for source, boundary in [
                 ('var x: Float = 42.0', 'binding_write'),
                 ('var x: Float = 0.0\nx = 42.0\nvar y: Float = x', 'binding_read'),
-                ('print(42.0)', 'call_argument'),
+                ('print[Float](42.0)', 'call_argument'),
                 ('sig f(Float) -> Float {}\nfunc f(a: Float) { return a }\nvar x: Float = f(42.0)', 'call_argument'),
                 ('sig f() -> Float {}\nfunc f() { return 42.0 }\nvar x: Float = f()', 'function_return'),
                 ('sigtype D() -> Float {} var t: Thunk[D] = thunk(42.0) var x: Float = force(t)', 'thunk')]:
                 with self.subTest(boundary=boundary, payload=payload), patch('ginger.eval.eval_expr', side_effect=injected):
                     result, _, out = self.execute(source)
-                self.assertEqual(out, str(payload) + '\n' if source == 'print(42.0)' else '')
+                self.assertEqual(out, str(payload) + '\n' if source == 'print[Float](42.0)' else '')
                 self.assertIsNone(result.value_contract_violation)
                 if 'x' in result.environment:
                     self.assertEqual(result.environment['x'].value, payload)
@@ -180,21 +180,21 @@ class FloatUnderflowTests(unittest.TestCase):
 
     def test_add_sub_contracts_and_argument_failure_propagation(self):
         for op in ['add', 'sub']:
-            source = ('sig f(T,T) -> T { require T guarantees ' +
+            source = ('sig f[T](T,T) -> T { require T guarantees ' +
                       ('Addable' if op == 'add' else 'Subtractable') +
                       ' failure { IntegerOverflow when T in BoundedArithmetic } '
                       'failure { FloatOverflow when T in FiniteArithmetic } }\n' +
-                      f'func f(a: T,b: T) {{ return {op}(a,b) }}\n')
-            result, diagnostics, _ = self.execute(source + 'var x: Float = f(5e-324,5e-324)')
+                      f'func f(a: T,b: T) {{ return {op}[T](a,b) }}\n')
+            result, diagnostics, _ = self.execute(source + 'var x: Float = f[Float](5e-324,5e-324)')
             self.assertEqual([d.message for d in diagnostics], ['unhandled failures: FloatOverflow'])
             self.assertEqual(result.failure_history, ())
             for frame in result.call_frames.values():
                 if frame.function_name == 'f':
                     self.assertEqual(frame.declared_failure_contract, frozenset({FailureId.FloatOverflow}))
             with self.assertRaisesRegex(TypecheckError, 'cannot resolve'):
-                checked(f'var x: Float = {op}(5e-324,5e-324)\nresolve x {{ FloatUnderflow {{ x = 0.0 }} }}')
-            result, _, out = self.execute(f'var x: Float = {op}(mul(5e-324,0.5),0.0)\n'
-                'resolve x { FloatUnderflow { x = 0.0 } }\nprint(x)')
+                checked(f'var x: Float = {op}[Float](5e-324,5e-324)\nresolve x {{ FloatUnderflow {{ x = 0.0 }} }}')
+            result, _, out = self.execute(f'var x: Float = {op}[Float](mul[Float](5e-324,0.5),0.0)\n'
+                'resolve x { FloatUnderflow { x = 0.0 } }\nprint[Float](x)')
             self.assertEqual(out, '0.0\n')
             self.assertEqual(len(result.failure_history), 1)
             self.assertEqual(result.failure_history[0].status, FailureStatus.RESOLVED)
@@ -223,8 +223,8 @@ class FloatUnderflowTests(unittest.TestCase):
                         self.assertEqual(context.failure_history, ())
 
     def test_rounding_comparisons_and_exact_subnormal_zero(self):
-        result, _, out = self.execute('print(mul(5e-324,0.0))\nprint(sub(5e-324,5e-324))\n'
-            'print(add(5e-324,-5e-324))\nprint(add(0.1,0.2))\n'
-            'print(eq(add(0.1,0.2),0.3))\nprint(cmp(add(0.1,0.2),0.3))')
+        result, _, out = self.execute('print[Float](mul[Float](5e-324,0.0))\nprint[Float](sub[Float](5e-324,5e-324))\n'
+            'print[Float](add[Float](5e-324,-5e-324))\nprint[Float](add[Float](0.1,0.2))\n'
+            'print[Bool](eq[Float](add[Float](0.1,0.2),0.3))\nprint[Ordering](cmp[Float](add[Float](0.1,0.2),0.3))')
         self.assertEqual(out, '0.0\n0.0\n0.0\n0.30000000000000004\nfalse\nLeft\n')
         self.assertEqual(result.failure_history, ())

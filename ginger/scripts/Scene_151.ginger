@@ -24,20 +24,20 @@
 sigtype Checked() -> Int { failure { Overflow } }
 sigtype Outer() -> Thunk[Checked] { failure { Never } }
 
-type Box
+type Box[T]
 
 failureset Overflow { IntegerOverflow }
 guarantee Projection {
     project(self: Self, other: Thunk[Outer]) -> Thunk[Outer]
 }
-sig project(T,Thunk[Outer]) -> Thunk[Outer] { require T guarantees Projection }
-sig unused(Box[Box[T]]) -> T { require T guarantees Mark }
+sig project[T](T,Thunk[Outer]) -> Thunk[Outer] { require T guarantees Projection }
+sig unused[T](Box[Box[T]]) -> T { require T guarantees Mark }
 guarantee Mark { witness(self: Self) -> Self }
-sig make() -> T {}
+sig make[T]() -> T {}
 sig recur() -> Unit {}
 func recur() { recur() }
 sig pure() -> Unit { failure { Never } }
 func pure() {}
 sig spare() -> Unit { failure { IOErr } }
 func spare() {}
-print(1)
+print[Int](1)

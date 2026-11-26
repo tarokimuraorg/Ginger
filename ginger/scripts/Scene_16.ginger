@@ -17,11 +17,11 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 var a: Float = div(1.0,0.0)
-//print(a)
+//print[Int](a)
 
 resolve a {
     DivideByZero {
-        print(888)
+        print[Int](888)
     }
 }
 
@@ -31,5 +31,5 @@ resolve a {
     }
 }
 
-print(a)
-print(999)
+print[Float](a)
+print[Int](999)

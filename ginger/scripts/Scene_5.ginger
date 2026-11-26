@@ -53,11 +53,11 @@ resolve result {
     }
 }
 
-print(result)
+print[Float](result)
 
 let x: Float = 1e308
 
-result = calculate(mul(x,x),1)
+result = calculate(mul[Float](x,x),1)
 
 resolve result {
 
@@ -75,4 +75,4 @@ resolve result {
     }
 }
 
-print(result)
+print[Float](result)

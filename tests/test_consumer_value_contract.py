@@ -61,9 +61,9 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_nonfinite_consumers_and_no_side_effects(self):
         for payload in [float('nan'), float('inf'), float('-inf')]:
-            for tail in ['var y: Bool = eq(x,1.0)', 'var y: Bool = lt(x,1.0)',
-                         'var y: Ordering = cmp(x,1.0)', 'print(x)',
-                         'var y: Float = neg(x)', 'var y: Float = add(x,1.0)',
+            for tail in ['var y: Bool = eq[Float](x,1.0)', 'var y: Bool = lt[Float](x,1.0)',
+                         'var y: Ordering = cmp[Float](x,1.0)', 'print[Float](x)',
+                         'var y: Float = neg[Float](x)', 'var y: Float = add[Float](x,1.0)',
                          'var y: Float = div(1.0,x)', 'var y: Float = x',
                          'var y: Float = 2.0\ny = x',
                          'var y: Float = identity(x)', 'observe(x)']:
@@ -83,15 +83,15 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_invalid_int_before_arithmetic_conversion_and_widening(self):
         for payload in [INT_MAX + 1, True, NoValue()]:
-            for tail in ['var y: Int = add(x,(-1))', 'var y: Float = toFloat(x)',
+            for tail in ['var y: Int = add[Int](x,(-1))', 'var y: Float = toFloat(x)',
                          'var y: Float = x', 'var y: Int64 = x',
-                         'var y: Bool = eq(x,1)', 'print(x)']:
+                         'var y: Bool = eq[Int](x,1)', 'print[Float](x)']:
                 with self.subTest(payload=payload, tail=tail):
                     self.assert_read(self.corrupt('Int', '1', payload, tail), 'Int')
 
     def test_other_standard_types(self):
-        for typ, initial, payload in [('Bool', 'eq(1,1)', 1),
-                                      ('Ordering', 'cmp(1,1)', ('Other','Bad')),
+        for typ, initial, payload in [('Bool', 'eq[Int](1,1)', 1),
+                                      ('Ordering', 'cmp[Int](1,1)', ('Other','Bad')),
                                       ('Unit', 'seed()', 1)]:
             observer = Mock(return_value=None)
             extra = f'sig observe({typ}) -> Unit {{ builtin test.observe }}\n'
@@ -102,7 +102,7 @@ class ConsumerValueContractTests(unittest.TestCase):
             observer.assert_not_called()
 
     def test_captured_comparison_print_and_returned_thunk(self):
-        for body, typ in [('eq(x,1.0)', 'Bool'), ('print(x)', 'Unit')]:
+        for body, typ in [('eq[Float](x,1.0)', 'Bool'), ('print[Float](x)', 'Unit')]:
             for returned in [False, True]:
                 with self.subTest(body=body, returned=returned):
                     def mutate(t):
@@ -177,14 +177,14 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_open_world_remains_opaque_through_function_binding_and_argument(self):
         for typ in ['Box[Int]', 'Box[Float]', 'Pair[Int,Float]', 'MissingType',
-                    'Box[MissingType]', 'Float[Int]']:
+                    'Box[MissingType]', 'Box[Box[Int]]']:
             payload = {'invalid': float('nan')}
             observer = Mock(return_value=None)
-            source = ('type Box\ntype Pair\ntype MissingType\n'
+            source = ('type Box[T]\ntype Pair[T, U]\ntype MissingType\n'
                       f'sig make() -> {typ} {{ builtin test.make }}\n'
-                      'sig identity(T) -> T {}\nfunc identity(a: T) { return a }\n'
+                      'sig identity[T](T) -> T {}\nfunc identity(a: T) { return a }\n'
                       f'sig observe({typ}) -> Unit {{ builtin test.observe }}\n'
-                      f'var x: {typ} = identity(make())\nx = identity(x)\nobserve(x)')
+                      f'var x: {typ} = identity[{typ}](make())\nx = identity[{typ}](x)\nobserve(x)')
             result = self.run_source(source, {'test.make': lambda: payload, 'test.observe': observer})
             self.assertIsNone(result.value_contract_violation)
             observer.assert_called_once_with(payload)
@@ -231,7 +231,7 @@ class ConsumerValueContractTests(unittest.TestCase):
         cases = [
             ('var y: Float = 42', 'binding_write'),
             ('var y: Int64 = 42', 'binding_write'),
-            ('var y: Bool = eq(42,1)', 'call_argument'),
+            ('var y: Bool = eq[Int](42,1)', 'call_argument'),
             ('sig observe(Float) -> Unit { builtin test.observe }\nobserve(42)', 'call_argument'),
             ('sig f(Float) -> Float {}\nfunc f(a: Float) { return a }\nvar y: Float = f(42)', 'call_argument'),
             ('sig f() -> Float {}\nfunc f() { return 42 }\nvar y: Float = f()', 'function_return'),
@@ -271,7 +271,7 @@ class ConsumerValueContractTests(unittest.TestCase):
         result = self.run_source(
             'sigtype DeferredBool() -> Bool { failure { Never } }\nsigtype NestedBool() -> Thunk[DeferredBool] { failure { Never } }\nsig mutate(Thunk[NestedBool]) -> Unit { builtin test.mutate }\n'
             'var x: Float = 1.0\n'
-            'var t: Thunk[NestedBool] = thunk(thunk(eq(x,1.0)))\n'
+            'var t: Thunk[NestedBool] = thunk(thunk(eq[Float](x,1.0)))\n'
             'mutate(t)\nvar inner: Thunk[DeferredBool] = force(t)\n'
             'var y: Bool = force(inner)', {'test.mutate': mutate})
         self.assertIn('inner', result.environment)
@@ -279,7 +279,7 @@ class ConsumerValueContractTests(unittest.TestCase):
         self.assert_read(result, 'Float')
 
     def test_opaque_to_standard_return_remains_checked(self):
-        source = ('type Box\nsig make() -> Box[Float] { builtin test.make }\n'
+        source = ('type Box[T]\nsig make() -> Box[Float] { builtin test.make }\n'
                   'sig extract(Box[Float]) -> Float { builtin test.extract }\n'
                   'var y: Float = extract(make())')
         result = self.run_source(source, {'test.make': lambda: [float('nan')],

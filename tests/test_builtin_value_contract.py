@@ -125,12 +125,12 @@ class BuiltinValueContractTests(unittest.TestCase):
         return evaluator.eval_program(lower_program(parse(source)))
 
     def test_shared_implementation_uses_concrete_type_across_dispatch_paths(self):
-        generic = ('sig opposite(T) -> T { require T guarantees Negatable }\n'
-                   'func opposite(x: T) { return neg(x) }\n')
+        generic = ('sig opposite[T](T) -> T { require T guarantees Negatable }\n'
+                   'func opposite(x: T) { return neg[T](x) }\n')
         for typ, arg in [('Int', '1'), ('Int64', '1i64')]:
             for prefix, expr in [
                     (f'sig direct({typ}) -> {typ} {{ builtin core.int.neg }}\n', f'direct({arg})'),
-                    ('', f'neg({arg})'), (generic, f'opposite({arg})')]:
+                    ('', f'neg[{typ}]({arg})'), (generic, f'opposite[{typ}]({arg})')]:
                 with self.subTest(typ=typ, expr=expr):
                     with patch.dict(BUILTINS, {'core.int.neg': lambda x: INT_MAX + 1}):
                         result = self.evaluate(prefix + f'var x: {typ} = {expr}')
@@ -151,7 +151,7 @@ class BuiltinValueContractTests(unittest.TestCase):
                 with self.subTest(typ=typ, call=call):
                     with patch.dict(BUILTINS, {'test.make': lambda: payload,
                                                'test.box_int_op': lambda v: v}):
-                        result = self.evaluate('type Box\ntype Pair\ntype MissingType\ntype String\ntype SomeType\n' + CAPABILITY + implementation(typ) + use(typ, call))
+                        result = self.evaluate('type Box[T]\ntype Pair[T, U]\ntype MissingType\ntype String\ntype SomeType[T]\n' + CAPABILITY + implementation(typ) + use(typ, call))
                     self.assertIsNone(result.value_contract_violation)
                     self.assertIs(result.environment['result'].value, payload)
 
@@ -170,15 +170,15 @@ class BuiltinValueContractTests(unittest.TestCase):
                   'sig f() -> Int { failure { IOErr } }\n'
                   'func f() { return bad() }\n')
         for statement in ['var x: Int = f()', 'var x: Int = 7\nx = f()',
-                          'var x: Float = f()', 'var x: Float = add(f(), 1.0)']:
+                          'var x: Float = f()', 'var x: Float = add[Float](f(), 1.0)']:
             with self.subTest(statement=statement):
                 later = Mock()
                 with patch.dict(BUILTINS, {'test.value': lambda: True, 'core.int.print': later,
                                            'core.float.add': later}), patch(
                         'ginger.eval.widen_value', wraps=evaluator.widen_value) as widen:
                     recovery = ('' if statement.startswith('var x: Int = 7') else
-                                '\nresolve x { IOErr { print(2) } }')
-                    result = self.evaluate(source + statement + recovery + '\nprint(3)')
+                                '\nresolve x { IOErr { print[Int](2) } }')
+                    result = self.evaluate(source + statement + recovery + '\nprint[Int](3)')
                 later.assert_not_called()
                 self.assertFalse(any(call.args[0] is True for call in widen.call_args_list))
                 self.assertIsNotNone(result.value_contract_violation)

@@ -26,7 +26,7 @@ class TypeDeclarationTests(unittest.TestCase):
         self.assertFalse(any('Bee' in members for members in symbols.typegroups.values()))
 
     def test_declaration_syntax(self):
-        for source in ['type Box[T]', 'type Bee = Int', 'type Bee {}', 'func f() { type Bee }']:
+        for source in ['type Box[]', 'type Bee = Int', 'type Bee {}', 'func f() { type Bee }']:
             with self.subTest(source=source), self.assertRaises(SyntaxError):
                 parse(source)
 
@@ -46,9 +46,9 @@ class TypeDeclarationTests(unittest.TestCase):
         for source in [
             'var x: Missing = 1', 'sig f(Missing) -> Unit {}', 'sig f() -> Missing {}',
             'func f(x: Missing) {}', 'func f() { var x: Missing = 1 }',
-            'var y: Int = resolve add(1,2) { IntegerOverflow { let x: Missing = 1\nreturn 0 } }',
+            'var y: Int = resolve add[Int](1,2) { IntegerOverflow { let x: Missing = 1\nreturn 0 } }',
             'guarantee G { op(x: Missing) -> Self }', 'guarantee G { op(x: Self) -> Missing }',
-            'type Box\nsig f(Box[Float[Missing]]) -> Unit {}',
+            'type Box[T]\nsig f(Box[Box[Missing]]) -> Unit {}',
             'sigtype DeferredMissing() -> Missing { failure { Never } }\nsig f() -> Thunk[DeferredMissing] {}',
             'failureset Fs(T) { IOErr }\nsig f() -> Unit { failure { Fs(Missing) } }',
             'sigtype DeferredIntFsMissing() -> Int { failure { Fs(Missing) } }\nfailureset Fs(T) { IOErr }\nsig f() -> Thunk[DeferredIntFsMissing] {}',
@@ -87,7 +87,43 @@ class TypeDeclarationTests(unittest.TestCase):
             compile('typegroup Box {}\ntypegroup G {}\nregister G { Box[Int] }')
 
     def test_ordinary_type_arguments(self):
-        compile('type Box\nsig f(Box, Box[Int], Box[Int, Float], Float[Int]) -> Unit {}')
+        compile('type Box[T]\ntype Pair[left, right]\ntype Bee\nsig f(Box[Int], Pair[Int, Float], Bee, Box[Box[Int]]) -> Unit {}')
+
+    def test_parameter_names_and_scope(self):
+        declaration = parse('type Pair[element, Value]').items[0]
+        self.assertEqual(declaration.type_params, ('element', 'Value'))
+        for source, error in [
+            ('type Pair[T, T]', 'duplicate type parameter'),
+            ('type Box[Int]', 'reserved name'),
+            ('type Box[Later]\ntype Later', 'reserved name'),
+            ('type Box[Self]', 'reserved name'),
+            ('type Box[Thunk]', 'reserved name'),
+        ]:
+            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, error):
+                compile(source)
+        for params in ['[]', '[T,]', '[T = Int]', '[type]']:
+            with self.subTest(params=params), self.assertRaises(SyntaxError):
+                parse('type Box' + params)
+
+    def test_exact_arity_at_every_depth(self):
+        declarations = 'type Box[T]\ntype Pair[T, U]\ntype Bee\n'
+        for ref, expected, actual in [('Box', 1, 0), ('Box[Int, Float]', 1, 2),
+                                      ('Pair[Int]', 2, 1), ('Bee[Int]', 0, 1),
+                                      ('Box[Pair[Int]]', 2, 1), ('Float[Int]', 0, 1)]:
+            with self.subTest(ref=ref), self.assertRaisesRegex(
+                    TypecheckError, f'expects {expected} type arguments, got {actual}'):
+                compile(declarations + f'sig unused({ref}) -> Unit {{}}')
+
+    def test_ordinary_arguments_must_resolve_in_scope(self):
+        declarations = 'type Box[T]\nsigtype Calculation() -> Int {}\n'
+        for ref, error in [('Box[T]', "unknown type variable 'T'"),
+                           ('Box[Box[U]]', "unknown type variable 'U'"),
+                           ('Box[Missing]', "unknown type 'Missing'"),
+                           ('Box[Self]', "unbound 'Self'"),
+                           ('Box[Calculation]', 'sigtype is a computation contract')]:
+            with self.subTest(ref=ref), self.assertRaisesRegex(TypecheckError, error):
+                compile(declarations + f'sig unused({ref}) -> Unit {{}}')
+        compile(declarations + 'sig use(Box[Thunk[Calculation]]) -> Int {}')
 
     def test_failure_names_in_type_positions(self):
         for name in ['Never', 'IOErr', 'Fs']:

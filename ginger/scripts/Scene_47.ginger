@@ -33,7 +33,7 @@ var wide: Thunk[DeferredFloatCalculation] = narrow
 wide = thunk(1.0)
 
 // forceがない為実行エラー
-//print(wide)
+//print[Int64](wide)
 
 var x: Float = force(wide)
 
@@ -43,7 +43,7 @@ resolve x {
     }
 }
 
-print(x)
+print[Float](x)
 
 sig make() -> Thunk[DeferredIntDivideByZero] {
     failure {
@@ -55,4 +55,4 @@ func make() {
     return thunk(2)
 }
 
-print(force(make()))
+print[Int](force(make()))

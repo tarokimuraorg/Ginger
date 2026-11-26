@@ -353,9 +353,6 @@ def eval_user_func(fname: str, args: list[Value], syms, caller_env: Dict[str, Bi
 def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dict[str, Binding]] = None):
 
     # 引数評価
-    if expr.arg_style != "pos":
-        raise EvalError(f"named args not supported at runtime for '{expr.callee}'")
-    
     # --- thunk (遅延)---
     if expr.callee == "thunk":
         if len(expr.args) != 1:
@@ -433,6 +430,10 @@ def eval_call(expr: CallExpr, env: Dict[str, Binding], syms, outer: Optional[Dic
         selected_type = resolved.type_bindings[requirement.type_var]
         resolved = replace(resolved, implementation=syms.impls.get(
             (type_identity_key(selected_type), resolved.deferred_guarantee, resolved.deferred_method)))
+    if checked.argument_order:
+        indices = sorted(range(len(argument_results)), key=checked.argument_order.__getitem__)
+        argument_results = [argument_results[i] for i in indices]
+        actual_types = [actual_types[i] for i in indices]
     # Only user calls reach this boundary with NoValue. Keep each argument's
     # own events and statically instantiated type; never validate a dummy value.
     args = [UninitializedBinding(False, parameter, result.related_event_ids, result.cause_event_id)

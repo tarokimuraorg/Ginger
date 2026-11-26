@@ -16,6 +16,6 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 typegroup Floating { Float }
-sig keep(T) -> T { require T in Floating }
+sig keep[T](T) -> T { require T in Floating }
 func keep(x: T) { return x }
-print(keep(1i64))
+print[Float](keep[Int64](1i64))

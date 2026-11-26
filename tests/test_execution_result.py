@@ -33,7 +33,7 @@ class ExecutionResultTests(unittest.TestCase):
 
     def test_unresolved_multiple_events_and_incomplete_bindings(self):
         result, stdout = self.capture('var x: Float = div(1.0,0.0)\n'
-                                      'print(div(2.0,0.0))\nvar y: Int = 3\nprint(y)')
+                                      'print[Float](div(2.0,0.0))\nvar y: Int = 3\nprint[Int](y)')
         self.assertEqual(stdout, '3\n')
         self.assertIsInstance(result.environment['x'], evaluator.UninitializedBinding)
         self.assertEqual(result.environment['y'].value, 3)
@@ -69,7 +69,7 @@ class ExecutionResultTests(unittest.TestCase):
 
     def test_builtin_violation_preserves_environment_and_stops(self):
         result, stdout = self.capture('sig raw(Float,Float) -> Float { builtin core.float.div }\n'
-            'var x: Int = 4\nvar y: Float = raw(1.0,0.0)\nx = 9\nprint(x)')
+            'var x: Int = 4\nvar y: Float = raw(1.0,0.0)\nx = 9\nprint[Int](x)')
         self.assertEqual(stdout, '')
         self.assertEqual(result.environment['x'].value, 4)
         self.assertNotIn('y', result.environment)
@@ -85,8 +85,8 @@ class ExecutionResultTests(unittest.TestCase):
             return original(name, args, syms, env, resolved)
         with patch('ginger.eval.eval_user_func', side_effect=stale):
             result, stdout = self.capture('sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
-                'var before: Int = 7\nvar x: Int = f()\nprint(99)')
+                'func f() { print[Float](div(1.0,0.0))\nreturn 3 }\n'
+                'var before: Int = 7\nvar x: Int = f()\nprint[Int](99)')
         self.assertEqual(stdout, '')
         self.assertEqual(result.environment['before'].value, 7)
         self.assertNotIn('x', result.environment)
@@ -121,7 +121,7 @@ class ExecutionResultTests(unittest.TestCase):
     def test_frozen_binding_records_do_not_deep_freeze_opaque_payload(self):
         payload = []
         with patch.dict(BUILTINS, {'test.make': lambda: payload}):
-            result, _ = self.capture('type Box\nsig make() -> Box[Int] { builtin test.make }\n'
+            result, _ = self.capture('type Box[T]\nsig make() -> Box[Int] { builtin test.make }\n'
                                      'var x: Box[Int] = make()')
         cell = result.environment['x']
         for field, value in [('value', []), ('typ', None), ('mutable', False)]:
@@ -137,7 +137,7 @@ class ExecutionResultTests(unittest.TestCase):
         error = TypeError('implementation bug')
         with patch.dict(BUILTINS, {'core.int.print': lambda x: (_ for _ in ()).throw(error)}):
             with self.assertRaises(TypeError) as caught:
-                run('print(1)')
+                run('print[Int](1)')
         self.assertIs(caught.exception, error)
         from ginger.errors import TypecheckError
         with self.assertRaises(TypecheckError):
@@ -154,14 +154,14 @@ class ExecutionResultTests(unittest.TestCase):
             with self.assertRaises(ZeroDivisionError) as caught:
                 self.capture('sig broken() -> Float { failure { DivideByZero } builtin test.broken }\n'
                              'var x: Float = broken()\n'
-                             'resolve x { DivideByZero { x = 9 } }\nprint(3)')
+                             'resolve x { DivideByZero { x = 9 } }\nprint[Int](3)')
         self.assertIs(caught.exception, error)
 
     def test_cli_diagnostics_and_exit_codes(self):
         cases = [('', 0, ''),
                  ('var x: Float = div(1.0,0.0)\nresolve x { DivideByZero { x = 2 } }', 0, ''),
-                 ('print(div(1.0,0.0))\nprint(div(2.0,0.0))\nprint(3)', 0, 'Unresolved failure: DivideByZero'),
-                 ('sig raw(Float,Float) -> Float { builtin core.float.div }\nprint(raw(1.0,0.0))\nprint(3)', 1, 'Failure contract violation')]
+                 ('print[Float](div(1.0,0.0))\nprint[Float](div(2.0,0.0))\nprint[Int](3)', 0, 'Unresolved failure: DivideByZero'),
+                 ('sig raw(Float,Float) -> Float { builtin core.float.div }\nprint[Float](raw(1.0,0.0))\nprint[Int](3)', 1, 'Failure contract violation')]
         for source, code, diagnostic in cases:
             with self.subTest(source=source):
                 out, err = io.StringIO(), io.StringIO()

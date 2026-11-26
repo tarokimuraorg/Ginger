@@ -80,6 +80,7 @@ def lower_expr(e: Expr) -> Expr:
             callee="neg",
             args=[PosArg(lower_expr(e.operand))],
             arg_style="pos",
+            from_operator=True,
         )
     
     if isinstance(e, BinaryExpr):
@@ -97,6 +98,7 @@ def lower_expr(e: Expr) -> Expr:
             callee=callee,
             args=[PosArg(left), PosArg(right)],
             arg_style="pos",
+            from_operator=True,
         )
     
     # CallExpr の引数も再帰的に lower（ネストした演算を潰す）
@@ -108,7 +110,7 @@ def lower_expr(e: Expr) -> Expr:
             # PosArg / NamedArg どちらも中身は expr
             new_args.append(replace(a, expr=lower_expr(a.expr)))
         
-        return CallExpr(callee=e.callee, args=new_args, arg_style=e.arg_style)
+        return replace(e, args=new_args)
     
     # IdentExpr / IntLit / Int64Lit / FloatLit はそのまま
     return e

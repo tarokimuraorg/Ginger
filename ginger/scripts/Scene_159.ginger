@@ -16,5 +16,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 func add(a: T,b: T) { return a }
-print(add(1,2))
-print(add(1.0,2.0))
+print[Int](add[Int](1,2))
+print[Float](add[Float](1.0,2.0))

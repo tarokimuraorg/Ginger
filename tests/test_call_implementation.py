@@ -14,9 +14,9 @@ class CallImplementationTests(unittest.TestCase):
     def test_declaration_only_call_rejected_before_execution(self):
         for declaration, call in [
             ('sig missing(Int) -> Int {}', 'var x: Int = missing(1)'),
-            ('sig missing(T) -> T {}', 'var x: Int = missing(1)'),
-            ('sig missing(T) -> T {}',
-             'sig relay(U) -> U {}\nfunc relay(x: U) { return missing(x) }'),
+            ('sig missing[T](T) -> T {}', 'var x: Int = missing[Int](1)'),
+            ('sig missing[T](T) -> T {}',
+             'sig relay[U](U) -> U {}\nfunc relay(x: U) { return missing[U](x) }'),
         ]:
             source = declaration + '\n' + call
             with self.subTest(source=source):
@@ -33,7 +33,7 @@ class CallImplementationTests(unittest.TestCase):
                     execute.assert_not_called()
 
     def test_unused_declaration_only_sig_is_accepted(self):
-        for source in ['sig missing(Int) -> Int {}', 'sig missing(T) -> T {}']:
+        for source in ['sig missing(Int) -> Int {}', 'sig missing[T](T) -> T {}']:
             with self.subTest(source=source):
                 program = compile(source)
                 syms = build_symbols(program)

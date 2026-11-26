@@ -28,17 +28,17 @@ sigtype DeferredInt() -> Int { failure { Never } }
 sigtype OuterInt() -> Thunk[DeferredInt] { failure { Never } }
 sig captureInt(Int) -> Thunk[OuterInt] {}
 func captureInt(a: Int) { return thunk(thunk(a)) }
-print(force(force(captureInt(1))))
+print[Int](force(force(captureInt(1))))
 sigtype DeferredFloat() -> Float { failure { Never } }
 sigtype OuterFloat() -> Thunk[DeferredFloat] { failure { Never } }
 sig captureFloat(Float) -> Thunk[OuterFloat] {}
 func captureFloat(a: Float) { return thunk(thunk(a)) }
-print(force(force(captureFloat(2.0))))
+print[Float](force(force(captureFloat(2.0))))
 sigtype DeferredInt64() -> Int64 { failure { Never } }
 sigtype OuterInt64() -> Thunk[DeferredInt64] { failure { Never } }
 sig captureInt64(Int64) -> Thunk[OuterInt64] {}
 func captureInt64(a: Int64) { return thunk(thunk(a)) }
-print(force(force(captureInt64(3i64))))
+print[Int64](force(force(captureInt64(3i64))))
 
 sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
 sigtype DeferredDivisionThunk() -> Thunk[DeferredDivision] { failure { Never } }
@@ -48,7 +48,7 @@ var outer: Thunk[DeferredDivisionThunk] = thunk(thunk(div(1.0,0.0)))
 // divはまだ実行されないため、ここではfailureは発生しない。
 var inner: Thunk[DeferredDivision] = force(outer)
 
-print(4)
+print[Int](4)
 
 // 内側を評価する。ここで初めてdivが実行され、DivideByZeroが発生する。
 // xは正常値を取得できず、失敗状態になる。
@@ -65,4 +65,4 @@ resolve x {
 }
 
 // DivideByZeroが解決されたため、xを正常に読み出せる。
-print(x)
+print[Float](x)

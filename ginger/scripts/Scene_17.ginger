@@ -22,7 +22,7 @@
 
 //func broken(x: Float) {
 //    var a: Float = div(x,0.0)
-//    var b: Float = add(a,1.0)
+//    var b: Float = add[Float](a,1.0)
 //    return b
 //}
 
@@ -41,6 +41,6 @@ func f(x:Float) {
     return a
 }
 
-//print(broken(1.0))
-print(f(2))
-print(999)
+//print[Ordering](broken(1.0))
+print[Float](f(2))
+print[Int](999)

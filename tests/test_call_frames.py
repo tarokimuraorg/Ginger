@@ -24,7 +24,7 @@ class CallFrameTests(unittest.TestCase):
         return env, stream.getvalue()
 
     def test_root_and_normal_child(self):
-        env, stdout = self.run_source('sig f() -> Int {}\nfunc f() { return 3 }\nvar x: Int = f()\nprint(x)')
+        env, stdout = self.run_source('sig f() -> Int {}\nfunc f() { return 3 }\nvar x: Int = f()\nprint[Int](x)')
         self.assertEqual((env['x'].value, stdout), (3, '3\n'))
         root, child = self.context.call_frames.values()
         self.assertEqual((root.function_name, root.parent_call_id), ('<program>', None))
@@ -36,8 +36,8 @@ class CallFrameTests(unittest.TestCase):
         env, stdout = self.run_source(
             'sig a() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
             'sig b() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-            'func a() { return b() }\nfunc b() { print(div(1.0,0.0))\nreturn 3 }\n'
-            'var x: Int = a()\nprint(x)')
+            'func a() { return b() }\nfunc b() { print[Float](div(1.0,0.0))\nreturn 3 }\n'
+            'var x: Int = a()\nprint[Int](x)')
         self.assertEqual((env['x'].value, stdout), (3, '3\n'))
         self.assertEqual(len(self.context.failure_history), 1)
         event, = self.context.failure_history
@@ -59,10 +59,10 @@ class CallFrameTests(unittest.TestCase):
         with patch('ginger.eval.eval_user_func', side_effect=observe):
             env, stdout = self.run_source(
                 'sig f() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                'func f() { print(div(1.0,0.0))\nreturn 3 }\n'
+                'func f() { print[Float](div(1.0,0.0))\nreturn 3 }\n'
                 'sig u() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                'func u() { print(div(1.0,0.0)) }\n'
-                'var x: Int = add(f(),1)\nlet unit: Unit = u()\nprint(x)')
+                'func u() { print[Float](div(1.0,0.0)) }\n'
+                'var x: Int = add[Int](f(),1)\nlet unit: Unit = u()\nprint[Int](x)')
         self.assertEqual(stdout, '4\n')
         self.assertIsNone(env['unit'].value)
         self.assertEqual([r.value_result for r in results], [Value(3), Value(None)])
@@ -72,7 +72,7 @@ class CallFrameTests(unittest.TestCase):
     def test_failed_return_no_value_and_caller_incomplete(self):
         env, stdout = self.run_source(
             'sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-            'func f() { return div(1.0,0.0)\nprint(9) }\nvar x: Float = f()\nprint(3)')
+            'func f() { return div(1.0,0.0)\nprint[Int](9) }\nvar x: Float = f()\nprint[Int](3)')
         self.assertEqual(stdout, '3\n')
         self.assertIsInstance(env['x'], evaluator.UninitializedBinding)
         self.assertEqual([r.call_id for r in self.context.incomplete_statements], [2, 1])
@@ -81,7 +81,7 @@ class CallFrameTests(unittest.TestCase):
 
     def test_repeated_calls_and_top_level_origin(self):
         self.run_source('sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                        'func f() { print(div(1.0,0.0)) }\nf()\nf()\nprint(div(1.0,0.0))')
+                        'func f() { print[Float](div(1.0,0.0)) }\nf()\nf()\nprint[Float](div(1.0,0.0))')
         self.assertEqual([e.call_id for e in self.context.failure_history], [2, 3, 1])
         self.assertEqual([e.event_id for e in self.context.failure_history], [1, 2, 3])
         self.assertEqual(self.context.get_call(1).pending_event_ids, (1, 2, 3))
@@ -108,7 +108,7 @@ class CallFrameTests(unittest.TestCase):
                 with patch.dict(BUILTINS, {'core.int.print': fail}):
                     with self.assertRaises(FailureContractViolation if isinstance(error, RaisedFailure) else type(error)) as raised:
                         self.run_source('sig f() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                                        'func f() { print(div(1.0,0.0))\nprint(1) }\nf()\nprint(3)')
+                                        'func f() { print[Float](div(1.0,0.0))\nprint[Int](1) }\nf()\nprint[Int](3)')
                 if not isinstance(error, RaisedFailure):
                     self.assertIs(raised.exception, error)
                 self.assertEqual(seen, [2])
@@ -128,7 +128,7 @@ class CallFrameTests(unittest.TestCase):
         env, stdout = self.run_source('sig f() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
                                      'func f() { return div(1.0,0.0) }\n'
                                      'var x: Float = f()\n'
-                                     'resolve x { DivideByZero { x = 2\nprint(2) } }\nprint(3)')
+                                     'resolve x { DivideByZero { x = 2\nprint[Int](2) } }\nprint[Int](3)')
         self.assertEqual(stdout, '2\n3\n')
         self.assertEqual(env['x'].value, 2.0)
         self.assertEqual(self.context.failure_history[0].call_id, 2)
@@ -147,7 +147,7 @@ class CallFrameTests(unittest.TestCase):
             if len(seen) == 3:
                 raise EvalError('bounded recursion stop')
         with patch.dict(BUILTINS, {'core.int.print': tick}), self.assertRaises(EvalError):
-            self.run_source('sig f() -> Unit {}\nfunc f() { print(1)\nf() }\nf()')
+            self.run_source('sig f() -> Unit {}\nfunc f() { print[Int](1)\nf() }\nf()')
         self.assertEqual(seen, [2, 3, 4])
         self.assertEqual([f.parent_call_id for f in self.context.call_frames.values()], [None, 1, 2, 3])
         self.assertIsNone(self.context.current_call_id)

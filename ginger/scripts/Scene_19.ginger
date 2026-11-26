@@ -22,21 +22,21 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig addTwo(T, T) -> T {
+sig addTwo[T](T, T) -> T {
     require T guarantees Addable
     failure { IntegerOverflow when T in BoundedArithmetic }
     failure { FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic }
 }
 
 func addTwo(a:T, b:T) {
-    return add(a,b)
+    return add[T](a,b)
 }
 
-print(addTwo(1,2))
-print(addTwo(1.0,2.0))
+print[Int](addTwo[Int](1,2))
+print[Float](addTwo[Float](1.0,2.0))
 
 // 3. Int overflow + resolve
-var x: Int = addTwo(9007199254740991, 1)
+var x: Int = addTwo[Int](9007199254740991, 1)
 
 resolve x {
     IntegerOverflow {
@@ -44,10 +44,10 @@ resolve x {
     }
 }
 
-print(x)
+print[Int](x)
 
 // 4. Addableなしの裏口確認
-//sig bad(T, T) -> T {
+//sig bad[T](T, T) -> T {
 //    failure { IntegerOverflow }
 //}
 
@@ -55,10 +55,10 @@ print(x)
 //    return a + b
 //}
 
-//print(bad(1.2))
+//print[Ordering](bad[Int](1.2))
 
 // 5. Float には IntegerOverflow の resolve 資格がない（FloatOverflow は対象）。
-//var y: Float = addTwo(1.0, 2.0)
+//var y: Float = addTwo[Float](1.0, 2.0)
 
 //resolve y {
 //    IntegerOverflow {
@@ -66,4 +66,4 @@ print(x)
 //    }
 //}
 
-//print(y)
+//print[Int](y)

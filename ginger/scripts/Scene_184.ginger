@@ -2,19 +2,19 @@
 // Runtime history: FloatUnderflow x 2, both resolved explicitly.
 // Static warnings: FloatOverflow x 4; FloatOverflow, FloatUnderflow x 1;
 // DivideByZero, FloatOverflow x 1. Warnings are not runtime events.
-print(5e-324)
-print(-5e-324)
-print(mul(5e-324, 1.0))
-print(add(5e-324, 5e-324))
-var a: Float = mul(5e-324, 0.5)
+print[Float](5e-324)
+print[Float](-5e-324)
+print[Float](mul[Float](5e-324, 1.0))
+print[Float](add[Float](5e-324, 5e-324))
+var a: Float = mul[Float](5e-324, 0.5)
 resolve a {
     FloatUnderflow { a = 0.0 }
 }
-print(a)
+print[Float](a)
 var b: Float = div(-5e-324, 2.0)
 resolve b {
     FloatUnderflow { b = -0.0 }
 }
-print(b)
-print(sub(5e-324, 5e-324))
-print(add(0.1, 0.2))
+print[Float](b)
+print[Float](sub[Float](5e-324, 5e-324))
+print[Float](add[Float](0.1, 0.2))

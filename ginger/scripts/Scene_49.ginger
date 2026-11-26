@@ -28,7 +28,7 @@ func identity(x: Float) {
     return x 
 }
 
-var widened: Float = add(9007199254740991,1)
+var widened: Float = add[Int](9007199254740991,1)
 
 resolve widened { 
     IntegerOverflow { 
@@ -36,10 +36,10 @@ resolve widened {
     } 
 }
 
-print(widened)
+print[Float](widened)
 
-var t: Thunk[CheckedInt] = thunk(add(9007199254740991,1))
-var x: Float = identity(add(toFloat(force(t)),2.0))
+var t: Thunk[CheckedInt] = thunk(add[Int](9007199254740991,1))
+var x: Float = identity(add[Float](toFloat(force(t)),2.0))
 
 resolve x { 
     IntegerOverflow { 
@@ -47,4 +47,4 @@ resolve x {
     } 
 }
 
-print(x)
+print[Float](x)

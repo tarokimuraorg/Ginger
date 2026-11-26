@@ -24,10 +24,10 @@ var x: Float = div(1.0, 0.0)
 // ここで x の値は更新されないため、resolveされない => Unresolved failure: DivideByZero を出力する
 resolve x {
     DivideByZero {
-        print(2)
+        print[Int](2)
     }
 }
-print(3)
+print[Int](3)
 
 // handler の代入も失敗すると、元の event と新しい event は unresolved のまま。
 var y: Float = div(1.0, 0.0)
@@ -36,4 +36,4 @@ resolve y {
         y = div(2.0, 0.0)
     }
 }
-print(4)
+print[Int](4)

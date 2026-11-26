@@ -27,9 +27,10 @@ class ComparisonApiTests(unittest.TestCase):
             with self.subTest(a=a, b=b):
                 a = f'({a})' if a.startswith('-') else a
                 b = f'({b})' if b.startswith('-') else b
-                source = '\n'.join(f'var {name}Result: {ret} = {name}({a},{b})'
+                typ = 'Int64' if 'i64' in a else 'Float' if isinstance(av, float) else 'Int'
+                source = '\n'.join(f'var {name}Result: {ret} = {name}[{typ}]({a},{b})'
                                    for name, ret in RETURNS.items())
-                result = self.evaluate(source + f'\nvar reverse: Bool = lt({b},{a})')
+                result = self.evaluate(source + f'\nvar reverse: Bool = lt[{typ}]({b},{a})')
                 values = {name: result.environment[name + 'Result'].value for name in RETURNS}
                 tag = 'Left' if av > bv else 'Flat' if av == bv else 'Right'
                 self.assertEqual(values['cmp'], ('Ordering', tag))
@@ -57,27 +58,28 @@ class ComparisonApiTests(unittest.TestCase):
 
     def test_widening_matches_cmp(self):
         for name, ret in RETURNS.items():
-            self.evaluate(f'var x: {ret} = {name}(1,2.0)')
-            self.evaluate(f'var x: {ret} = {name}(1,2i64)')
-            for args in ['1i64,2.0', 'eq(1,1),1']:
+            self.evaluate(f'var x: {ret} = {name}[Float](1,2.0)')
+            self.evaluate(f'var x: {ret} = {name}[Int64](1,2i64)')
+            for args in ['1i64,2.0', 'eq[Int](1,1),1']:
                 with self.subTest(name=name, args=args), self.assertRaises(TypecheckError):
-                    checked(f'var x: {ret} = {name}({args})')
+                    checked(f'var x: {ret} = {name}[Float]({args})')
 
     def test_nominal_types(self):
         for source, target in [('Ordering', 'Slope'), ('Slope', 'Ordering')]:
             self.assertFalse(compatible(TypeRef(source), TypeRef(target)))
             call = 'slope' if source == 'Slope' else 'balance'
             with self.assertRaises(TypecheckError):
-                checked(f'var x: {target} = {call}(1,1)')
+                checked(f'var x: {target} = {call}[Int](1,1)')
 
     def test_generic_dispatch(self):
         for name, ret in RETURNS.items():
-            prefix = (f'sig relay(T,T) -> {ret} {{ require T guarantees Ord }}\n'
-                      f'func relay(a: T,b: T) {{ return {name}(a,b) }}\n')
+            prefix = (f'sig relay[T](T,T) -> {ret} {{ require T guarantees Ord }}\n'
+                      f'func relay(a: T,b: T) {{ return {name}[T](a,b) }}\n')
             for args in ['1,2', '2,2', '2,1', '1i64,2i64', '2i64,2i64', '2i64,1i64',
                          '1.0,2.0', '2.0,2.0', '2.0,1.0']:
-                direct = self.evaluate(f'var x: {ret} = {name}({args})')
-                generic = self.evaluate(prefix + f'var x: {ret} = relay({args})')
+                typ = "Int64" if "i64" in args else "Float" if "." in args else "Int"
+                direct = self.evaluate(f'var x: {ret} = {name}[{typ}]({args})')
+                generic = self.evaluate(prefix + f'var x: {ret} = relay[{typ}]({args})')
                 self.assertEqual(generic.environment['x'].value, direct.environment['x'].value)
 
     def test_custom_cmp_only_impl(self):
@@ -85,11 +87,11 @@ class ComparisonApiTests(unittest.TestCase):
                   'sig make() -> Box { builtin test.make }\n')
         for name, ret in RETURNS.items():
             for generic, tag in itertools.product([False, True], ['Left', 'Flat', 'Right']):
-                relay = (f'sig relay(T,T) -> {ret} {{ require T guarantees Ord }}\n'
-                         f'func relay(a: T,b: T) {{ return {name}(a,b) }}\n') if generic else ''
+                relay = (f'sig relay[T](T,T) -> {ret} {{ require T guarantees Ord }}\n'
+                         f'func relay(a: T,b: T) {{ return {name}[T](a,b) }}\n') if generic else ''
                 impl = Mock(return_value=('Ordering', tag))
                 with patch.dict(BUILTINS, {'test.make': lambda: object(), 'test.compare': impl}):
-                    result = self.evaluate(prefix + relay + f'var x: {ret} = {"relay" if generic else name}(make(),make())')
+                    result = self.evaluate(prefix + relay + f'var x: {ret} = {"relay" if generic else name}[Box](make(),make())')
                 impl.assert_called_once()
                 self.assertEqual(result.environment['x'].value,
                                  {'cmp': ('Ordering', tag), 'balance': ('Ordering', tag),
@@ -101,7 +103,7 @@ class ComparisonApiTests(unittest.TestCase):
     def test_invalid_canonical_result_is_validated_before_projection(self):
         for name, ret in RETURNS.items():
             with patch.dict(BUILTINS, {'core.int.cmp': lambda a, b: ('Slope', 'Flat')}):
-                result = self.evaluate(f'var x: {ret} = {name}(1,1)')
+                result = self.evaluate(f'var x: {ret} = {name}[Int](1,1)')
             self.assertEqual(result.value_contract_violation.expected_type, TypeRef('Ordering'))
             self.assertEqual(result.failure_history, ())
             self.assertNotIn('x', result.environment)
@@ -114,7 +116,7 @@ class ComparisonApiTests(unittest.TestCase):
                                       ('Float', float('-inf'), '1.0')]:
                 impl = Mock()
                 with patch.dict(BUILTINS, {'test.bad': lambda: bad, 'core.int.cmp': impl, 'core.float.cmp': impl}):
-                    result = self.evaluate(f'sig bad() -> {typ} {{ builtin test.bad }}\nvar x: {ret} = {name}(bad(),{literal})')
+                    result = self.evaluate(f'sig bad() -> {typ} {{ builtin test.bad }}\nvar x: {ret} = {name}[{typ}](bad(),{literal})')
                 impl.assert_not_called()
                 self.assertIsNotNone(result.value_contract_violation)
                 self.assertEqual(result.failure_history, ())
@@ -124,8 +126,8 @@ class ComparisonApiTests(unittest.TestCase):
             cmp = Mock()
             with patch.dict(BUILTINS, {'core.float.cmp': cmp}), patch(
                     'ginger.runtime.builtin_bridge.project_comparison', wraps=project_comparison) as projection:
-                result = self.evaluate(f'var x: Bool = {name}(div(1.0,0.0),1.0)\n'
-                                       'resolve x { DivideByZero { x = eq(1,1) } }')
+                result = self.evaluate(f'var x: Bool = {name}[Float](div(1.0,0.0),1.0)\n'
+                                       'resolve x { DivideByZero { x = eq[Int](1,1) } }')
             cmp.assert_not_called()
             self.assertEqual(projection.call_count, 1)  # Only the recovery eq.
             self.assertEqual(len(result.failure_history), 1)
@@ -137,10 +139,11 @@ class ComparisonApiTests(unittest.TestCase):
         for name in ('eq', 'lt'):
             for literal, builtin in [('1', 'core.int.cmp'), ('1i64', 'core.int.cmp'),
                                      ('1.0', 'core.float.cmp')]:
+                typ = "Int64" if "i64" in literal else "Float" if "." in literal else "Int"
                 cmp = Mock(side_effect=RaisedFailure(FailureId.IOErr))
                 with patch.dict(BUILTINS, {builtin: cmp}), patch(
                         'ginger.runtime.builtin_bridge.project_comparison', wraps=project_comparison) as projection:
-                    result = self.evaluate(f'var x: Bool = {name}({literal},{literal})')
+                    result = self.evaluate(f'var x: Bool = {name}[{typ}]({literal},{literal})')
                 cmp.assert_called_once()
                 projection.assert_not_called()
                 self.assertIsNotNone(result.contract_violation)
@@ -151,7 +154,7 @@ class ComparisonApiTests(unittest.TestCase):
     def test_projected_bool_return_is_validated(self):
         for name in ('eq', 'lt'):
             with patch('ginger.runtime.builtin_bridge.project_comparison', return_value=1):
-                result = self.evaluate(f'var x: Bool = {name}(1,1)')
+                result = self.evaluate(f'var x: Bool = {name}[Int](1,1)')
             self.assertEqual(result.value_contract_violation.expected_type, TypeRef('Bool'))
             self.assertNotIn('x', result.environment)
             self.assertEqual(result.failure_history, ())
@@ -166,5 +169,5 @@ class ComparisonApiTests(unittest.TestCase):
                 self.assertIsNotNone(result.value_contract_violation)
                 self.assertNotIn('x', result.environment)
                 self.assertEqual(result.failure_history, ())
-        program, _ = checked('print(slope(1,2))\nprint(slope(1,1))\nprint(slope(2,1))')
+        program, _ = checked('print[Slope](slope[Int](1,2))\nprint[Slope](slope[Int](1,1))\nprint[Slope](slope[Int](2,1))')
         self.assertEqual(output(program), 'Rising\nFlat\nFalling\n')

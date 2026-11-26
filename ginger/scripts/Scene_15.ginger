@@ -19,8 +19,8 @@
 
 var a: Float = div(1.0,0.0)
 a = 10
-var b: Float = add(a,1.0)
-print(a)
+var b: Float = add[Float](a,1.0)
+print[Float](a)
 
 // a の DivideByZero は解決しないが、a = 10 を再代入しているため、b で処理は止まらない => 11.0が出力される
-print(b)
+print[Float](b)

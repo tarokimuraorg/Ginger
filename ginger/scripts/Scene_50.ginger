@@ -24,7 +24,7 @@ sig notify() -> Unit {
 }
 
 func notify() { 
-    print(1) 
+    print[Int](1)
 }
 
 failureset A { IOErr }

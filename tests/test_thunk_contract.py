@@ -46,9 +46,9 @@ class ThunkContractTests(unittest.TestCase):
         program, diags = checked(prefix)
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
-        for expr, typ in [('force(t)', 'Float'), ('print(force(t))', 'Unit')]:
+        for expr, typ in [('force(t)', 'Float'), ('print[Float](force(t))', 'Unit')]:
             with self.subTest(expr=expr):
-                recovery = 'x = print(7)' if typ == 'Unit' else 'x = 0\nprint(7)'
+                recovery = 'x = print[Int](7)' if typ == 'Unit' else 'x = 0\nprint[Int](7)'
                 program, diags = checked(prefix + f'var x: {typ} = {expr}\n'
                     f'resolve x {{ DivideByZero {{ {recovery} }} }}')
                 self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
@@ -78,7 +78,7 @@ sig use() -> Float { failure { CalculationFailure } }
 func use() { return execute(make()) }
 '''
         program, diags = checked(prefix + 'var x: Float = use()\n'
-            'resolve x { DivideByZero { x = 2\nprint(2) }\nIOErr { x = 3\nprint(3) } }')
+            'resolve x { DivideByZero { x = 2\nprint[Int](2) }\nIOErr { x = 3\nprint[Int](3) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '2\n')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures'):
@@ -103,7 +103,7 @@ func use() { return execute(make()) }
                                  'thunk(thunk(div(1.0,0.0)))\n'
                                  'var inner: Thunk[DeferredDivision] = force(t)\n'
                                  'var x: Float = force(inner)\n'
-                                 'resolve x { DivideByZero { x = 5\nprint(5) } }')
+                                 'resolve x { DivideByZero { x = 5\nprint[Int](5) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '5\n')
 
@@ -116,7 +116,7 @@ func use() { return execute(make()) }
         prefix = 'sig h(Float) -> Unit { failure { IOErr } }\nfunc h(x: Float) {}\n'
         program, diags = checked(prefix + 'sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))\n'
                                  'var x: Unit = h(force(t))\n'
-                                 'resolve x { DivideByZero { x = print(8) } }')
+                                 'resolve x { DivideByZero { x = print[Int](8) } }')
         # h ignores its failed argument and successfully writes Unit; resolve is a no-op.
         from test_failure_contract import recorded
         env, context, stdout = recorded(program)

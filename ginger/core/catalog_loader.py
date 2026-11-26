@@ -165,6 +165,9 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         if not isinstance(sname, str):
             raise ValueError(f"Sig.name must be str: {s!r}")
 
+        type_params = s.get("type_params", [])
+        if not isinstance(type_params, list) or not all(isinstance(p, str) and p.isidentifier() for p in type_params):
+            raise ValueError(f"Sig '{sname}' type_params must be an array of identifiers")
         params = [_type_ref(x) for x in s.get("params", [])]
         ret = _type_ref(s.get("ret"))
         requires = [_require(x) for x in s.get("requires", [])]
@@ -182,6 +185,7 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         out.append(
             SigDecl(
                 name=sname,
+                type_params=tuple(type_params),
                 params=params,
                 ret=ret,
                 requires=requires,

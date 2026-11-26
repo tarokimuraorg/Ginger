@@ -20,15 +20,15 @@
 
 sigtype DeferredInt() -> Int { failure { Never } }
 
-type Box
-type Pair
+type Box[T]
+type Pair[T, U]
 type MissingType
 
 typegroup Mark {}
 register Mark { Thunk[DeferredInt] }
 typegroup IntThunks { Thunk[DeferredInt] }
 
-sig keep(T) -> T { 
+sig keep[T](T) -> T {
     require T in Mark
     require T in IntThunks
 }
@@ -36,12 +36,12 @@ sig keep(T) -> T {
 func keep(x: T) { return x }
 
 var one: Thunk[DeferredInt] = thunk(1)
-print(force(keep(one)))
+print[Int](force(keep[Thunk[DeferredInt]](one)))
 sigtype Checked() -> Int { failure { IntegerOverflow } }
 register Mark { Thunk[Checked] }
 register IntThunks { Thunk[Checked] }
-var sum: Thunk[Checked] = thunk(add(1,2))
-print(force(keep(sum)))
+var sum: Thunk[Checked] = thunk(add[Int](1,2))
+print[Int](force(keep[Thunk[Checked]](sum)))
 
 register Mark { Box[Int] }
 register Mark { Box[Float] }

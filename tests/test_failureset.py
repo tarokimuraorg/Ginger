@@ -102,8 +102,8 @@ var x: Float = f()
 '''
         with self.assertRaisesRegex(TypecheckError, "unknown failure 'CalculationFailure'"):
             checked(prefix + 'resolve x { CalculationFailure { x = 0 } }')
-        program, diags = checked(prefix + 'resolve x { DivideByZero { x = 0\nprint(0) }\n'
-                                 'IOErr { x = 1\nprint(1) } }')
+        program, diags = checked(prefix + 'resolve x { DivideByZero { x = 0\nprint[Int](0) }\n'
+                                 'IOErr { x = 1\nprint[Int](1) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, FloatUnderflow'])
         self.assertEqual(output(program), '0\n')
         with self.assertRaisesRegex(TypecheckError, "cannot resolve 'PrintErr'"):
@@ -123,7 +123,7 @@ var x: Float = f()
     def test_function_and_thunk_contract_equivalence(self):
         sources = [
             'sig f() -> Unit { %s }\n'
-            'func f() { print(div(1.0,0.0)) }\n'
+            'func f() { print[Float](div(1.0,0.0)) }\n'
             'sig g() -> Unit { failure { DivideByZero, FloatOverflow, FloatUnderflow, IOErr } }\nfunc g() { f() }\nf()',
             'sigtype DeferredFloat() -> Float { failure { Never } }\nsig f(Thunk[DeferredFloat]) -> Float { %s }\n'
             'func f(t: Thunk[DeferredFloat]) { return force(t) }',
@@ -138,5 +138,5 @@ var x: Float = f()
                 self.assertFalse(any(d.code == 'FAILURE_CONTRACT_DEFERRED' for d in named))
         _, diags = checked(SET + 'sig h(Int) -> Unit { failure { CalculationFailure } '
                            'builtin core.int.print }\nvar x: Unit = h(1)\n'
-                           'resolve x { IOErr { x = print(0) } }')
+                           'resolve x { IOErr { x = print[Int](0) } }')
         self.assertEqual([d.message for d in diags], ['unhandled failures: DivideByZero, FloatOverflow, FloatUnderflow'])

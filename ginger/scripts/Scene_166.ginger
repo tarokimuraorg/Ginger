@@ -17,11 +17,11 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig difference(T,T) -> T { require T guarantees Subtractable failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic } }
+sig difference[T](T,T) -> T { require T guarantees Subtractable failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic } }
 func difference(a: T,b: T) { return a - b }
-sig product(T,T) -> T { require T guarantees Multipliable failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic } }
-func product(a: T,b: T) { return mul(a,b) }
-print(difference(1,2))
-print(difference(1.0,2.0))
-print(product(2,3))
-print(product(2.0,3.0))
+sig product[T](T,T) -> T { require T guarantees Multipliable failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic, FloatUnderflow when T in FiniteArithmetic } }
+func product(a: T,b: T) { return mul[T](a,b) }
+print[Int](difference[Int](1,2))
+print[Float](difference[Float](1.0,2.0))
+print[Int](product[Int](2,3))
+print[Float](product[Float](2.0,3.0))

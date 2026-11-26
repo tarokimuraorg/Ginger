@@ -17,6 +17,6 @@
 
 sigtype DeferredFloat() -> Float { failure { Never } }
 
-sig pair(Thunk[DeferredFloat],T) -> T {}
+sig pair[T](Thunk[DeferredFloat],T) -> T {}
 func pair(a: Thunk[DeferredFloat],b: T) { return b }
-print(pair(thunk(1),2.0))
+print[Int](pair[Int](thunk(1),2.0))

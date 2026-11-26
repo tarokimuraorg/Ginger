@@ -1,12 +1,14 @@
 import unittest
 
-from ginger.ast import SigRefDecl
-from ginger.errors import TypecheckError
+from ginger.ast import RequireGuarantees, SigRefDecl
+from ginger.core.failure_spec import FailureId
 from ginger.numeric import INT_MAX
+from ginger.runtime.failures import FailureStatus
+from internal_declarations import run as run_internal
+from ginger.errors import TypecheckError
 from ginger.parser import parse
 from ginger.pipeline import run
 from ginger.symbols_builder import build_symbols
-from internal_declarations import run as run_internal
 
 
 class SigTypeApplicationTests(unittest.TestCase):
@@ -32,7 +34,7 @@ class SigTypeApplicationTests(unittest.TestCase):
     def test_ast_and_forward_reference(self):
         self.assertEqual(parse("sig calculate: A").items, [SigRefDecl("calculate", "A")])
         self.equivalent_value("(Int) -> Int { failure { IntegerOverflow } }",
-                              "func calculate(x: Int) { return add(x,1) }\n"
+                              "func calculate(x: Int) { return add[Int](x,1) }\n"
                               "let result: Int = calculate(41)", 42)
 
     def test_zero_arguments_and_same_name(self):
@@ -43,41 +45,26 @@ class SigTypeApplicationTests(unittest.TestCase):
     def test_multiple_parameters_and_failures(self):
         self.equivalent_value("(Int, Int) -> Int { failure { Errors } }",
                               "failureset Errors { DivideByZero, IntegerOverflow }\n"
-                              "func calculate(x: Int, y: Int) { return add(x,y) }\n"
+                              "func calculate(x: Int, y: Int) { return add[Int](x,y) }\n"
                               "let result: Int = calculate(1,2)", 3)
 
-    def test_shared_generic_contract(self):
-        source = """sigtype Identity(T) -> T {}
+    def test_shared_contract(self):
+        source = """sigtype Identity(Int) -> Int {}
 sig first: Identity
 sig second: Identity
-func first(x: T) { return x }
-func second(y: T) { return y }
+func first(x: Int) { return x }
+func second(y: Int) { return y }
 let a: Int = first(1)
-let b: Float = second(2.5)"""
+let b: Int = second(2)"""
         syms = build_symbols(parse(source))
         self.assertIsNot(syms.sigs["first"].params, syms.sigs["second"].params)
         self.assertIsNot(syms.sigs["first"].params, syms.sigtypes["Identity"].declaration.params)
         env = run(source).environment
-        self.assertEqual((env["a"].value, env["b"].value), (1, 2.5))
+        self.assertEqual((env["a"].value, env["b"].value), (1, 2))
 
-    def test_conditional_failure_specialization(self):
-        contract = ("(T,T) -> T { require T guarantees Addable "
-                    "failure { IntegerOverflow when T in BoundedArithmetic, "
-                    "FloatOverflow when T in FiniteArithmetic } }")
-        body = "func calculate(x: T,y: T) { return add(x,y) }\n"
-        self.equivalent_value(contract, body + "let result: Float = calculate(1.0,2.0)", 3.0)
-        histories = [run(source).failure_history for source in self.forms(
-            contract, body + f"let result: Int = calculate({INT_MAX},1)")]
-        self.assertTrue(histories[0])
-        self.assertEqual(*histories)
-        self.equivalent_error(contract, body + "let result: Int64 = calculate(1i64,2i64)")
-
-    def test_missing_conditional_failure(self):
-        self.equivalent_error(
-            "(T,T) -> T { require T guarantees Addable "
-            "failure { IntegerOverflow when T in BoundedArithmetic } }",
-            "func calculate(x: T, y: T) { return add(x,y) }",
-        )
+    def test_generic_contract_requires_specialization(self):
+        with self.assertRaisesRegex(TypecheckError, "requires type arguments"):
+            run("sigtype Identity[T](T) -> T {} sig first: Identity")
 
     def test_contract_name_is_neither_type_nor_callable(self):
         prefix = "sigtype Calculation(Int) -> Int {}\nsig calculate: Calculation\n"
@@ -85,26 +72,63 @@ let b: Float = second(2.5)"""
             with self.subTest(use=use), self.assertRaises(TypecheckError):
                 run(prefix + use)
 
-    def test_requirement_in(self):
-        contract = "(T) -> T { require T in BoundedArithmetic }"
-        body = "func calculate(x: T) { return x }\n"
-        self.equivalent_value(contract, body + "let result: Int = calculate(1)", 1)
-        self.equivalent_error(contract, body + "let result: Float = calculate(1.0)")
+    def generic_forms(self, contract, name="calculate"):
+        return (f"sig {name}[T]{contract}",
+                f"sigtype Calculation[T]{contract} sig {name}[T]: Calculation[T]")
 
-    def test_guarantee_dispatch(self):
-        prefix = ("guarantee G { op(self: Self, other: Self) -> Self }\n"
-                  "impl Int guarantees G { op = builtin core.int.add }\n")
-        for source in self.forms("(U,U) -> U { require U guarantees G failure { IntegerOverflow } }",
-                                 "let result: Int = op(2,3)", "op"):
-            self.assertEqual(run_internal(prefix + source).environment["result"].value, 5)
-        for source in self.forms("(U) -> U { require U guarantees G }", "", "op"):
+    def test_conditional_failure_history(self):
+        contract = ("(T,T) -> T {require T guarantees Addable "
+                    "failure {IntegerOverflow when T in BoundedArithmetic, "
+                    "FloatOverflow when T in FiniteArithmetic}}")
+        histories = []
+        for declaration in self.generic_forms(contract):
+            source = declaration + " func calculate(x:T,y:T) {return add[T](x,y)} "
+            result = run(source + "let f:Float = calculate[Float](1.0,2.0) "
+                         + f"let i:Int = calculate[Int]({INT_MAX},1)")
+            self.assertEqual(result.environment["f"].value, 3.0)
+            self.assertEqual([(e.failure_id, e.status) for e in result.failure_history],
+                             [(FailureId.IntegerOverflow, FailureStatus.UNRESOLVED)])
+            histories.append(result.failure_history)
+            with self.assertRaisesRegex(TypecheckError, "does not guarantee Addable"):
+                run(source + "calculate[Int64](1i64,2i64)")
+        self.assertEqual(*histories)
+
+    def test_missing_conditional_failure(self):
+        contract = ("(T,T) -> T {require T guarantees Addable "
+                    "failure {IntegerOverflow when T in BoundedArithmetic}}")
+        for declaration in self.generic_forms(contract):
+            with self.subTest(declaration=declaration), self.assertRaisesRegex(
+                    TypecheckError, "undeclared failures: FloatOverflow when T in FiniteArithmetic"):
+                run(declaration + " func calculate(x:T,y:T) {return add[T](x,y)}")
+
+    def test_guarantee_dispatch_and_arity(self):
+        prefix = ("guarantee G {op(self:Self, other:Self) -> Self} "
+                  "impl Int guarantees G {op = builtin core.int.add} ")
+        for declaration in self.generic_forms(
+                "(T,T) -> T {require T guarantees G failure {IntegerOverflow}}", "op"):
+            result = run_internal(prefix + declaration + " let result:Int = op[Int](2,3)")
+            self.assertEqual(result.environment["result"].value, 5)
+        for declaration in self.generic_forms("(T) -> T {require T guarantees G}", "op"):
             with self.assertRaisesRegex(TypecheckError, "arity mismatch for guarantee method 'op'"):
-                run_internal(prefix + source)
+                run_internal(prefix + declaration)
 
     def test_repeated_guarantee_requirements(self):
-        syms = build_symbols(parse("sigtype Contract(T) -> T { require T guarantees Addable "
-                                   "require T guarantees Addable }\nsig calc: Contract"))
-        self.assertEqual(len(syms.sigs["calc"].requires), 2)
+        def contract(first, second):
+            return (f"({first},{second}) -> {first} {{require {first} guarantees Addable "
+                    f"require {second} guarantees Addable require {first} guarantees Addable}}")
+
+        for source in ("sig calc[A,B]" + contract("A", "B"),
+                       "sigtype Calculation[X,Y]" + contract("Y", "X")
+                       + " sig calc[A,B]: Calculation[B,A]"):
+            requirements = build_symbols(parse(source)).sigs["calc"].requires
+            self.assertEqual(requirements, [RequireGuarantees(name, "Addable") for name in "ABA"])
+
+    def test_typegroup_requirement_equivalence(self):
+        for declaration in self.generic_forms("(T) -> T {require T in BoundedArithmetic}"):
+            source = declaration + " func calculate(x:T) {return x} "
+            self.assertEqual(run(source + "let v:Int = calculate[Int](1)").environment["v"].value, 1)
+            with self.assertRaisesRegex(TypecheckError, "requirement not satisfied"):
+                run(source + "calculate[Float](1.0)")
 
     def test_no_namespace_fallback(self):
         for name in ["MissingContract", "Int", "add", "Addable", "Errors", "BoundedArithmetic", "A"]:
@@ -123,7 +147,7 @@ let b: Float = second(2.5)"""
 
     def test_implementation_mismatches(self):
         for params, expr in [("", "1"), ("x: Float", "1"), ("x: Int", "1.5"),
-                             ("x: Int", "add(x,1)")]:
+                             ("x: Int", "add[Int](x,1)")]:
             self.equivalent_error("(Int) -> Int { failure { Never } }",
                                   f"func calculate({params}) {{ return {expr} }}")
-        self.equivalent_error("(T) -> T {}", "func calculate(x: U) { return x }")
+        self.equivalent_error("(Int) -> Int {}", "func calculate(x: Float) { return x }")

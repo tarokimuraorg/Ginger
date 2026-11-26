@@ -19,4 +19,4 @@ sigtype DeferredSelf() -> Int { failure { Never } }
 sigtype DeferredTIntegerOverflow() -> Int { failure { IntegerOverflow } }
 
 guarantee G { op(self: Self, other: Thunk[DeferredSelf]) -> Self }
-sig op(T,Thunk[DeferredTIntegerOverflow]) -> T { require T guarantees G }
+sig op[T](T,Thunk[DeferredTIntegerOverflow]) -> T { require T guarantees G }

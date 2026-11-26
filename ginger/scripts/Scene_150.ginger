@@ -22,5 +22,5 @@ sigtype DeferredFloat() -> Float { failure { Never } }
 
 sig raw(Float,Float) -> Float { builtin core.float.div }
 var t: Thunk[DeferredFloat] = thunk(raw(1.0,0.0))
-print(force(t))
-print(99)
+print[Float](force(t))
+print[Int](99)

@@ -22,5 +22,5 @@
 sigtype CheckedInt() -> Int { failure { IntegerOverflow } }
 sigtype DeferredInt() -> Int { failure { Never } }
 
-var t: Thunk[CheckedInt] = thunk(add(1,2))
+var t: Thunk[CheckedInt] = thunk(add[Int](1,2))
 var pure: Thunk[DeferredInt] = t

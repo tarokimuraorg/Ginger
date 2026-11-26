@@ -21,7 +21,7 @@
 
 var x: Float = 5.0
 x = div(1.0,0.0)
-print(3)
+print[Int](3)
 
 resolve x {
     DivideByZero {
@@ -29,7 +29,7 @@ resolve x {
     }
 }
 
-print(x)
+print[Float](x)
 
 sig localA() -> Int {
     failure {
@@ -39,7 +39,7 @@ sig localA() -> Int {
 
 func localA() {
     var y: Int = 7
-    y = add(9007199254740991,1)
+    y = add[Int](9007199254740991,1)
 
     resolve y {
         IntegerOverflow {
@@ -58,14 +58,14 @@ var z: Int = localA()
 //    }
 //}
 
-print(localA())
-print(z)
+print[Int](localA())
+print[Int](z)
 
 var a: Float = 5.0
 a = div(1.0, 0.0)
-print(3)
+print[Int](3)
 a = 8.0
-print(a)
+print[Float](a)
 
 sig localB() -> Int {
     failure { IntegerOverflow }
@@ -73,9 +73,9 @@ sig localB() -> Int {
 
 func localB() {
     var y: Int = 7
-    y = add(9007199254740991, 1)
+    y = add[Int](9007199254740991, 1)
     y = 8
     return y
 }
 
-print(localB())
+print[Int](localB())

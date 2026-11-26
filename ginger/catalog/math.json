@@ -113,6 +113,7 @@
   "sigs": [
     {
       "name": "add",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
@@ -132,6 +133,7 @@
     },
     {
       "name": "sub",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
@@ -151,6 +153,7 @@
     },
     {
       "name": "mul",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
@@ -182,6 +185,7 @@
     },
     {
       "name": "neg",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [

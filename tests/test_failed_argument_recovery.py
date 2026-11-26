@@ -13,9 +13,9 @@ from test_failure_contract import checked, recorded
 IDENTITY = 'sig identity(Float) -> Float {}\nfunc identity(x: Float) { return x }\n'
 IGNORE = 'sig ignore(Float) -> Float { failure { Never } }\nfunc ignore(x: Float) { return 10.0 }\n'
 CONTRACT = 'sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\n'
-BINDING = 'var t: Thunk[CheckedInt] = thunk(add(9007199254740991,1))\n'
+BINDING = 'var t: Thunk[CheckedInt] = thunk(add[Int](9007199254740991,1))\n'
 THUNK = CONTRACT + BINDING
-FAILED = 'add(toFloat(force(t)),2.0)'
+FAILED = 'add[Float](toFloat(force(t)),2.0)'
 DIV_FAILURES = 'DivideByZero,FloatOverflow,FloatUnderflow'
 
 
@@ -34,7 +34,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         for expr in (FAILED, f'identity({FAILED})'):
             with self.subTest(expr=expr):
                 env, context, out = self.run_source(IDENTITY + THUNK + f'var x: Float = {expr}\n'
-                    'resolve x { IntegerOverflow { x = 2.0 } }\nprint(x)')
+                    'resolve x { IntegerOverflow { x = 2.0 } }\nprint[Float](x)')
                 self.assertEqual(out, '2.0\n')
                 self.assertEqual(env['x'].value, 2.0)
                 self.assert_events(context, (1,))
@@ -60,7 +60,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
 
     def test_ignore_success_and_resolve_noop(self):
         env, context, out = self.run_source(IGNORE + THUNK + f'var x: Float = ignore({FAILED})\n'
-            'resolve x { IntegerOverflow { x = 2.0\nprint(999) } }\nprint(x)')
+            'resolve x { IntegerOverflow { x = 2.0\nprint[Int](999) } }\nprint[Float](x)')
         self.assertEqual(out, '10.0\n')
         self.assertEqual(env['x'].value, 10.0)
         self.assertEqual(context._binding_writes[1, 'x'].cause_event_ids, ())
@@ -68,11 +68,11 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         self.assertEqual(context.unresolved_pending(1), (1,))
 
     def test_later_argument_and_body_side_effect_order(self):
-        source = ('sig mark() -> Float {}\nfunc mark() { print(2) return 3.0 }\n'
+        source = ('sig mark() -> Float {}\nfunc mark() { print[Int](2) return 3.0 }\n'
                   'sig first(Float,Float) -> Float {}\n'
-                  'func first(a: Float,b: Float) { print(3) return a\nprint(999) }\n'
-                  'print(1)\nvar x: Float = first(div(1.0,0.0),mark())\n'
-                  'resolve x { DivideByZero { x = 4.0 } }\nprint(x)')
+                  'func first(a: Float,b: Float) { print[Int](3) return a\nprint[Int](999) }\n'
+                  'print[Int](1)\nvar x: Float = first(div(1.0,0.0),mark())\n'
+                  'resolve x { DivideByZero { x = 4.0 } }\nprint[Float](x)')
         _, context, out = self.run_source(source)
         self.assertEqual(out, '1\n2\n3\n4.0\n')
         self.assert_events(context, (1,))
@@ -83,7 +83,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         call = 'choose(div(1.0,0.0),div(2.0,0.0))'
         suffix = (f'var x: Float = resolve {call} {{ DivideByZero {{ return 7.0 }} }}' if expression else
                   f'var x: Float = {call}\nresolve x {{ DivideByZero {{ x = 7.0 }} }}')
-        return self.run_source(prefix + suffix + '\nprint(x)')
+        return self.run_source(prefix + suffix + '\nprint[Float](x)')
 
     def test_first_failure_is_direct_cause(self):
         _, context, out = self.two_failures('a')
@@ -106,14 +106,14 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         source = IGNORE + ('sig first(Float,Float) -> Float {}\n'
             'func first(a: Float,b: Float) { return a }\n'
             'var x: Float = first(div(1.0,0.0),ignore(div(2.0,0.0)))\n'
-            'resolve x { DivideByZero { x = 7.0 } }\nprint(x)')
+            'resolve x { DivideByZero { x = 7.0 } }\nprint[Float](x)')
         _, context, out = self.run_source(source)
         self.assertEqual(out, '7.0\n')
         self.assert_events(context, (1,), 2)
 
     def test_body_failure_does_not_replace_parameter_cause(self):
         source = (f'sig first(Float) -> Float {{ failure {{ {DIV_FAILURES} }} }}\n'
-            'func first(a: Float) { print(div(2.0,0.0)) return a }\n'
+            'func first(a: Float) { print[Float](div(2.0,0.0)) return a }\n'
             'var x: Float = first(div(1.0,0.0))\n'
             'resolve x { DivideByZero { x = 7.0 } }')
         _, context, _ = self.run_source(source)
@@ -126,7 +126,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         source = IDENTITY + ('sig outer(Float) -> Float {}\n'
             'func outer(x: Float) { return identity(x) }\n')
         _, context, out = self.run_source(source + THUNK + f'var x: Float = outer({FAILED})\n'
-            'resolve x { IntegerOverflow { x = 2.0 } }\nprint(x)')
+            'resolve x { IntegerOverflow { x = 2.0 } }\nprint[Float](x)')
         self.assertEqual(out, '2.0\n')
         self.assert_events(context, (1,))
         self.assertEqual(context.get_event(1).call_id, 1)
@@ -134,7 +134,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
 
     def test_multilevel_ignore_keeps_success_and_pending(self):
         source = IGNORE + 'sig outer(Float) -> Float {}\nfunc outer(x: Float) { return ignore(x) }\n'
-        _, context, out = self.run_source(source + THUNK + f'print(outer({FAILED}))')
+        _, context, out = self.run_source(source + THUNK + f'print[Float](outer({FAILED}))')
         self.assertEqual(out, '10.0\n')
         self.assert_events(context)
 
@@ -161,7 +161,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
         source = ('sigtype DeferredFloat() -> Float { failure { Never } }\nsig capture(Float) -> Thunk[DeferredFloat] {}\nfunc capture(x: Float) {\n'
                   'var t: Thunk[DeferredFloat] = thunk(x)\n'
                   'var y: Float = resolve x { DivideByZero { return 3.0 } }\nreturn t }\n'
-                  'var t: Thunk[DeferredFloat] = capture(div(1.0,0.0))\nprint(force(t))')
+                  'var t: Thunk[DeferredFloat] = capture(div(1.0,0.0))\nprint[Float](force(t))')
         context = RuntimeContext()
         with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
             evaluator._eval_program_with_context(checked(source)[0], context)
@@ -189,8 +189,8 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
     def test_static_safe_local_identity_resolve_matches_runtime(self):
         source = ('sig keep(Int) -> Int {}\nfunc keep(x: Int) { return x }\n'
             'sig safe() -> Int { failure { Never } }\nfunc safe() {\n'
-            'var x: Int = keep(add(9007199254740991,1))\n'
-            'resolve x { IntegerOverflow { x = 2 } }\nreturn x }\nprint(safe())')
+            'var x: Int = keep(add[Int](9007199254740991,1))\n'
+            'resolve x { IntegerOverflow { x = 2 } }\nreturn x }\nprint[Int](safe())')
         program, diagnostics = checked(source)
         self.assertEqual(diagnostics.items, [])
         _, context, out = recorded(program)
@@ -200,7 +200,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
     def test_multiple_argument_effects_cannot_be_discharged_together(self):
         source = ('sig first(Int,Int) -> Int {}\nfunc first(a: Int,b: Int) { return a }\n'
             'sig wrapper() -> Int {}\nfunc wrapper() {\n'
-            'var x: Int = first(add(9007199254740991,1),add(9007199254740991,1))\n'
+            'var x: Int = first(add[Int](9007199254740991,1),add[Int](9007199254740991,1))\n'
             'resolve x { IntegerOverflow { x = 2 } }\nreturn x }')
         with self.assertRaisesRegex(TypecheckError, "func 'wrapper'.*IntegerOverflow"):
             checked(source)
@@ -222,7 +222,7 @@ class FailedArgumentRecoveryTests(unittest.TestCase):
 
     def test_handler_without_return_retains_original_cause(self):
         _, context, _ = self.run_source('var x: Float = resolve div(1.0,0.0) { DivideByZero {\n'
-            'print(div(2.0,0.0)) } }\nresolve x { DivideByZero { x = 3.0 } }')
+            'print[Float](div(2.0,0.0)) } }\nresolve x { DivideByZero { x = 3.0 } }')
         self.assert_events(context, (1,), 2)
 
     def test_failed_handler_return_uses_its_direct_cause(self):

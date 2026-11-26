@@ -15,5 +15,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-let x: Int = add(1,2)
-resolve x { IntegerOverflow { print(0) } }
+let x: Int = add[Int](1,2)
+resolve x { IntegerOverflow { print[Int](0) } }

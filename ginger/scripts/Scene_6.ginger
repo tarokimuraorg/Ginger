@@ -52,7 +52,7 @@ resolve first {
     }
 }
 
-print(first)
+print[Float](first)
 
 var t2: Thunk[DeferredDivision] = thunk(div(10.0,2.0))
 
@@ -70,4 +70,4 @@ resolve second {
     }
 }
 
-print(second)
+print[Float](second)

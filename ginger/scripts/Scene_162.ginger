@@ -20,7 +20,7 @@ sig risky() -> Float { failure { IntegerOverflow, DivideByZero, FloatOverflow, F
 func risky() { return div(1.0,0.0) }
 var x: Float = risky()
 resolve x {
-    IntegerOverflow { print(div(2.0,0.0)) x = 0 }
-    DivideByZero { print(add(9007199254740991,1)) x = 1 }
+    IntegerOverflow { print[Float](div(2.0,0.0)) x = 0 }
+    DivideByZero { print[Int](add[Int](9007199254740991,1)) x = 1 }
 }
-print(x)
+print[Float](x)

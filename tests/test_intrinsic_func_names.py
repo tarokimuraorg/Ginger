@@ -49,7 +49,7 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
             self.assert_rejected(name, 'return x', 'Int')
 
     def test_standard_sigs_and_intrinsic_calls_remain(self):
-        symbols, stdout = self.run_source('sigtype D() -> Int {}\nvar t: Thunk[D] = thunk(4)\nprint(force(t))')
+        symbols, stdout = self.run_source('sigtype D() -> Int {}\nvar t: Thunk[D] = thunk(4)\nprint[Int](force(t))')
         self.assertEqual(stdout, '4\n')
         for name in ('thunk', 'force'):
             self.assertIn(name, symbols.sigs)
@@ -59,12 +59,12 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
         for name in ('thunk', 'force'):
             with self.subTest(name=name), self.assertRaisesRegex(
                     TypecheckError, f"duplicate sig '{name}'"):
-                build_symbols(parse(f'sig {name}(T) -> T {{}}'))
+                build_symbols(parse(f'sig {name}[T](T) -> T {{}}'))
 
     def test_variables_coexist_with_intrinsic_calls(self):
         _, stdout = self.run_source('var force: Int = 9\nvar thunk: Int = 4\n'
-                                    'print(force)\nprint(thunk)\n'
-                                    'sigtype Deferred() -> Int {}\nvar t: Thunk[Deferred] = thunk(force)\nprint(force(t))')
+                                    'print[Int](force)\nprint[Int](thunk)\n'
+                                    'sigtype Deferred() -> Int {}\nvar t: Thunk[Deferred] = thunk(force)\nprint[Int](force(t))')
         self.assertEqual(stdout, '9\n4\n9\n')
 
     def test_parameters_coexist_with_intrinsic_calls(self):
@@ -72,7 +72,7 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
             with self.subTest(name=name):
                 _, stdout = self.run_source('sigtype Deferred() -> Int {}\nsig example(Int) -> Int {}\n'
                     f'func example({name}: Int) {{ let t: Thunk[Deferred] = thunk({name}) return force(t) }}\n'
-                    'print(example(8))')
+                    'print[Int](example(8))')
                 self.assertEqual(stdout, '8\n')
 
     def test_independent_declaration_names_remain_allowed(self):
@@ -80,7 +80,7 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
             with self.subTest(name=name):
                 symbols, stdout = self.run_source(
                     f'guarantee {name} {{ {name}(self: Self) -> Self }}\n'
-                    f'failureset {name} {{ IOErr }}\nsigtype D() -> Int {{ failure {{ Never }} }}\nvar t: Thunk[D] = thunk(4)\nprint(force(t))')
+                    f'failureset {name} {{ IOErr }}\nsigtype D() -> Int {{ failure {{ Never }} }}\nvar t: Thunk[D] = thunk(4)\nprint[Int](force(t))')
                 self.assertEqual(symbols.guarantees[name].methods[0].name, name)
                 self.assertIn(name, symbols.failuresets)
                 self.assertEqual(stdout, '4\n')
@@ -89,7 +89,7 @@ class IntrinsicFuncNamesTests(unittest.TestCase):
         for name in ('identity', 'thunkValue', 'enforce'):
             with self.subTest(name=name):
                 symbols, stdout = self.run_source(f'sig {name}(Int) -> Int {{}}\n'
-                    f'func {name}(x: Int) {{ return x }}\nprint({name}(7))')
+                    f'func {name}(x: Int) {{ return x }}\nprint[Int]({name}(7))')
                 self.assertIn(name, symbols.funcs)
                 self.assertEqual(stdout, '7\n')
 

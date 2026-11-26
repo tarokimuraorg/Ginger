@@ -13,11 +13,11 @@
 // none
 // Expected fatal:
 // TypecheckError
-// cannot determine type variable 'T'
+// explicit type arguments required for make
 // Expected completion: stops at TypecheckError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig make() -> T {}
+sig make[T]() -> T {}
 sig f() -> Int {}
 func f() { return make() }

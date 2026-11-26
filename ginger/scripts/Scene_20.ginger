@@ -34,4 +34,4 @@ func f(t: Thunk[CheckedInt]) {
 }
 
 var a: Thunk[CheckedInt] = thunk(3)
-print(f(a))
+print[Int](f(a))

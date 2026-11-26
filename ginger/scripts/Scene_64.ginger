@@ -16,4 +16,4 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 register FiniteArithmetic { Int64 }
-print(mul(1i64,2i64))
+print[Int](mul[Int64](1i64,2i64))

@@ -9,12 +9,12 @@ resolve result {
     FloatOverflow { result = 1 }
     IOErr { result = 2 }
 }
-print(result)
+print[Float](result)
 let x: Float = 1e308
-result = calculate(mul(x, x), 1)
+result = calculate(mul[Float](x, x), 1)
 resolve result {
     DivideByZero { result = 0 }
     FloatOverflow { result = 1 }
     IOErr { result = 2 }
 }
-print(result)
+print[Float](result)

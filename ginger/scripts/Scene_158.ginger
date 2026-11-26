@@ -26,6 +26,6 @@ func a() { return b() }
 func b() { return div(1.0,0.0) }
 var x: Float = a()
 resolve x { DivideByZero { x = 2 } FloatOverflow { x = 99 } }
-print(x)
+print[Float](x)
 var y: Float = a()
-print(3)
+print[Int](3)

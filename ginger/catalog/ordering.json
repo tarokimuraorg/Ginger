@@ -45,6 +45,7 @@
   "sigs": [
     {
       "name": "cmp",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Ordering" },
       "requires": [
@@ -55,6 +56,7 @@
     },
     {
       "name": "eq",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Bool" },
       "requires": [
@@ -65,6 +67,7 @@
     },
     {
       "name": "lt",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Bool" },
       "requires": [
@@ -75,6 +78,7 @@
     },
     {
       "name": "balance",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Ordering" },
       "requires": [
@@ -85,6 +89,7 @@
     },
     {
       "name": "slope",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Slope" },
       "requires": [
@@ -95,6 +100,7 @@
     },
     {
       "name": "gt",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Bool" },
       "requires": [

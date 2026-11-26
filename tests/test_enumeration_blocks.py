@@ -8,7 +8,7 @@ from ginger.errors import TypecheckError
 class EnumerationBlockTests(unittest.TestCase):
     def source(self, kind, contents):
         if kind == 'failure':
-            return 'sig f(T) -> T { failure {' + contents + '} }'
+            return 'sig f[T](T) -> T { failure {' + contents + '} }'
         prefix = 'typegroup Mark {}\n' if kind == 'register' else ''
         return prefix + kind + ' Mark {' + contents + '}'
 
@@ -84,6 +84,6 @@ class EnumerationBlockTests(unittest.TestCase):
                     FloatOverflow { return 99.0 }
                 }
                 x = 2.0
-                print(x)
+                print[Float](x)
             }
         ''')

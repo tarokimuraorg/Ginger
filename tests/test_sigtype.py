@@ -86,7 +86,7 @@ type Bee"""
         for suffix in ["(Missing) -> Int {}", "() -> Missing {}", "(Box[Missing]) -> Int {}",
                        "() -> Int { failure { Errors(Missing) } }"]:
             with self.subTest(suffix=suffix), self.assertRaisesRegex(TypecheckError, "unknown type 'Missing'"):
-                symbols("type Box\nfailureset Errors(T) { IntegerOverflow }\nsigtype A" + suffix)
+                symbols("type Box[T]\nfailureset Errors(T) { IntegerOverflow }\nsigtype A" + suffix)
 
     def test_unknown_failures(self):
         with self.assertRaisesRegex(TypecheckError, "unknown failure"):
@@ -105,31 +105,31 @@ type Bee"""
             parse("func f() { " + named + " }")
 
     def test_alpha_equivalence(self):
-        self.duplicate("(T, T) -> T {}", "(U, U) -> U {}")
-        symbols("sigtype A(T, T) -> T {}\nsigtype B(T, U) -> T {}\nsigtype C(T, U) -> U {}")
+        self.duplicate("[T](T, T) -> T {}", "[U](U, U) -> U {}")
+        symbols("sigtype A[T](T, T) -> T {}\nsigtype B[T, U](T, U) -> T {}\nsigtype C[T, U](T, U) -> U {}")
 
     def test_nested_identity_and_existing_arity(self):
-        symbols("type Box\nsigtype A(Box[Box[Int], Float]) -> Int {}\n"
-                "sigtype B(Box[Box[Float], Int]) -> Int {}")
+        symbols("type Box[T]\ntype Pair[T, U]\nsigtype A(Pair[Box[Int], Float]) -> Int {}\n"
+                "sigtype B(Pair[Box[Float], Int]) -> Int {}")
 
     def test_requirements(self):
-        self.duplicate("(T) -> T { require T guarantees Addable require T in BoundedArithmetic }",
-                       "(U) -> U { require U in BoundedArithmetic require U guarantees Addable }")
-        symbols("sigtype A(T) -> T { require T guarantees Addable }\nsigtype B(T) -> T {}")
+        self.duplicate("[T](T) -> T { require T guarantees Addable require T in BoundedArithmetic }",
+                       "[U](U) -> U { require U in BoundedArithmetic require U guarantees Addable }")
+        symbols("sigtype A[T](T) -> T { require T guarantees Addable }\nsigtype B[T](T) -> T {}")
         for clause in ["U guarantees Addable", "T guarantees Missing", "T in Missing"]:
             with self.assertRaises(TypecheckError):
-                symbols(f"sigtype A(T) -> U {{ require {clause} }}")
+                symbols(f"sigtype A[T](T) -> U {{ require {clause} }}")
 
     def test_symbolic_and_latent_effects(self):
         definition = "sigtype Safe() -> Int {} sigtype Checked() -> Int { failure { IntegerOverflow } } failureset Errors(T) { IntegerOverflow when T in BoundedArithmetic }"
-        self.duplicate("(T) -> Thunk[Safe] { failure { Errors(T) } }",
-                       "(U) -> Thunk[Safe] { failure { IntegerOverflow when U in BoundedArithmetic } }",
+        self.duplicate("[T](T) -> Thunk[Safe] { failure { Errors(T) } }",
+                       "[U](U) -> Thunk[Safe] { failure { IntegerOverflow when U in BoundedArithmetic } }",
                        definition)
         symbols(definition + """
-sigtype A(T,U) -> Thunk[Safe] { failure { Errors(T) } }
-sigtype B(T,U) -> Thunk[Checked] { failure { Errors(T) } }
-sigtype C(T,U) -> Thunk[Safe] { failure { Errors(U) } }
-sigtype D(T,U) -> Thunk[Checked] { failure { Errors(U) } }
+sigtype A[T, U](T,U) -> Thunk[Safe] { failure { Errors(T) } }
+sigtype B[T, U](T,U) -> Thunk[Checked] { failure { Errors(T) } }
+sigtype C[T, U](T,U) -> Thunk[Safe] { failure { Errors(U) } }
+sigtype D[T, U](T,U) -> Thunk[Checked] { failure { Errors(U) } }
 """)
 
     def test_existing_identifier_sigtype(self):

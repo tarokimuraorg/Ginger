@@ -92,9 +92,10 @@ class Parser:
         if self.match("KW", "type"):
             self.eat("KW", "type")
             name = self.eat("IDENT").text
+            params = self.parse_type_params()
             if not (self.match("NEWLINE") or self.match("EOF")):
-                raise SyntaxError("type declaration expects a single name")
-            return TypeDecl(name)
+                raise SyntaxError("unexpected token after type declaration")
+            return TypeDecl(name, type_params=params)
         if self.match("KW", "typegroup"):
             return self.parse_typegroup()
         if self.match("KW", "register"):
@@ -124,7 +125,7 @@ class Parser:
         # --- ExprStmt ---
         if (self.match("SYM", "-") or self.match("SYM", "(")
                 or (self.match("IDENT") and self.toks[self.i + 1].kind == "SYM"
-                    and self.toks[self.i + 1].text == "(")):
+                    and self.toks[self.i + 1].text in ("(", "["))):
             expr = self.parse_expr()
             return ExprStmt(expr=expr)
         
@@ -141,15 +142,32 @@ class Parser:
             name += "." + self.eat("IDENT").text
         return name
     
+    def parse_type_params(self):
+        params = []
+        if self.match("SYM", "["):
+            self.eat("SYM", "[")
+            params.append(self.eat("IDENT").text)
+            while self.match("SYM", ","):
+                self.eat("SYM", ",")
+                params.append(self.eat("IDENT").text)
+            self.eat("SYM", "]")
+        return tuple(params)
+
     def parse_type(self) -> TypeRef:
         name = self.eat("IDENT").text
         if name == "Thunk":
             self.eat("SYM", "[")
             contract = self.eat("IDENT").text
+            arguments = self.parse_type_arguments()
             self.eat("SYM", "]")
             if self.match("SYM", "<"):
                 raise SyntaxError("legacy Thunk syntax: use Thunk[SigTypeName]")
-            return TypeRef(name, sigtype_name=contract)
+            return TypeRef(name, sigtype_name=contract, sigtype_args=arguments)
+        args = self.parse_type_arguments()
+        specs = self.parse_failure_contract() if self.match("SYM", "<") else None
+        return TypeRef(name, args, specs)
+
+    def parse_type_arguments(self):
         args = []
         if self.match("SYM", "["):
             self.eat("SYM", "[")
@@ -161,8 +179,7 @@ class Parser:
                 break
             self.eat("SYM", "]")
 
-        specs = self.parse_failure_contract() if self.match("SYM", "<") else None
-        return TypeRef(name, tuple(args), specs)
+        return tuple(args)
 
     def parse_failure_reference(self) -> str | FailureSetRef:
         name = self.eat("IDENT").text
@@ -359,9 +376,10 @@ class Parser:
         else:
             self.eat("KW", "sig")
         name = self.eat("IDENT").text
+        type_params = self.parse_type_params()
         if not named_contract and self.match("SYM", ":"):
             self.eat("SYM", ":")
-            return SigRefDecl(name, self.eat("IDENT").text)
+            return SigRefDecl(name, self.eat("IDENT").text, type_params, self.parse_type_arguments())
         self.eat("SYM", "(")
         params = self.parse_sig_param_types()
         self.eat("SYM", ")")
@@ -447,7 +465,7 @@ class Parser:
         self.eat("SYM", "}")
 
         if named_contract:
-            return SigTypeDecl(name, params, ret, requires, failures)
+            return SigTypeDecl(name, params, ret, requires, failures, type_params)
         return SigDecl(
             name=name,
             params=params,
@@ -455,6 +473,7 @@ class Parser:
             requires=requires,
             failures=failures,
             builtin=builtin,
+            type_params=type_params,
         )
 
     # ---- func ----
@@ -639,11 +658,12 @@ class Parser:
 
         if self.match("IDENT"):
             ident = self.eat("IDENT").text
-            if self.match("SYM", "("):
+            type_args = self.parse_type_arguments() if self.match("SYM", "[") else None
+            if type_args is not None or self.match("SYM", "("):
                 self.eat("SYM", "(")
                 args, style = self.parse_args()
                 self.eat("SYM", ")")
-                return CallExpr(callee=ident, args=args, arg_style=style)
+                return CallExpr(callee=ident, args=args, arg_style=style, type_args=type_args)
             return IdentExpr(ident)
 
         if self.match("INT"):

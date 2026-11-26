@@ -34,7 +34,7 @@ resolve x {
     } 
 }
 
-print(x)
+print[Float](x)
 
 resolve y {
 
@@ -55,5 +55,5 @@ resolve y {
     }
 }
 
-print(y)
-print(3)
+print[Float](y)
+print[Int](3)

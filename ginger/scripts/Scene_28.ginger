@@ -23,11 +23,11 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var maximum: Float = 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0
-var a: Float = add(maximum,maximum)
+var a: Float = add[Float](maximum,maximum)
 resolve a { FloatOverflow { a = 1 } }
-var b: Float = sub(neg(maximum),maximum)
+var b: Float = sub[Float](neg[Float](maximum),maximum)
 resolve b { FloatOverflow { b = 2 } }
-var c: Float = mul(maximum,2.0)
+var c: Float = mul[Float](maximum,2.0)
 resolve c { FloatOverflow { c = 3 } }
 var d: Float = div(maximum,0.5)
 resolve d { FloatOverflow { d = 4 } DivideByZero { d = 99 } }
@@ -35,9 +35,9 @@ var z: Float = div(maximum,0.0)
 resolve z { DivideByZero { z = 5 } FloatOverflow { z = 99 } }
 var nz: Float = div(maximum,(-0.0))
 resolve nz { DivideByZero { nz = 6 } FloatOverflow { nz = 99 } }
-print(a)
-print(b)
-print(c)
-print(d)
-print(z)
-print(nz)
+print[Float](a)
+print[Float](b)
+print[Float](c)
+print[Float](d)
+print[Float](z)
+print[Float](nz)
