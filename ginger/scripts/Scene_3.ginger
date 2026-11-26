@@ -26,5 +26,5 @@ resolve x {
         x = 0
     }
 }
-print(neg(1))
-print(x)
+print[Int](neg[Int](1))
+print[Float](x)

@@ -12,14 +12,14 @@ from test_failure_contract import checked, recorded
 
 class FailedReassignmentTests(unittest.TestCase):
     def test_read_and_read_modify_write_stop_without_new_event(self):
-        for read in ('print(x)', 'x = add(x,1.0)',
-                     'resolve x { DivideByZero { x = add(x,1.0) } }'):
+        for read in ('print[Float](x)', 'x = add[Float](x,1.0)',
+                     'resolve x { DivideByZero { x = add[Float](x,1.0) } }'):
             with self.subTest(read=read):
                 context, env, stream = RuntimeContext(), {}, io.StringIO()
                 with redirect_stdout(stream), self.assertRaises(EvalError) as raised:
                     evaluator._eval_program_with_context(checked(
-                        'var x: Float = 5.0\nx = div(1.0,0.0)\nprint(3)\n' +
-                        read + '\nprint(999)')[0], context, env)
+                        'var x: Float = 5.0\nx = div(1.0,0.0)\nprint[Int](3)\n' +
+                        read + '\nprint[Int](999)')[0], context, env)
                 self.assertEqual(stream.getvalue(), '3\n')
                 event, = context.failure_history
                 self.assertEqual(str(raised.exception),
@@ -34,7 +34,7 @@ class FailedReassignmentTests(unittest.TestCase):
         for prefix in ('var x: Float = ', 'var x: Float = 5.0\nx = '):
             with self.subTest(prefix=prefix):
                 env, context, stdout = recorded(checked(prefix +
-                    'div(1.0,0.0)\nprint(3)\nx = 8.0\nprint(x)')[0])
+                    'div(1.0,0.0)\nprint[Int](3)\nx = 8.0\nprint[Float](x)')[0])
                 self.assertEqual(stdout, '3\n8.0\n')
                 self.assertEqual(env['x'].value, 8.0)
                 event, = context.failure_history
@@ -53,8 +53,8 @@ class FailedReassignmentTests(unittest.TestCase):
 
                 program = checked(
                     'sig local() -> Int { failure { IntegerOverflow } }\n'
-                    'func local() { var y: Int = 7\ny = add(9007199254740991,1)\n' +
-                    ('y = 8\n' if recover else '') + 'return y }\nprint(local())')[0]
+                    'func local() { var y: Int = 7\ny = add[Int](9007199254740991,1)\n' +
+                    ('y = 8\n' if recover else '') + 'return y }\nprint[Int](local())')[0]
                 with redirect_stdout(stream), patch('ginger.eval.eval_block', side_effect=observe):
                     if recover:
                         evaluator._eval_program_with_context(program, context, env)
@@ -72,7 +72,7 @@ class FailedReassignmentTests(unittest.TestCase):
 
     def test_successful_assignment_and_let_restriction(self):
         env, context, stdout = recorded(checked(
-            'var x: Float = 5.0\nx = add(x,1.0)\nprint(x)')[0])
+            'var x: Float = 5.0\nx = add[Float](x,1.0)\nprint[Float](x)')[0])
         self.assertEqual(stdout, '6.0\n')
         self.assertEqual(env['x'].value, 6.0)
         self.assertEqual(context.failure_history, ())

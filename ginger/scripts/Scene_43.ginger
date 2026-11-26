@@ -34,28 +34,28 @@ var x: Float = risky()
 
 resolve x { 
     IntegerOverflow { 
-        print(999) 
+        print[Int](999)
         x = 0 
     } 
 }
 
-//print(x)
-print(1)
+//print[Float](x)
+print[Int](1)
 
 resolve x { 
     DivideByZero { 
-        print(2) 
+        print[Int](2)
         x = 3
     } 
 }
 
-print(x)
+print[Float](x)
 
 resolve x { 
     FloatOverflow { 
-        print(999) 
+        print[Int](999)
         x = 4 
     } 
 }
 
-print(x)
+print[Float](x)

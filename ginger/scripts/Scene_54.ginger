@@ -16,4 +16,4 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-print((-9223372036854775808i64))
+print[Int64]((-9223372036854775808i64))

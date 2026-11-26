@@ -1,0 +1,12 @@
+{
+  "types": [
+    {"name": "Int"},
+    {"name": "Int64"},
+    {"name": "Float"},
+    {"name": "Bool"},
+    {"name": "Ordering"},
+    {"name": "Slope"},
+    {"name": "Unit"},
+    {"name": "Thunk", "special": "thunk"}
+  ]
+}

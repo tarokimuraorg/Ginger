@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-from ginger.ast import is_typevar
-from ginger.type_identity import type_identity_key
+from ginger.ast import TypeRef
+from ginger.type_identity import bind_type, type_identity_key
 from .failure_spec import FailureId, FailureSet, EMPTY_FAILURES, union_failures
 from ginger.errors import TypecheckError
 
@@ -11,7 +11,7 @@ from ginger.errors import TypecheckError
 @dataclass(frozen=True)
 class ConditionalFailure:
     failure_id: FailureId
-    type_var: str
+    type_var: str | TypeRef
     group_name: str
 
 
@@ -36,15 +36,22 @@ def union_contracts(*contracts: FailureContract) -> FailureContract:
     return FailureContract(unconditional, conditional)
 
 
+def contains_variable(typ):
+    return typ.symbolic or any(contains_variable(a) for a in (*typ.args, *typ.sigtype_args))
+
+
 def substitute_contract(contract: FailureContract, bindings, typegroups) -> FailureContract:
     unconditional = set(contract.unconditional)
     conditional = set()
     for clause in contract.conditional:
-        typ = bindings.get(clause.type_var)
+        typ = (bind_type(clause.type_var, bindings) if isinstance(clause.type_var, TypeRef)
+               else bindings.get(clause.type_var))
         if typ is None:
             raise TypecheckError(f"cannot determine type variable '{clause.type_var}' in failure condition")
-        if is_typevar(typ.name):
+        if typ.symbolic:
             conditional.add(ConditionalFailure(clause.failure_id, typ.name, clause.group_name))
+        elif contains_variable(typ):
+            conditional.add(ConditionalFailure(clause.failure_id, typ, clause.group_name))
         elif type_identity_key(typ) in typegroups.get(clause.group_name, set()):
             unconditional.add(clause.failure_id)
     return union_contracts(FailureContract(frozenset(unconditional), frozenset(conditional)))

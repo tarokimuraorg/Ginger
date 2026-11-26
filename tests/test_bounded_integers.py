@@ -60,8 +60,8 @@ class BoundedIntegerTests(unittest.TestCase):
         sources = ['var x: Int = 1i64', 'var x: Float = 1i64', 'var x: Int = 1\nx = 2i64',
                    'var x: Int64 = 1.0', 'var x: Int64 = 1i64\nvar y: Float = x',
                    'var x: Int64 = 9007199254740992i64\nvar y: Float = x',
-                   'var x: Float = toFloat(1i64)', 'var x: Thunk[Int64]<Never> = thunk(1)',
-                   'var x: Int64 = add(1, 2i64)', 'sig f(Int64) -> Unit {}\nfunc f(x: Int) {}',
+                   'var x: Float = toFloat(1i64)', 'sigtype DeferredInt64() -> Int64 { failure { Never } }\nvar x: Thunk[DeferredInt64] = thunk(1)',
+                   'var x: Int64 = add[Int64](1, 2i64)', 'sig f(Int64) -> Unit {}\nfunc f(x: Int) {}',
                    'sig f(Int) -> Int {}\nfunc f(x: Int) { return x }\nvar x: Int = f(1i64)',
                    'sig f() -> Int {}\nfunc f() { return 1i64 }']
         for source in sources:
@@ -69,7 +69,7 @@ class BoundedIntegerTests(unittest.TestCase):
                 checked(source)
 
     def test_functions(self):
-        source = ('sig f(Int64) -> Int64 {}\nfunc f(x: Int64) { print(x)\nreturn x }\n'
+        source = ('sig f(Int64) -> Int64 {}\nfunc f(x: Int64) { print[Int64](x)\nreturn x }\n'
                   'sig g() -> Int64 {}\nfunc g() { return 1 }\n'
                   'var x: Int64 = f(1)\nvar y: Int64 = g()')
         def inspect(block, env, syms, outer):
@@ -78,11 +78,11 @@ class BoundedIntegerTests(unittest.TestCase):
             return eval_block(block, env, syms, outer)
         with patch('ginger.eval.eval_block', side_effect=inspect):
             self.assertEqual(output(checked(source)[0]), '1\n')
-        self.assertEqual(self.values('var t: Thunk[Int64]<Never> = thunk(1i64)\nvar x: Int64 = force(t)')['x'].typ, TypeRef('Int64'))
+        self.assertEqual(self.values('sigtype DeferredInt64() -> Int64 { failure { Never } }\nvar t: Thunk[DeferredInt64] = thunk(1i64)\nvar x: Int64 = force(t)')['x'].typ, TypeRef('Int64'))
 
     def test_capabilities(self):
-        program, _ = checked('var lo: Int64 = (-9223372036854775807i64)\nvar hi: Int64 = neg(lo)\n'
-                             'var n: Int64 = (-1i64)\nvar e: Bool = eq(lo,hi)\nvar l: Bool = lt(lo,hi)\nvar o: Ordering = cmp(lo,hi)')
+        program, _ = checked('var lo: Int64 = (-9223372036854775807i64)\nvar hi: Int64 = neg[Int64](lo)\n'
+                             'var n: Int64 = (-1i64)\nvar e: Bool = eq[Int64](lo,hi)\nvar l: Bool = lt[Int64](lo,hi)\nvar o: Ordering = cmp[Int64](lo,hi)')
         env = eval_program(program).environment
         self.assertEqual(env['lo'].value, INT64_MIN)
         self.assertEqual(env['hi'].value, INT64_MAX)
@@ -91,12 +91,12 @@ class BoundedIntegerTests(unittest.TestCase):
         self.assertFalse(env['e'].value)
         self.assertTrue(env['l'].value)
         self.assertEqual(build_symbols(program).type_guarantees['Int64'], {'Negatable', 'Printable', 'Ord'})
-        for expr in ['add(1i64,2i64)', 'sub(1i64,2i64)', 'mul(1i64,2i64)', 'div(1i64,2i64)']:
+        for expr in ['add[Int64](1i64,2i64)', 'sub[Int64](1i64,2i64)', 'mul[Int64](1i64,2i64)', 'div(1i64,2i64)']:
             with self.subTest(expr=expr), self.assertRaises(TypecheckError):
                 checked(f'var x: Int64 = {expr}')
 
     def test_generic_parameter_keeps_concrete_type(self):
-        source = ('sig identity(T) -> T {}\n'
+        source = ('sig identity[T](T) -> T {}\n'
                   'func identity(x: T) { return x }\n'
-                  'var x: Int64 = identity(1i64)')
+                  'var x: Int64 = identity[Int64](1i64)')
         self.assertEqual(self.values(source)['x'].value, 1)

@@ -19,10 +19,13 @@ class Program:
 TopLevel = Union[
     "FailureSetDecl",
     "GuaranteeDecl",
+    "TypeDecl",
     "TypeGroupDecl",
     "RegisterDecl",
     "ImplDecl",
     "SigDecl",
+    "SigRefDecl",
+    "SigTypeDecl",
     "FuncDecl",
     "VarDecl",
     "AssignStmt",
@@ -91,6 +94,22 @@ class TypeRef:
     failure_specs: Tuple[str | "FailureSetRef", ...] | None = None
     latent_failures: FailureSet | None = None
     latent_conditions: frozenset["ConditionalFailure"] = frozenset()
+    # A contract reference is never a concrete type argument or a type variable.
+    sigtype_name: str | None = None
+
+    sigtype_args: Tuple["TypeRef", ...] = ()
+    declared_variable: bool = field(default=False, compare=False, repr=False)
+
+    @property
+    def symbolic(self):
+        return self.declared_variable
+
+    def __repr__(self):
+        if self.sigtype_name is not None:
+            arguments = f"[{', '.join(map(repr, self.sigtype_args))}]" if self.sigtype_args else ""
+            return f"Thunk[{self.sigtype_name}{arguments}]"
+        return (f"TypeRef(name={self.name!r}, args={self.args!r}, failure_specs={self.failure_specs!r}, "
+                f"latent_failures={self.latent_failures!r}, latent_conditions={self.latent_conditions!r})")
 
 @dataclass(frozen=True)
 class Param:
@@ -125,6 +144,14 @@ class GuaranteeDecl:
     methods: List[FuncSig]  # signatures inside guarantee
 
 @dataclass(frozen=True)
+class TypeDecl:
+    name: str
+    catalog: str | None = None
+    special: str | None = None
+    type_params: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class TypeGroupDecl:
     name: str
     members: List[TypeRef]  # Concrete type members.
@@ -155,12 +182,12 @@ RequireClause = Union["RequireIn", "RequireGuarantees"]
 
 @dataclass(frozen=True)
 class RequireIn:
-    type_var: str     # T
+    type_var: str | TypeRef     # T or an applied requirement subject
     group_name: str   # Number
 
 @dataclass(frozen=True)
 class RequireGuarantees:
-    type_var: str         # T
+    type_var: str | TypeRef
     guarantee_name: str   # Addable
 
 
@@ -169,26 +196,41 @@ class RequireGuarantees:
 @dataclass(frozen=True)
 class ConditionalFailureDecl:
     failure_name: str
-    type_var: str
+    type_var: str | TypeRef
     group_name: str
 
 
 @dataclass(frozen=True)
-class SigDecl:
+class ComputationContract:
     name: str
     params: List[TypeRef]
     ret: TypeRef
     requires: List[RequireClause]
     failures: list[str | ConditionalFailureDecl | FailureSetRef] = field(default_factory=list)
-    attrs: list[str] = field(default_factory=list)
+
+@dataclass(frozen=True)
+class SigTypeDecl(ComputationContract):
+    type_params: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SigDecl(ComputationContract):
     builtin: str | None = None
+    type_params: tuple[str, ...] = ()
+
+@dataclass(frozen=True)
+class SigRefDecl:
+    name: str
+    sigtype_name: str
+    type_params: tuple[str, ...] = ()
+    type_args: tuple[TypeRef, ...] = ()
+
 
 @dataclass(frozen=True)
 class FuncDecl:
     name: str
     params: List[Param]
     body: BlockStmt
-    attrs: list[str] = field(default_factory=list)
 
 
 # ---- code (binding) ----
@@ -263,3 +305,5 @@ class CallExpr:
     callee: str
     args: List[Arg]
     arg_style: str  # "pos" or "named"
+    type_args: tuple[TypeRef, ...] | None = None
+    from_operator: bool = False

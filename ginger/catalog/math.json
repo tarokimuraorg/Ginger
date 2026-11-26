@@ -113,6 +113,7 @@
   "sigs": [
     {
       "name": "add",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
@@ -128,11 +129,11 @@
           "when": { "typevar": "T", "in": "FiniteArithmetic" }
         }
       ],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "sub",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
@@ -148,11 +149,11 @@
           "when": { "typevar": "T", "in": "FiniteArithmetic" }
         }
       ],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "mul",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
@@ -172,7 +173,6 @@
           "when": { "typevar": "T", "in": "FiniteArithmetic" }
         }
       ],
-      "attrs": [],
       "builtin": null
     },
     {
@@ -181,18 +181,17 @@
       "ret": { "ref": "Float" },
       "requires": [],
       "failures": ["DivideByZero", "FloatOverflow", "FloatUnderflow"],
-      "attrs": [],
       "builtin": "core.float.div"
     },
     {
       "name": "neg",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }],
       "ret": { "ref": "T" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Negatable" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     }
   ]

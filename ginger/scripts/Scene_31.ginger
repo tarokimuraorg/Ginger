@@ -18,11 +18,11 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig opposite(T) -> T { require T guarantees Negatable }
+sig opposite[T](T) -> T { require T guarantees Negatable }
 func opposite(x: T) { return -x }
-sig show(T) -> Unit { require T guarantees Printable }
-func show(x: T) { print(x) }
-show(opposite(1))
-show(opposite(1.0))
-show(opposite(1i64))
-show(eq(1,1))
+sig show[T](T) -> Unit { require T guarantees Printable }
+func show(x: T) { print[T](x) }
+show[Int](opposite[Int](1))
+show[Float](opposite[Float](1.0))
+show[Int64](opposite[Int64](1i64))
+show[Bool](eq[Int](1,1))

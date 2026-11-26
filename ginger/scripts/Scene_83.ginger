@@ -15,5 +15,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
+type Box[T]
+
 typegroup G {}
 register G { Box[Self] }

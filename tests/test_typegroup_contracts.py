@@ -24,8 +24,8 @@ class TypeGroupContractTests(unittest.TestCase):
     def test_extension_order_require_and_condition(self):
         declaration = 'typegroup Group { Int }\n'
         registration = 'register Group { Float }\n'
-        function = ('sig keep(T) -> T { require T in Group failure { IOErr when T in Group } }\n'
-                    'func keep(x: T) { return x }\nvar x: Float = keep(1.0)\n')
+        function = ('sig keep[T](T) -> T { require T in Group failure { IOErr when T in Group } }\n'
+                    'func keep(x: T) { return x }\nvar x: Float = keep[Float](1.0)\n')
         for source in [declaration + registration + function,
                        registration + function + declaration,
                        function + declaration + registration]:
@@ -41,28 +41,34 @@ class TypeGroupContractTests(unittest.TestCase):
                        'typegroup Group {}\nregister Group { Int, Int }',
                        'register Group { Int }\ntypegroup Group { Int }',
                        'typegroup Group {}\nregister Group { Int }\nregister Group { Int }',
-                       'typegroup Group { Thunk[Int]<Never>, Thunk[Int]<IOErr> }']:
+                       'sigtype DeferredInt() -> Int { failure { Never } }\nsigtype DeferredIntIOErr() -> Int { failure { IOErr } }\ntypegroup Group { Thunk[DeferredInt], Thunk[DeferredInt] }']:
             with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'duplicate'):
                 self.symbols(source)
         with self.assertRaisesRegex(TypecheckError, 'unknown register target'):
             self.symbols('register Missing { Int }')
 
     def test_shared_namespace_including_catalog(self):
-        for source in ['guarantee Example { witness(self: Self) -> Self }\ntypegroup Example {}',
-                       'typegroup Example {}\nguarantee Example { witness(self: Self) -> Self }',
-                       'guarantee BoundedArithmetic { witness(self: Self) -> Self }', 'typegroup Addable {}',
-                       'typegroup Example {}\ntypegroup Example {}']:
-            with self.subTest(source=source), self.assertRaises(TypecheckError):
+        for source, diagnostic in [
+            ('guarantee Example { witness(self: Self) -> Self }\ntypegroup Example {}',
+             "guarantee/typegroup name conflict 'Example'"),
+            ('typegroup Example {}\nguarantee Example { witness(self: Self) -> Self }',
+             "guarantee/typegroup name conflict 'Example'"),
+            ('guarantee BoundedArithmetic { witness(self: Self) -> Self }',
+             "guarantee/typegroup name conflict 'BoundedArithmetic'"),
+            ('typegroup Addable {}', "guarantee/typegroup name conflict 'Addable'"),
+            ('typegroup Example {}\ntypegroup Example {}', "duplicate typegroup 'Example'"),
+        ]:
+            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, diagnostic):
                 self.symbols(source)
 
     def test_guarantee_is_not_a_failure_group(self):
         with self.assertRaisesRegex(TypecheckError, 'unknown typegroup'):
-            self.symbols('guarantee Marker { witness(self: Self) -> Self }\nsig keep(T) -> T { failure { IOErr when T in Marker } }')
+            self.symbols('guarantee Marker { witness(self: Self) -> Self }\nsig keep[T](T) -> T { failure { IOErr when T in Marker } }')
         with self.assertRaisesRegex(SyntaxError, 'when T in Group'):
-            self.symbols('sig keep(T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }')
+            self.symbols('sig keep[T](T) -> T { failure { IOErr when T guarantees BoundedArithmetic } }')
 
     def test_standard_extension_changes_contract_only_and_is_isolated(self):
-        call = 'var x: Float = add(1.0,2.0)\n'
+        call = 'var x: Float = add[Float](1.0,2.0)\n'
         registration = 'register BoundedArithmetic { Float }\n'
         for source in [registration + call, call + registration]:
             program, _ = checked(source)
@@ -74,11 +80,11 @@ class TypeGroupContractTests(unittest.TestCase):
             self.assertFalse(result.failure_history)
         self.assertEqual(self.symbols('').typegroups['BoundedArithmetic'], {'Int'})
         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
-            checked('register BoundedArithmetic { Int64 }\nvar x: Int64 = add(1i64,2i64)')
+            checked('register BoundedArithmetic { Int64 }\nvar x: Int64 = add[Int64](1i64,2i64)')
 
     def test_extension_does_not_change_actual_float_failure(self):
         program, _ = checked('register BoundedArithmetic { Float }\n'
-                             'var x: Float = mul(1.0e308,2.0)')
+                             'var x: Float = mul[Float](1.0e308,2.0)')
         result = eval_program(program)
         self.assertEqual([event.failure_id for event in result.failure_history],
                          [FailureId.FloatOverflow])
@@ -90,7 +96,7 @@ class TypeGroupContractTests(unittest.TestCase):
 
     def test_symbolic_substitution_uses_typegroup(self):
         contract = FailureContract(conditional=frozenset({ConditionalFailure(FailureId.IOErr, 'T', 'Group')}))
-        symbolic = substitute_contract(contract, {'T': TypeRef('U')}, {'Group': {'Int'}})
+        symbolic = substitute_contract(contract, {'T': TypeRef('U', declared_variable=True)}, {'Group': {'Int'}})
         self.assertEqual(next(iter(symbolic.conditional)).type_var, 'U')
         for typ, expected in [('Int', {FailureId.IOErr}), ('Float', set())]:
             self.assertEqual(substitute_contract(symbolic, {'U': TypeRef(typ)}, {'Group': {'Int'}}).concrete_failures(), expected)

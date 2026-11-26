@@ -29,7 +29,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig wide(Int64) -> Int64 {}
-func wide(x: Int64) { print(x) return x }
+func wide(x: Int64) { print[Int64](x) return x }
 sig real() -> Float {}
 func real() { return 1 }
 var i: Int = 1
@@ -37,14 +37,14 @@ var w: Int64 = i
 var f: Float = i
 w = 2
 f = i
-print(i)
-print(w)
-print(f)
-print(wide(i))
-print(real())
-print(toFloat(9007199254740991))
-print(toFloat(-9007199254740991))
-print(toFloat((-9007199254740991)))
+print[Int](i)
+print[Int64](w)
+print[Float](f)
+print[Int64](wide(i))
+print[Float](real())
+print[Float](toFloat(9007199254740991))
+print[Float](toFloat(-9007199254740991))
+print[Float](toFloat((-9007199254740991)))
 
 sig f(Float) -> Float {
     failure { DivideByZero }
@@ -57,39 +57,39 @@ func f(x: Float) {
 
 var a: Float = 1.0
 var b: Float = -1.0
-print(1-f(a))
-print(1-f(-a))
+print[Float](1-f(a))
+print[Float](1-f(-a))
 
-print(-(a+b))
+print[Float](-(a+b))
 
-//print(--a)
-//print(- -a)
-print(-(-a))
+//print[Int](--a)
+//print[Int](- -a)
+print[Float](-(-a))
 
-//print(a + -b)
-print(a + (-b))
+//print[Float](a + -b)
+print[Float](a + (-b))
 
-//print(a - -b)
-print(a - (-b))
+//print[Float](a - -b)
+print[Float](a - (-b))
 
-//print(a * -b)
-print(a * (-b))
+//print[Float](a * -b)
+print[Float](a * (-b))
 
-//print(a / -b)
-print(a / (-b))
+//print[Float](a / -b)
+print[Float](a / (-b))
 
-print(cmp(0.0,-0.0))
-print(balance(-0.0,0.0))
-print(slope(0.0,-0.0))
-print(eq(0.0,-0.0))
-print(gt(-0.0,0.0))
-print(gt(0.0,-0.0))
-print(lt(-0.0,0.0))
-print(lt(0.0,-0.0))
+print[Ordering](cmp[Float](0.0,-0.0))
+print[Ordering](balance[Float](-0.0,0.0))
+print[Slope](slope[Float](0.0,-0.0))
+print[Bool](eq[Float](0.0,-0.0))
+print[Bool](gt[Float](-0.0,0.0))
+print[Bool](gt[Float](0.0,-0.0))
+print[Bool](lt[Float](-0.0,0.0))
+print[Bool](lt[Float](0.0,-0.0))
 
-print(1e-3)
-print(-1e-3)
-//print(1e)
-//print(1e + (-3))
-//print(1e - 3)
-//print(1e * (-3))
+print[Float](1e-3)
+print[Float](-1e-3)
+//print[Float](1e)
+//print[Float](1e + (-3))
+//print[Float](1e - 3)
+//print[Float](1e * (-3))

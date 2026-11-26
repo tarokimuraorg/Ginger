@@ -16,8 +16,12 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
+sigtype DeferredInt() -> Int { failure { Never } }
+sigtype DeferredFloat() -> Float { failure { Never } }
+
 typegroup Mark {}
-register Mark { Thunk[Int]<Never> }
-sig keep(T) -> T { require T in Mark }
+register Mark { Thunk[DeferredInt] }
+sig keep[T](T) -> T { require T in Mark }
 func keep(x: T) { return x }
-var bad: Thunk[Float]<Never> = keep(thunk(1.0))
+var value: Thunk[DeferredFloat] = thunk(1.0)
+var bad: Thunk[DeferredFloat] = keep[Thunk[DeferredFloat]](value)

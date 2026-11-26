@@ -10,7 +10,7 @@ from ginger.pipeline import compile, run
 
 class FailureBlockTests(unittest.TestCase):
     def signature(self, declarations):
-        return 'sig f(T) -> T { ' + declarations + ' }'
+        return 'sig f[T](T) -> T { ' + declarations + ' }'
 
     def test_forms_reuse_flat_ast(self):
         for contents, expected in [
@@ -76,12 +76,12 @@ class FailureBlockTests(unittest.TestCase):
         ]:
             with self.subTest(entry=entry), self.assertRaisesRegex(TypecheckError, message):
                 compile(self.signature('failure { ' + entry + ' }'))
-        with self.assertRaisesRegex(TypecheckError, 'not inferable'):
+        with self.assertRaisesRegex(TypecheckError, 'unknown type variable'):
             compile('sig f() -> T { require T guarantees Addable '
                     'failure { IOErr when T in BoundedArithmetic } }')
 
     def test_representative_addition_value_and_specialized_warnings(self):
-        source = '''sig addBoth(T, T) -> T {
+        source = '''sig addBoth[T](T, T) -> T {
     require T guarantees Addable
     failure {
         IntegerOverflow when T in BoundedArithmetic,
@@ -97,7 +97,8 @@ func addBoth(a: T, b: T) { return a + b }
         ]:
             stdout, stderr = io.StringIO(), io.StringIO()
             with self.subTest(args=args), redirect_stdout(stdout), redirect_stderr(stderr):
-                result = run(source + 'print(addBoth(' + args + '))')
+                typ = 'Float' if '.' in args else 'Int'
+                result = run(source + f'print[{typ}](addBoth[{typ}]({args}))')
             self.assertEqual(stdout.getvalue(), value)
             self.assertEqual(stderr.getvalue(),
                              'warning[UNHANDLED_FAILURES]: unhandled failures: ' + warning + '\n')

@@ -21,8 +21,8 @@ class GuaranteeMethodArityTests(unittest.TestCase):
             declaration = (
                 f'guarantee G {{ op({params}) -> Self }}\n'
                 'impl Int guarantees G { op = builtin test.op }\n'
-                f'sig op({sig_params}) -> T {{ require T guarantees G }}\n')
-            for call in ['', f'var x: Int = op({args})']:
+                f'sig op[T]({sig_params}) -> T {{ require T guarantees G }}\n')
+            for call in ['', f'var x: Int = op[Int]({args})']:
                 source = declaration + call
                 builtin = Mock(side_effect=implementation)
                 with self.subTest(source=source), patch.dict(BUILTINS, {'test.op': builtin}):
@@ -41,11 +41,11 @@ class GuaranteeMethodArityTests(unittest.TestCase):
         source = (
             'guarantee G { op(self: Self, other: Self) -> Self }\n'
             'impl Int guarantees G { op = builtin test.op }\n'
-            'sig op(T,T) -> T { require T guarantees G }\n'
-            'sig relay(U,U) -> U { require U guarantees G }\n'
-            'func relay(a: U,b: U) { return op(a,b) }\n'
-            'var concrete: Int = op(1,2)\n'
-            'var deferred: Int = relay(3,4)')
+            'sig op[T](T,T) -> T { require T guarantees G }\n'
+            'sig relay[U](U,U) -> U { require U guarantees G }\n'
+            'func relay(a: U,b: U) { return op[U](a,b) }\n'
+            'var concrete: Int = op[Int](1,2)\n'
+            'var deferred: Int = relay[Int](3,4)')
         builtin = Mock(side_effect=lambda a, b: a + b)
         with patch.dict(BUILTINS, {'test.op': builtin}):
             program = compile(source)
@@ -66,9 +66,9 @@ class GuaranteeMethodArityTests(unittest.TestCase):
         source = (
             'guarantee G { op(self: Self, other: Self) -> Self }\n'
             'impl Int guarantees G { op = builtin test.op }\n'
-            'sig op(T) -> T { require T guarantees G }\n'
+            'sig op[T](T) -> T { require T guarantees G }\n'
             'func op(x: T) { return x }\n'
-            'var x: Int = op(1)')
+            'var x: Int = op[Int](1)')
         builtin = Mock(side_effect=lambda a, b: a + b)
         with patch.dict(BUILTINS, {'test.op': builtin}):
             self.assertEqual(run(source).environment['x'].value, 1)
@@ -80,11 +80,11 @@ class GuaranteeMethodArityTests(unittest.TestCase):
             'guarantee H { witness(self: Self) -> Self }\n'
             'impl Int guarantees G { op = builtin test.op }\n'
             'impl Int guarantees H { witness = builtin core.int.neg }\n'
-            'sig op(T) -> T { require T guarantees G require T guarantees H }\n')
+            'sig op[T](T) -> T { require T guarantees G require T guarantees H }\n')
         with patch.dict(BUILTINS, {'test.op': lambda a, b: a + b}):
             compile(source)
             with self.assertRaisesRegex(TypecheckError, "no implementation for function 'op'"):
-                compile(source + 'var x: Int = op(1)')
+                compile(source + 'var x: Int = op[Int](1)')
 
 
 if __name__ == '__main__':

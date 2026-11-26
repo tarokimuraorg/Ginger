@@ -28,7 +28,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def assert_rejected(self, kind, typ, name, contextual=False):
-        source = declaration(kind, typ)
+        source = 'sigtype Deferred() -> Int {}\ntype Box[T]\ntype Pair[T, U]\ntype MissingType\ntype Never\n' + declaration(kind, typ)
         program = lower_program(parse(source))
         position = 'typegroup member' if kind == 'typegroup' else f'{kind} target'
         category = 'contextual placeholder' if contextual else 'symbolic type variable'
@@ -40,7 +40,7 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
     def test_symbolic_targets_rejected_at_declaration_time(self):
         for kind in ['impl', 'register', 'typegroup']:
             for typ, name in [('T', 'T'), ('Box[T]', 'T'), ('Box[Box[T]]', 'T'),
-                              ('Pair[Int,U]', 'U'), ('T[U]', 'T'), ('Thunk[T]<Never>', 'T')]:
+                              ('Pair[Int,U]', 'U'), ('T[U]', 'T')]:
                 with self.subTest(kind=kind, typ=typ):
                     self.assert_rejected(kind, typ, name)
 
@@ -58,13 +58,13 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
     def test_concrete_and_open_world_targets_remain_valid(self):
         for kind in ['impl', 'register', 'typegroup']:
             for typ in ['Int', 'Box[Int]', 'Box[Float]', 'MissingType', 'Box[MissingType]',
-                        'Box[Box[Int]]', 'Pair[Int,Float]', 'Thunk[Int]<Never>', 'Never']:
+                        'Box[Box[Int]]', 'Pair[Int,Float]', 'Thunk[Deferred]', 'Never']:
                 with self.subTest(kind=kind, typ=typ):
-                    source = declaration(kind, typ)
+                    source = 'sigtype Deferred() -> Int {}\ntype Box[T]\ntype Pair[T, U]\ntype MissingType\ntype Never\n' + declaration(kind, typ)
                     syms = build_symbols(lower_program(parse(source)))
                     compile(source)
                     target = parse(f'register Marker {{ {typ} }}').items[0].typ
-                    key = type_identity_key(normalize_types(target, {}))
+                    key = type_identity_key(target)
                     if kind == 'impl':
                         self.assertEqual(syms.impls[(key, 'G', 'op')], 'test.op')
                     elif kind == 'register':
@@ -76,10 +76,10 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
         for source, position in [
             ('register MissingGuarantee { Box[T] }', 'register target'),
             ('impl Box[T] guarantees MissingGuarantee {}', 'impl target'),
-            ('typegroup Group { Int }\ntypegroup Group { Box[T] }', 'typegroup member'),
+            ('typegroup Group { Int }\ntypegroup Group { Box[T] }', 'duplicate typegroup'),
         ]:
             with self.subTest(position=position), self.assertRaisesRegex(TypecheckError, position):
-                compile(source)
+                compile('type Box[T]\n' + source)
 
     def test_generic_sig_inference_and_return_substitution_remain_valid(self):
         for parameter, argument, bindings in [
@@ -87,17 +87,19 @@ class ConcreteIdentityPositionTests(unittest.TestCase):
             ('Box[T]', 'Box[Int]', {'T': TypeRef('Int')}),
             ('Box[Box[T]]', 'Box[Box[Int]]', {'T': TypeRef('Int')}),
             ('Pair[T,U]', 'Pair[Int,Float]', {'T': TypeRef('Int'), 'U': TypeRef('Float')}),
-            ('Thunk[T]<Never>', 'Thunk[Int]<Never>', {'T': TypeRef('Int')}),
         ]:
             with self.subTest(parameter=parameter):
-                source = (f'sig extract({parameter}) -> T {{ builtin test.op }}\n'
+                # Expose the second legacy signature variable as a standalone parameter.
+                extra = ', U' if 'U' in bindings else ''
+                actual = ', 1.0' if extra else ''
+                source = (f'sig extract[{','.join(bindings)}]({parameter}{extra}) -> T {{ builtin test.op }}\n'
                           f'sig make() -> {argument} {{ builtin test.make }}\n'
-                          'var result: Int = extract(make())')
+                          f'var result: Int = extract[{','.join(t.name for t in bindings.values())}](make(){actual})')
                 program, syms, _ = annotated(source)
                 call = syms.resolved_calls[id(program.items[-1].expr)]
                 self.assertEqual(call.type_bindings, bindings)
                 self.assertEqual(call.return_type, TypeRef('Int'))
-                compile(source)
+                compile('type Box[T]\ntype Pair[T, U]\n' + source)
 
     def test_identity_encoder_still_accepts_symbolic_types(self):
         self.assertEqual(type_identity_key(TypeRef('Box', (TypeRef('T'),))), ('Box', ('T',)))

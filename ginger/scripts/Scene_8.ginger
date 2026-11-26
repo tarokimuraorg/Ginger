@@ -17,10 +17,10 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var x: Float = 1
-print(x)
+print[Float](x)
 
 x = div(x,2)
-print(x)
+print[Float](x)
 
 //let y: Int = 1.5
-//print(y)
+//print[Int](y)

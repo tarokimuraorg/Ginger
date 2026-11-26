@@ -20,5 +20,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-var x: Float = add(1.0,2.0)
+var x: Float = add[Float](1.0,2.0)
 resolve x { IntegerOverflow { x = 0 } }

@@ -20,7 +20,7 @@ OVERFLOW = INT_OVERFLOW | FLOAT_OVERFLOW
 
 
 def addition(body, *, requires='require T guarantees Addable', contract='failure { IntegerOverflow, FloatOverflow }'):
-    return (f'sig addTwo(T,T) -> T {{ {requires} {contract} }}\n'
+    return (f'sig addTwo[T](T,T) -> T {{ {requires} {contract} }}\n'
             f'func addTwo(a: T,b: T) {{ return {body} }}\n')
 
 
@@ -35,7 +35,7 @@ class GenericGuaranteeTests(unittest.TestCase):
         return program, syms, bindings, diags
 
     def test_pipeline_run_uses_body_proofs_and_instantiates_contracts(self):
-            for body in ['add(a,b)', '(a + b)']:
+            for body in ['add[T](a,b)', '(a + b)']:
                 for conditional in [False, True]:
                     contract = 'failure { IntegerOverflow }'
                     if conditional:
@@ -46,7 +46,7 @@ class GenericGuaranteeTests(unittest.TestCase):
                     for typ, args, expected in [('Int', '1,2', '3\n'),
                                                 ('Float', '1.0,2.0', '3.0\n'),
                                                 ('Int64', '1i64,2i64', None)]:
-                        source = addition(body, contract=contract) + f'print(addTwo({args}))'
+                        source = addition(body, contract=contract) + f'print[{typ}](addTwo[{typ}]({args}))'
                         stdout, stderr = io.StringIO(), io.StringIO()
                         with self.subTest(body=body, conditional=conditional, typ=typ):
                             with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -65,15 +65,15 @@ class GenericGuaranteeTests(unittest.TestCase):
                             self.assertEqual(stderr.getvalue(), warning)
                     with self.subTest(body=body, conditional=conditional, requires=False):
                         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
-                            run(addition(body, requires='', contract=contract) + 'print(addTwo(1,2))')
+                            run(addition(body, requires='', contract=contract) + 'print[Int](addTwo[Int](1,2))')
 
     def test_explicit_and_infix_add_int_and_float(self):
-            for body in ['add(a,b)', '(a + b)']:
+            for body in ['add[T](a,b)', '(a + b)']:
                 for typ, args, expected in [('Int', '1,2', '3\n'),
                                             ('Float', '1.0,2.0', '3.0\n')]:
                     with self.subTest(body=body, typ=typ):
                         program, syms, bindings, _ = self.annotated(
-                            addition(body) + f'var x: {typ} = addTwo({args})\nprint(x)')
+                            addition(body) + f'var x: {typ} = addTwo[{typ}]({args})\nprint[{typ}](x)')
                         call = program.items[-2].expr
                         self.assertEqual(syms.resolved_calls[id(call)].type_bindings,
                                          {'T': TypeRef(typ)})
@@ -82,33 +82,33 @@ class GenericGuaranteeTests(unittest.TestCase):
                         self.assertEqual(output(program), expected)
     
     def test_int64_call_site_rejected(self):
-        for body in ['add(a,b)', '(a + b)']:
+        for body in ['add[T](a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'Int64.*does not guarantee Addable'):
-                checked(addition(body) + 'print(addTwo(1i64,2i64))')
+                checked(addition(body) + 'print[Float](addTwo[Int64](1i64,2i64))')
 
     def test_missing_addable_rejected_without_calls(self):
-        for body in ['add(a,b)', '(a + b)']:
+        for body in ['add[T](a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'does not guarantee Addable'):
                 checked(addition(body, requires=''))
 
     def test_typegroup_is_not_a_capability_proof(self):
-        for body in ['add(a,b)', '(a + b)']:
+        for body in ['add[T](a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'does not guarantee Addable'):
                 checked('typegroup Numeric { Int, Float }\n' +
                         addition(body, requires='require T in Numeric'))
 
     def test_symbolic_add_failure_upper_bound(self):
-        for body in ['add(a,b)', '(a + b)']:
+        for body in ['add[T](a,b)', '(a + b)']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'undeclared failures: .*IntegerOverflow'):
                 checked(addition(body, contract='failure { Never }'))
 
     def test_explicit_and_lowered_infix_share_symbolic_resolution(self):
         resolutions = []
-        for body in ['add(a,b)', '(a + b)']:
+        for body in ['add[T](a,b)', '(a + b)']:
             program, syms, _, _ = self.annotated(addition(body))
             call = syms.funcs['addTwo'].body.stmts[0].expr
             self.assertIsInstance(call, CallExpr)
@@ -129,28 +129,28 @@ class GenericGuaranteeTests(unittest.TestCase):
         unrelated = {'core.int.neg': failures(FailureId.IOErr),
                         'core.int.sub': failures(FailureId.PrintErr)}
         with patch.dict(INT_ARITHMETIC_FAILURES, unrelated):
-            program, syms, _, _ = self.annotated(addition('add(a,b)'))
+            program, syms, _, _ = self.annotated(addition('add[T](a,b)'))
         call = syms.funcs['addTwo'].body.stmts[0].expr
         env = {'a': Binding(TypeRef('T'), False), 'b': Binding(TypeRef('T'), False)}
         self.assertEqual(effect_expr(call, env, syms), OVERFLOW)
 
     def test_extra_unconditional_failure_remains_public_for_float(self):
-        for body in ['add(a,b)', '(a + b)']:
+        for body in ['add[T](a,b)', '(a + b)']:
             program, syms, bindings, diags = self.annotated(
-                addition(body) + 'var x: Float = addTwo(1.0,2.0)')
+                addition(body) + 'var x: Float = addTwo[Float](1.0,2.0)')
             self.assertEqual(effect_expr(program.items[-1].expr, bindings, syms), OVERFLOW)
             self.assertEqual(bindings['x'].latest_write_failures, OVERFLOW)
             self.assertEqual([d.message for d in diags], ['unhandled failures: FloatOverflow, IntegerOverflow'])
 
     def test_negatable_capability_and_unary_sugar(self):
-        for body in ['neg(x)', '(-x)', '-x']:
-            source = ('sig opposite(T) -> T { require T guarantees Negatable }\n'
+        for body in ['neg[T](x)', '(-x)', '-x']:
+            source = ('sig opposite[T](T) -> T { require T guarantees Negatable }\n'
                         f'func opposite(x: T) {{ return {body} }}\n')
             for typ, arg, expected in [('Int', '1', '-1\n'),
                                         ('Float', '1.0', '-1.0\n'),
                                         ('Int64', '1i64', '-1\n')]:
                 with self.subTest(body=body, typ=typ):
-                    program, syms, bindings, diags = self.annotated(source + f'print(opposite({arg}))')
+                    program, syms, bindings, diags = self.annotated(source + f'print[{typ}](opposite[{typ}]({arg}))')
                     symbolic = syms.funcs['opposite'].body.stmts[0].expr
                     resolved = syms.resolved_calls[id(symbolic)]
                     self.assertEqual(resolved.deferred_guarantee, 'Negatable')
@@ -161,16 +161,16 @@ class GenericGuaranteeTests(unittest.TestCase):
                     self.assertEqual(output(program), expected)
 
     def test_missing_negatable_rejects_explicit_and_lowered_unary(self):
-        for body in ['neg(x)', '(-x)', '-x']:
+        for body in ['neg[T](x)', '(-x)', '-x']:
             with self.subTest(body=body), self.assertRaisesRegex(
                     TypecheckError, 'does not guarantee Negatable'):
-                checked('sig opposite(T) -> T {}\n'
+                checked('sig opposite[T](T) -> T {}\n'
                         f'func opposite(x: T) {{ return {body} }}')
 
     def test_printable_capability_in_generic_unit_body(self):
-        source = ('sig show(T) -> Unit { require T guarantees Printable }\n'
-                    'func show(x: T) { print(x) }\n'
-                    'show(1)\nshow(2.0)\nshow(3i64)\nshow(eq(1,1))')
+        source = ('sig show[T](T) -> Unit { require T guarantees Printable }\n'
+                    'func show(x: T) { print[T](x) }\n'
+                    'show[Int](1)\nshow[Float](2.0)\nshow[Int64](3i64)\nshow[Bool](eq[Int](1,1))')
         program, syms, _, diags = self.annotated(source)
         call = syms.funcs['show'].body.stmts[0].expr
         self.assertEqual(syms.resolved_calls[id(call)].deferred_guarantee, 'Printable')
@@ -182,9 +182,9 @@ class GenericGuaranteeTests(unittest.TestCase):
 
     def test_nested_generic_substitution_and_frame_bindings(self):
         source = (addition('(a + b)') +
-                    'sig relay(U,U) -> U { require U guarantees Addable failure { IntegerOverflow, FloatOverflow } }\n'
-                    'func relay(a: U,b: U) { return addTwo(a,b) }\n'
-                    'print(relay(1,2))\nprint(relay(1.0,2.0))')
+                    'sig relay[U](U,U) -> U { require U guarantees Addable failure { IntegerOverflow, FloatOverflow } }\n'
+                    'func relay(a: U,b: U) { return addTwo[U](a,b) }\n'
+                    'print[Int](relay[Int](1,2))\nprint[Float](relay[Float](1.0,2.0))')
         program, syms, _, _ = self.annotated(source)
         nested = syms.funcs['relay'].body.stmts[0].expr
         self.assertEqual(syms.resolved_calls[id(nested)].type_bindings, {'T': TypeRef('U')})
@@ -208,24 +208,28 @@ class GenericGuaranteeTests(unittest.TestCase):
 
     def test_nested_caller_needs_its_own_capability(self):
         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
-            checked(addition('add(a,b)') +
-                    'sig relay(U,U) -> U { failure { IntegerOverflow, FloatOverflow } }\n'
-                    'func relay(a: U,b: U) { return addTwo(a,b) }')
+            checked(addition('add[T](a,b)') +
+                    'sig relay[U](U,U) -> U { failure { IntegerOverflow, FloatOverflow } }\n'
+                    'func relay(a: U,b: U) { return addTwo[U](a,b) }')
 
     def test_thunk_captures_generic_dispatch_binding(self):
-        source = ('sig delayed(T,T) -> Thunk[T]<IntegerOverflow, FloatOverflow> { require T guarantees Addable }\n'
-                    'func delayed(a: T,b: T) { return thunk((a + b)) }\n'
-                    'print(force(delayed(1,2)))\nprint(force(delayed(1.0,2.0)))')
-        self.assertEqual(output(checked(source)[0]), '3\n3.0\n')
+        source = ('sigtype DeferredComparison() -> Bool {}\n'
+                  'sig delayed[T](T,T) -> Thunk[DeferredComparison] { require T guarantees Ord }\n'
+                  'func delayed(a: T,b: T) { return thunk(eq[T](a,b)) }\n'
+                  'var first: Bool = force(delayed[Int](1,1))\n'
+                  'var second: Bool = force(delayed[Float](1.0,2.0))')
+        result = eval_program(checked(source)[0])
+        self.assertIs(result.environment['first'].value, True)
+        self.assertIs(result.environment['second'].value, False)
 
     def test_runtime_uses_ginger_binding_for_equal_python_value_types(self):
         source = ('guarantee Tagged { tag(self: Self) -> Self }\n'
                     'impl Int guarantees Tagged { tag = builtin test.int.tag }\n'
                     'impl Int64 guarantees Tagged { tag = builtin test.int64.tag }\n'
-                    'sig tag(T) -> T { require T guarantees Tagged }\n'
-                    'sig label(U) -> U { require U guarantees Tagged }\n'
-                    'func label(x: U) { return tag(x) }\n'
-                    'var a: Int = label(1)\nvar b: Int64 = label(1i64)')
+                    'sig tag[T](T) -> T { require T guarantees Tagged }\n'
+                    'sig label[U](U) -> U { require U guarantees Tagged }\n'
+                    'func label(x: U) { return tag[U](x) }\n'
+                    'var a: Int = label[Int](1)\nvar b: Int64 = label[Int64](1i64)')
         seen = []
         def integer(value):
             seen.append(('Int', type(value)))
@@ -242,8 +246,8 @@ class GenericGuaranteeTests(unittest.TestCase):
                             [{'U': TypeRef('Int')}, {'U': TypeRef('Int64')}])
 
     def test_generic_body_is_not_rechecked_for_each_invocation(self):
-        program, _ = checked(addition('add(a,b)') +
-                                'print(addTwo(1,2))\nprint(addTwo(2,3))\nprint(addTwo(1.0,2.0))')
+        program, _ = checked(addition('add[T](a,b)') +
+                                'print[Int](addTwo[Int](1,2))\nprint[Int](addTwo[Int](2,3))\nprint[Float](addTwo[Float](1.0,2.0))')
         with patch('ginger.eval.typecheck_program', wraps=typecheck_program) as checker:
             self.assertEqual(output(program), '3\n5\n3.0\n')
         self.assertEqual(checker.call_count, 1)

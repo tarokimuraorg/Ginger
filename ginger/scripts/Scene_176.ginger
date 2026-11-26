@@ -2,11 +2,11 @@
 sig f(Int) -> Int { failure { IntegerOverflow } }
 func f(x: Int) {
     var y: Int = 123
-    y = add(x, 1)
-    y = add(x, 2)
+    y = add[Int](x, 1)
+    y = add[Int](x, 2)
     resolve y {
         IntegerOverflow { y = 888 }
     }
     return y
 }
-print(f(9007199254740991))
+print[Int](f(9007199254740991))

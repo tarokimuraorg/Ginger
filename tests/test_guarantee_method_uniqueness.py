@@ -68,7 +68,7 @@ class GuaranteeMethodUniquenessTests(unittest.TestCase):
 
     def test_duplicate_before_sig_contract_errors(self):
         definition = f'guarantee Example {{ {FIRST} {FIRST} }}\n'
-        signature = 'sig first(T,T) -> Float { require T guarantees Example }\n'
+        signature = 'sig first[T](T,T) -> Float { require T guarantees Example }\n'
         for source in [definition + signature, signature + definition]:
             with self.subTest(source=source):
                 self.assert_duplicate(lambda: compile(source))

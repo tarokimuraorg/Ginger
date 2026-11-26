@@ -1,7 +1,7 @@
 import unittest
 import test_resolve
 from test_failure_contract import checked
-from ginger.errors import EvalError, TypecheckError
+from ginger.errors import TypecheckError
 from ginger.runtime.failures import FailureStatus
 
 
@@ -17,7 +17,7 @@ class LocalResolveTests(unittest.TestCase):
         source = self.program('var y: Int = x + 1\n'
             'resolve y { IntegerOverflow { y = 888 } }\nreturn y')
         result, stdout = self.public_result(source +
-            'print(f(1))\nprint(f(9007199254740991))\nprint(f(1))')
+            'print[Int](f(1))\nprint[Int](f(9007199254740991))\nprint[Int](f(1))')
         self.assertEqual(stdout, '2\n888\n2\n')
         self.assertFalse(result.unresolved_events)
         self.assertIsNone(result.contract_violation)
@@ -26,14 +26,14 @@ class LocalResolveTests(unittest.TestCase):
     def test_reassignment_recovers_without_reading_old_value(self):
         result, stdout = self.public_result(self.program('var y: Int = 123\ny = x + 1\n'
             'resolve y { IntegerOverflow { y = 888 } }\nreturn y') +
-            'print(f(9007199254740991))')
+            'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '888\n')
         self.assertFalse(result.unresolved_events)
 
     def test_no_target_write_rejected_for_never(self):
         with self.assertRaisesRegex(TypecheckError, 'may propagate undeclared failures: IntegerOverflow'):
             checked(self.program('var y: Int = x + 1\n'
-                'resolve y { IntegerOverflow { print(999) } }\nreturn y'))
+                'resolve y { IntegerOverflow { print[Int](999) } }\nreturn y'))
 
     def test_failed_handler_requires_original_and_new_failure(self):
         prefix = 'sig risky() -> Int { failure { IOErr } builtin test.risky }\n'
@@ -50,7 +50,7 @@ class LocalResolveTests(unittest.TestCase):
         from ginger.core.failure_spec import FailureId
         with patch.dict(BUILTINS, {'test.risky': Mock(side_effect=RaisedFailure(FailureId.IOErr))}):
             result, stdout = self.public_result(prefix + self.program(body.replace('return y', 'return 4'), 'IOErr, IntegerOverflow') +
-                                               'print(f(9007199254740991))')
+                                               'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '4\n')
         self.assertEqual(len(result.unresolved_events), 2)
         self.assertEqual(result.failure_history[1].caused_by, result.failure_history[0].event_id)
@@ -67,15 +67,15 @@ class LocalResolveTests(unittest.TestCase):
         with self.assertRaisesRegex(TypecheckError, 'IntegerOverflow'):
             checked(self.program(body))
         result, stdout = self.public_result(self.program(body, 'IntegerOverflow') +
-                                           'print(f(9007199254740991))')
+                                           'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '888\n')
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])
 
     def test_later_success_no_op_and_history(self):
-        result, stdout = self.public_result(self.program('var y: Int = x + 1\ny = add(1,2)\n'
+        result, stdout = self.public_result(self.program('var y: Int = x + 1\ny = add[Int](1,2)\n'
             'resolve y { IntegerOverflow { y = 888 } }\nreturn y', 'IntegerOverflow') +
-            'print(f(9007199254740991))')
+            'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '3\n')
         self.assertEqual(len(result.unresolved_events), 1)
 
@@ -84,20 +84,16 @@ class LocalResolveTests(unittest.TestCase):
                   'func calculate(x: Int) { return x + 1 }\n')
         for expr in ('calculate(x * x)', 'calculate(x)'):
             source = prefix + self.program(f'var y: Int = {expr}\n'
-                'resolve y { IntegerOverflow { y = 888 } }\nreturn y') + 'print(f(9007199254740991))'
-            if expr == 'calculate(x * x)':
-                with self.assertRaisesRegex(EvalError, "uninitialized binding 'x'"):
-                    self.public_result(source)
-                continue
+                'resolve y { IntegerOverflow { y = 888 } }\nreturn y') + 'print[Int](f(9007199254740991))'
             result, stdout = self.public_result(source)
             self.assertEqual(stdout, '888\n')
             self.assertEqual(len(result.failure_history), 1)
             self.assertFalse(result.unresolved_events)
 
     def test_unrelated_binding_and_statement(self):
-        result, stdout = self.public_result(self.program('var y: Int = x + 1\nprint(123)\n'
+        result, stdout = self.public_result(self.program('var y: Int = x + 1\nprint[Int](123)\n'
             'var z: Int = x + 2\nresolve y { IntegerOverflow { y = 888 } }\nreturn y',
-            'IntegerOverflow') + 'print(f(9007199254740991))')
+            'IntegerOverflow') + 'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '123\n888\n')
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
@@ -105,26 +101,27 @@ class LocalResolveTests(unittest.TestCase):
     def test_nested_call_same_binding_name(self):
         inner = self.program('var y: Int = x + 1\nresolve y { IntegerOverflow { y = 888 } }\nreturn y')
         outer = ('sig g(Int) -> Int { failure { Never } }\nfunc g(x: Int) {\n'
-                 'var y: Int = x + 2\nprint(f(x))\n'
+                 'var y: Int = x + 2\nprint[Int](f(x))\n'
                  'resolve y { IntegerOverflow { y = 777 } }\nreturn y }\n')
-        result, stdout = self.public_result(inner + outer + 'print(g(9007199254740991))')
+        result, stdout = self.public_result(inner + outer + 'print[Int](g(9007199254740991))')
         self.assertEqual(stdout, '888\n777\n')
         self.assertFalse(result.unresolved_events)
 
     def test_thunk_creation_and_force_result(self):
-        prefix = 'var t: Thunk[Int]<IntegerOverflow> = thunk(x + 1)\n'
+        declaration = 'sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\n'
+        prefix = 'var t: Thunk[CheckedInt] = thunk(x + 1)\n'
         with self.assertRaisesRegex(TypecheckError, 'latest write'):
-            checked(self.program(prefix + 'resolve t { IntegerOverflow { print(1) } }\nreturn 1'))
-        result, stdout = self.public_result(self.program(prefix + 'var y: Int = force(t)\n'
-            'resolve y { IntegerOverflow { y = 888 } }\nreturn y') + 'print(f(9007199254740991))')
+            checked(declaration + self.program(prefix + 'resolve t { IntegerOverflow { print[Int](1) } }\nreturn 1'))
+        result, stdout = self.public_result(declaration + self.program(prefix + 'var y: Int = force(t)\n'
+            'resolve y { IntegerOverflow { y = 888 } }\nreturn y') + 'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '888\n')
         self.assertFalse(result.unresolved_events)
 
     def test_invalid_targets_and_global_access(self):
         for prelude, target in [('', 'unknown'), ('', 'x'), ('let y: Int = x + 1\n', 'y'), ('', 'global')]:
             with self.subTest(target=target), self.assertRaises(TypecheckError):
-                checked('var global: Int = add(1,2)\n' + self.program(prelude +
-                    f'resolve {target} {{ IntegerOverflow {{ print(1) }} }}\nreturn 1'))
+                checked('var global: Int = add[Int](1,2)\n' + self.program(prelude +
+                    f'resolve {target} {{ IntegerOverflow {{ print[Int](1) }} }}\nreturn 1'))
 
     def test_handler_return_remains_rejected(self):
         with self.assertRaisesRegex(SyntaxError, 'return is not allowed'):
@@ -138,20 +135,20 @@ class LocalResolveTests(unittest.TestCase):
 
     def test_successful_callee_pending_is_not_discharged(self):
         prefix = ('sig pending() -> Int { failure { IntegerOverflow } }\n'
-                  'func pending() { print(add(9007199254740991,1))\nreturn 3 }\n')
+                  'func pending() { print[Int](add[Int](9007199254740991,1))\nreturn 3 }\n')
         body = ('var y: Int = pending()\n'
                 'resolve y { IntegerOverflow { y = 888 } }\nreturn y')
         with self.assertRaisesRegex(TypecheckError, 'IntegerOverflow'):
             checked(prefix + self.program(body))
-        result, stdout = self.public_result(prefix + self.program(body, 'IntegerOverflow') + 'print(f(1))')
+        result, stdout = self.public_result(prefix + self.program(body, 'IntegerOverflow') + 'print[Int](f(1))')
         self.assertEqual(stdout, '3\n')
         self.assertEqual(len(result.unresolved_events), 1)
 
     def test_generic_conditional_failures_recovered(self):
-        source = ('sig safe(T,T) -> T { require T guarantees Addable failure { Never } }\n'
+        source = ('sig safe[T](T,T) -> T { require T guarantees Addable failure { Never } }\n'
                   'func safe(a: T,b: T) { var y: T = a + b\n'
                   'resolve y { IntegerOverflow { y = a }\nFloatOverflow { y = b } }\nreturn y }\n')
-        result, stdout = self.public_result(source + 'print(safe(9007199254740991,1))\nprint(safe(1e308,1e308))')
+        result, stdout = self.public_result(source + 'print[Int](safe[Int](9007199254740991,1))\nprint[Float](safe[Float](1e308,1e308))')
         self.assertEqual(stdout, '9007199254740991\n1e+308\n')
         self.assertFalse(result.unresolved_events)
 
@@ -161,13 +158,13 @@ class LocalResolveTests(unittest.TestCase):
                   'func quotient() { return div(1.0,0.0) }\n')
         result, stdout = self.public_result(source + self.program('var y: Float = quotient()\n'
             'resolve y { DivideByZero { y = 0.0 }\nFloatOverflow { y = 1.0 } FloatUnderflow { y = 0.0 } }\nreturn y', ret='Float') +
-            'print(f(1))')
+            'print[Float](f(1))')
         self.assertEqual(stdout, '0.0\n')
         self.assertFalse(result.unresolved_events)
 
     def test_handler_independent_failure_remains_outward(self):
         body = ('var y: Int = x + 1\nresolve y { IntegerOverflow {\n'
-                'print(div(1.0,0.0))\ny = 888 } }\nreturn y')
+                'print[Float](div(1.0,0.0))\ny = 888 } }\nreturn y')
         checked(self.program(body, 'DivideByZero, FloatOverflow, FloatUnderflow'))
         with self.assertRaisesRegex(TypecheckError, 'DivideByZero'):
             checked(self.program(body))
@@ -179,18 +176,18 @@ class LocalResolveTests(unittest.TestCase):
 
     def test_initializer_without_recovery_keeps_event(self):
         result, stdout = self.public_result(self.program('var y: Int = x + 1\n'
-            'resolve y { IntegerOverflow { print(999) } }\nreturn 3', 'IntegerOverflow') +
-            'print(f(9007199254740991))')
+            'resolve y { IntegerOverflow { print[Int](999) } }\nreturn 3', 'IntegerOverflow') +
+            'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '999\n3\n')
         self.assertEqual(len(result.unresolved_events), 1)
 
     def test_assignment_cause_excludes_callee_pending(self):
         prefix = ('sig pending() -> Int { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\n'
-                  'func pending() { print(div(1.0,0.0))\nreturn 3 }\n')
-        body = ('var y: Int = 123\ny = add(pending(),add(x,1))\n'
+                  'func pending() { print[Float](div(1.0,0.0))\nreturn 3 }\n')
+        body = ('var y: Int = 123\ny = add[Int](pending(),add[Int](x,1))\n'
                 'resolve y { DivideByZero { y = 999 }\nIntegerOverflow { y = 888 } }\nreturn y')
         result, stdout = self.public_result(prefix + self.program(body,
-            'DivideByZero, FloatOverflow, FloatUnderflow, IntegerOverflow') + 'print(f(9007199254740991))')
+            'DivideByZero, FloatOverflow, FloatUnderflow, IntegerOverflow') + 'print[Int](f(9007199254740991))')
         self.assertEqual(stdout, '888\n')
         self.assertEqual([e.status for e in result.failure_history],
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])
@@ -198,7 +195,7 @@ class LocalResolveTests(unittest.TestCase):
     def test_metadata_is_keyed_by_distinct_calls(self):
         source = self.program('var y: Int = x + 1\n'
             'resolve y { IntegerOverflow { y = 888 } }\nreturn y')
-        _, context, stdout = self.run_source(source + 'print(f(9007199254740991))\nprint(f(1))')
+        _, context, stdout = self.run_source(source + 'print[Int](f(9007199254740991))\nprint[Int](f(1))')
         writes = [(key, write) for key, write in context._binding_writes.items() if key[1] == 'y']
         self.assertEqual(len(writes), 2)
         self.assertNotEqual(writes[0][0][0], writes[1][0][0])
@@ -207,5 +204,5 @@ class LocalResolveTests(unittest.TestCase):
 
     def test_latest_assignment_replaces_initializer_eligibility(self):
         with self.assertRaisesRegex(TypecheckError, 'latest write'):
-            checked(self.program('var y: Float = div(1.0,0.0)\ny = mul(1e308,1e308)\n'
+            checked(self.program('var y: Float = div(1.0,0.0)\ny = mul[Float](1e308,1e308)\n'
                 'resolve y { DivideByZero { y = 0.0 } }\nreturn y', 'FloatOverflow', 'Float'))

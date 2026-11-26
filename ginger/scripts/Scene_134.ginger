@@ -9,10 +9,12 @@
 // Expected normal failure:
 // none
 // Expected fatal:
-// TypecheckError
-// Thunk expects one type argument
-// Expected completion: stops at TypecheckError
+// SyntaxError
+// Expected SYM(']')
+// Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
+
+type Never
 
 var t: Thunk[Int,Never] = thunk(1)

@@ -21,12 +21,12 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-print(1 + 2 * 3)
-print((1 + 2) * 3)
-print(8 - 3 - 2)
-print(8.0 / 2.0 / 2.0)
-print(8.0/(2.0/2.0))
-print((8.0/2.0)/2.0)
-print((-(2 + 3 * 4)))
-print(1 / 2)
-print(neg(neg(3)))
+print[Int](1 + 2 * 3)
+print[Int]((1 + 2) * 3)
+print[Int](8 - 3 - 2)
+print[Float](8.0 / 2.0 / 2.0)
+print[Float](8.0/(2.0/2.0))
+print[Float]((8.0/2.0)/2.0)
+print[Int]((-(2 + 3 * 4)))
+print[Float](1 / 2)
+print[Int](neg[Int](neg[Int](3)))

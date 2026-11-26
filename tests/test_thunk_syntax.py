@@ -1,100 +1,88 @@
 import unittest
 
-from test_failure_contract import checked
-from ginger.ast import TypeRef
-from ginger.core.failure_spec import EMPTY_FAILURES, FailureId
 from ginger.errors import TypecheckError
 from ginger.parser import parse
-from ginger.symbols_builder import build_symbols, normalize_types
-from ginger.typecheck import type_expr
-
-
-def parsed_type(spelling):
-    return parse(f'var t: {spelling} = thunk(1)').items[0].typ
+from ginger.pipeline import compile, run
+from ginger.type_identity import type_identity_key
 
 
 class ThunkSyntaxTests(unittest.TestCase):
-    def test_parser_separates_arguments_and_contract(self):
-        for specs in [('Never',), ('IntegerOverflow',),
-                      ('IntegerOverflow', 'DivideByZero')]:
-            with self.subTest(specs=specs):
-                typ = parsed_type(f'Thunk[Int]<{", ".join(specs)}>')
-                self.assertEqual(typ.args, (TypeRef('Int'),))
-                self.assertEqual(typ.failure_specs, specs)
-                self.assertIsNone(typ.latent_failures)
+    def test_forward_reference_and_identity(self):
+        source = 'var t: Thunk[A] = thunk(1) sigtype A() -> Int { failure { Never } }'
+        typ = parse(source).items[0].typ
+        self.assertEqual(type_identity_key(typ), ('Thunk', ('A',)))
+        self.assertEqual(run(source + ' var x: Int = force(t)').environment['x'].value, 1)
 
-    def test_nested_type_and_whitespace_boundaries(self):
-        typ = parsed_type('Thunk[Box[Int]] <IntegerOverflow>')
-        self.assertEqual(typ.args, (TypeRef('Box', (TypeRef('Int'),)),))
-        nested = parsed_type('Thunk[Thunk[Int]<IntegerOverflow>]<Never>')
-        self.assertEqual(nested.args[0].failure_specs, ('IntegerOverflow',))
-        self.assertEqual(nested.failure_specs, ('Never',))
+    def test_legacy_types_rejected_in_all_positions(self):
+        for spelling in ['Thunk[Int]', 'Thunk[Int]<Never>', 'Thunk[Int]<IntegerOverflow>',
+                         'Thunk[Int]<IntegerOverflow, DivideByZero>', 'Thunk[A]<IntegerOverflow>',
+                         'Thunk[Int, Never]', 'Thunk[Int]<>', 'Thunk[Box[Int]]']:
+            for use in ['var t: TYPE = thunk(1)', 'sig f(TYPE) -> Int {}',
+                        'sig f() -> TYPE {}', 'sigtype F(Box[TYPE]) -> Int {}',
+                        'typegroup Members { TYPE }', 'typegroup Members {} register Members { TYPE }']:
+                with self.subTest(spelling=spelling, use=use), self.assertRaises((TypecheckError, SyntaxError)):
+                    compile('type Box[T]\nsigtype A() -> Int {} ' + use.replace('TYPE', spelling))
 
-    def test_generic_signature_parameter_and_return(self):
-        sig = parse('sig use(Thunk[T]<Never>) -> Thunk[T]<Never> {}').items[0]
-        self.assertEqual(sig.params[0], sig.ret)
-        self.assertEqual(sig.ret.args, (TypeRef('T'),))
-        self.assertEqual(sig.ret.failure_specs, ('Never',))
+    def test_inapplicable_contracts(self):
+        for declaration, message in [('sigtype A(Int) -> Int {}', 'zero-argument'),
+                                     ('sigtype A() -> T {}', 'unknown type variable'),
+                                     ('sigtype A() -> T { failure { IOErr when T in BoundedArithmetic } }', 'unknown type variable'),
+                                     ('sig A() -> Int {}', 'unknown sigtype')]:
+            with self.subTest(declaration=declaration), self.assertRaisesRegex(TypecheckError, message):
+                compile(declaration + ' var t: Thunk[A] = thunk(1)')
 
-    def test_old_syntax_and_wrong_arity_are_rejected(self):
-        # Intentional legacy spellings exercise the breaking syntax migration.
-        for spelling in ['Thunk[Int, Never]', 'Thunk[Int, IntegerOverflow]',
-                         'Thunk[Int, Float]<Never>', 'Thunk<Never>']:
-            for source in [f'var t: {spelling} = thunk(1)',
-                           f'sig f({spelling}) -> Unit {{}}',
-                           f'sig f() -> {spelling} {{}}']:
-                with self.subTest(source=source), self.assertRaisesRegex(
-                        TypecheckError, 'Thunk expects one type argument'):
-                    checked(source)
+    def test_recursive_contracts(self):
+        compile('sigtype A() -> Thunk[B] {} sigtype B() -> Thunk[A] {}')
+        compile('sigtype A() -> Thunk[A] {}')
 
-    def test_empty_and_malformed_contracts(self):
-        for spelling in ['Thunk[Int]<>', 'Thunk[Int<Never>', 'Thunk[Int]<Never',
-                         'Thunk[Int]Never>', 'Thunk[Int]<Never,>',
-                         'Thunk[Int]<IntegerOverflow when T guarantees G>',
-                         'Thunk[Int]<Box[Int]>']:
-            with self.subTest(spelling=spelling), self.assertRaises(SyntaxError):
-                parsed_type(spelling)
+    def test_type_annotation_required(self):
+        with self.assertRaises(SyntaxError):
+            compile('var t = thunk(1)')
 
-    def test_non_thunk_postfix_is_rejected_semantically(self):
-        for spelling in ['Int<IntegerOverflow>', 'Box[Int]<IntegerOverflow>',
-                         'Thunk[Box[Int]<Never>]<Never>']:
-            with self.subTest(spelling=spelling), self.assertRaisesRegex(
-                    TypecheckError, 'allowed only on Thunk'):
-                normalize_types(parsed_type(spelling), {})
+    def test_contract_registry_has_no_fallback(self):
+        for declaration in ['type Contract', 'typegroup Contract { Int }',
+                            'failureset Contract { IOErr }', 'sig Contract() -> Int {}',
+                            'guarantee Contract { op(self: Self) -> Self }']:
+            with self.subTest(declaration=declaration), self.assertRaisesRegex(TypecheckError, "unknown sigtype 'Contract'"):
+                compile(declaration + '\nvar t: Thunk[Contract] = thunk(1)')
 
-    def test_failure_declaration_does_not_discard_postfix(self):
-        with self.assertRaisesRegex(SyntaxError, 'failure names cannot have'):
-            parse('sig f() -> Int { failure { IntegerOverflow<Never> } }')
+    def test_failure_reference_checks_its_thunk_argument(self):
+        source = 'failureset Tagged(T) { IOErr when T in BoundedArithmetic }'
+        with self.assertRaisesRegex(TypecheckError, "unknown sigtype 'Missing'"):
+            compile(source + ' sigtype Consumer() -> Int { failure { Tagged(Thunk[Missing]) } }')
 
-    def test_never_mixing_duplicates_and_unknown_names(self):
-        for spec, message in [('Never, IntegerOverflow', 'cannot combine'),
-                              ('IntegerOverflow, Never', 'cannot combine'),
-                              ('IntegerOverflow, IntegerOverflow', 'duplicate failure'),
-                              ('MissingFailure', 'unknown failure')]:
-            with self.subTest(spec=spec), self.assertRaisesRegex(TypecheckError, message):
-                normalize_types(parsed_type(f'Thunk[Int]<{spec}>'), {})
-        pure = normalize_types(parsed_type('Thunk[Int]<Never>'), {})
-        self.assertEqual(pure.latent_failures, EMPTY_FAILURES)
-        self.assertIsNone(pure.failure_specs)
-        self.assertNotIn('Never', FailureId.__members__)
+    def test_same_contract_name_in_nested_duplicate_signature(self):
+        source = ('type Box[T]\nsigtype Consumer(Box[Thunk[A]]) -> Unit {} '
+                  'sigtype Other(Box[Thunk[A]]) -> Unit {} sigtype A() -> Int {}')
+        with self.assertRaisesRegex(TypecheckError, 'duplicate sigtype contract'):
+            compile(source)
 
-    def test_multiple_failures_are_order_independent(self):
-        first = normalize_types(parsed_type('Thunk[Int]<IntegerOverflow, DivideByZero>'), {})
-        second = normalize_types(parsed_type('Thunk[Int]<DivideByZero, IntegerOverflow>'), {})
-        self.assertEqual(first, second)
-        self.assertEqual(first.latent_failures,
-                         frozenset({FailureId.IntegerOverflow, FailureId.DivideByZero}))
+    def test_direct_and_named_function_contracts_accept_thunk(self):
+        source = ('sigtype A() -> Float {} sigtype Consumer(Thunk[A]) -> Float {} '
+                  'sig read: Consumer func read(t: Thunk[A]) { return force(t) } '
+                  'sig make() -> Thunk[A] {} func make() { return thunk(read(thunk(1.5))) } '
+                  'var result: Float = force(make())')
+        self.assertEqual(run(source).environment['result'].value, 1.5)
 
-    def test_intrinsic_inferred_types_match_annotations(self):
-        # Local declarations require annotations; expression_types records inference.
-        for expression, contract in [('thunk(1)', 'Never'),
-                                     ('thunk(add(1,2))', 'IntegerOverflow')]:
-            program = parse(expression)
-            symbols = build_symbols(program)
-            actual = type_expr(program.items[0].expr, None, {}, symbols)
-            expected = normalize_types(parsed_type(f'Thunk[Int]<{contract}>'), {})
-            self.assertEqual(actual, expected)
+    def test_static_bound_survives_safe_initializer(self):
+        decl = 'sigtype Checked() -> Int { failure { IntegerOverflow } } '
+        body = 'func f() { let t: Thunk[Checked] = thunk(1) return force(t) }'
+        with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
+            compile(decl + 'sig f() -> Int {} ' + body)
+        result = run(decl + 'var t: Thunk[Checked] = thunk(1) var x: Int = force(t) '
+                     'resolve x { IntegerOverflow { x = 0 } }')
+        self.assertEqual(result.environment['x'].value, 1)
+        self.assertEqual(result.failure_history, ())
 
+    def test_thunk_name_is_not_a_generic_binding(self):
+        decl = 'sigtype A() -> Int {} '
+        source = ('sig keep[V](V,Thunk[A]) -> V {} func keep(x: V,t: Thunk[A]) { return x } '
+                  'var x: Float = keep[Float](1.5,thunk(1))')
+        self.assertEqual(run(decl + source).environment['x'].value, 1.5)
+        with self.assertRaisesRegex(TypecheckError, "unknown sigtype 'A'"):
+            compile(source)
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_require_cannot_supply_a_thunk_result(self):
+        with self.assertRaisesRegex(TypecheckError, 'unknown type variable'):
+            compile('sigtype Deferred() -> T { require T guarantees Addable } '
+                    'var t: Thunk[Deferred] = thunk(1)')

@@ -56,13 +56,13 @@
     "sigs": [
         {
             "name": "print",
+            "type_params": ["T"],
             "params": [{ "ref": "T" }],
             "ret": { "ref": "Unit" },
             "requires": [
                 { "kind": "guarantees", "type_var": "T", "guarantee": "Printable" }
             ],
             "failures": [],
-            "attrs": [],
             "builtin": null
         }
     ]

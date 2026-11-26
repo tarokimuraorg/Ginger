@@ -6,7 +6,6 @@
             "ret": { "ref": "Float" },
             "requires": [],
             "failures": [],
-            "attrs": [],
             "builtin": "core.int.toFloat"
         }
     ]

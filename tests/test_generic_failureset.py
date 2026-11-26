@@ -21,16 +21,17 @@ DEFINITION = '''failureset AddFailures(T) {
     FloatUnderflow when T in FiniteArithmetic,
 }
 '''
-DELAYED = '''sig delayed(T,T) -> Thunk[T]<AddFailures(T)> {
+CALCULATE = '''sig calculate[T](T,T) -> T {
     require T guarantees Addable
+    failure { AddFailures(T) }
 }
-func delayed(a: T,b: T) { return thunk(a + b) }
+func calculate(a: T,b: T) { return a + b }
 '''
-INNER = '''sig inner(U,U) -> U {
+INNER = '''sig inner[U](U,U) -> U {
     require U guarantees Addable
     failure { AddFailures(U) }
 }
-func inner(a: U,b: U) { return force(delayed(a,b)) }
+func inner(a: U,b: U) { return calculate[U](a,b) }
 '''
 INTEGER = frozenset({F.IntegerOverflow})
 FLOAT = frozenset({F.FloatOverflow, F.FloatUnderflow})
@@ -55,36 +56,34 @@ def annotated(source):
 
 class GenericFailureSetTests(unittest.TestCase):
     def test_parser_and_lower_preserve_definition_and_reference(self):
-        program = parse(DEFINITION + DELAYED)
+        program = parse(DEFINITION + CALCULATE)
         declaration = program.items[0]
         self.assertEqual(declaration.type_param, 'T')
         self.assertEqual(len(declaration.members), 3)
         self.assertIs(lower_program(program).items[0], declaration)
-        self.assertEqual(program.items[1].ret.failure_specs,
-                         (FailureSetRef('AddFailures', TypeRef('T')),))
+        self.assertEqual(program.items[1].failures,
+                         [FailureSetRef('AddFailures', TypeRef('T'))])
 
     def test_concrete_expansion_and_empty_contract(self):
         for typ, expected in [('Int', INTEGER), ('Float', FLOAT), ('String', EMPTY_FAILURES)]:
             with self.subTest(typ=typ):
-                syms = build_symbols(parse(DEFINITION +
-                    f'sig f() -> Thunk[{typ}]<AddFailures({typ})> '
+                syms = build_symbols(parse('type String\n' + DEFINITION +
+                    f'sigtype D() -> {typ} {{ failure {{ AddFailures({typ}) }} }} sig f() -> Thunk[D] '
                     f'{{ failure {{ AddFailures({typ}) }} }}'))
                 self.assertEqual(signature_contract(syms, 'f'), FailureContract(expected))
                 self.assertEqual(latent_contract(syms.sigs['f'].ret), FailureContract(expected))
 
     def test_symbolic_contract_and_substitution(self):
-        _, syms, _, _ = annotated(DEFINITION + DELAYED + INNER)
+        _, syms, _, _ = annotated(DEFINITION + CALCULATE + INNER)
         self.assertEqual(signature_contract(syms, 'inner'), symbolic('U'))
-        typ = syms.sigs['delayed'].ret
-        self.assertEqual(latent_contract(typ), symbolic('T'))
-        renamed = resolve_typeref(typ, {'T': TypeRef('U')}, syms.typegroups)
-        self.assertEqual(latent_contract(renamed), symbolic('U'))
+        from ginger.core.failure_contract import substitute_contract
+        effect = signature_contract(syms, 'calculate')
         for name, expected in [('Int', INTEGER), ('Float', FLOAT), ('String', EMPTY_FAILURES)]:
-            concrete = resolve_typeref(renamed, {'U': TypeRef(name)}, syms.typegroups)
-            self.assertEqual(latent_contract(concrete), FailureContract(expected))
+            concrete = substitute_contract(effect, {'T': TypeRef(name)}, syms.typegroups)
+            self.assertEqual(concrete, FailureContract(expected))
 
     def test_acceptance_output_events_and_concrete_call_effects(self):
-        source = DEFINITION + DELAYED + INNER + 'print(inner(1,2))\nprint(inner(1.0,2.0))'
+        source = DEFINITION + CALCULATE + INNER + 'print[Int](inner[Int](1,2))\nprint[Float](inner[Float](1.0,2.0))'
         program, syms, env, diagnostics = annotated(source)
         self.assertEqual([effect_expr(item.expr.args[0].expr, env, syms)
                           for item in program.items[-2:]], [INTEGER, FLOAT])
@@ -98,14 +97,14 @@ class GenericFailureSetTests(unittest.TestCase):
         self.assertEqual([f.declared_failure_contract for f in frames], [INTEGER, FLOAT])
 
     def test_delayed_inner_outer_acceptance(self):
-        source = DEFINITION + DELAYED + INNER + """
-sig outer(T,T) -> T {
+        source = DEFINITION + CALCULATE + INNER + """
+sig outer[T](T,T) -> T {
     require T guarantees Addable
     failure { AddFailures(T) }
 }
-func outer(a: T,b: T) { return inner(a,b) }
-print(outer(6,4))
-print(outer(2.5,7.4))
+func outer(a: T,b: T) { return inner[T](a,b) }
+print[Int](outer[Int](6,4))
+print[Float](outer[Float](2.5,7.4))
 """
         program, syms, _, _ = annotated(source)
         self.assertEqual(signature_contract(syms, 'outer'), symbolic('T'))
@@ -116,36 +115,29 @@ print(outer(2.5,7.4))
                           if f.function_name == 'outer'], [INTEGER, FLOAT])
 
     def test_delayed_force_keeps_conditions_and_creation_has_no_effect(self):
-        program, syms, env, _ = annotated(DEFINITION + DELAYED + INNER +
-            'var a: Thunk[Int]<AddFailures(Int)> = delayed(1,2)\n'
-            'var b: Thunk[Float]<AddFailures(Float)> = delayed(1.0,2.0)')
+        program, syms, env, _ = annotated(DEFINITION + CALCULATE + INNER +
+            'sigtype DeferredIntSum() -> Int { failure { AddFailures(Int) } }\nsigtype DeferredFloatSum() -> Float { failure { AddFailures(Float) } }\nvar a: Thunk[DeferredIntSum] = thunk(calculate[Int](1,2))\n'
+            'var b: Thunk[DeferredFloatSum] = thunk(calculate[Float](1.0,2.0))')
         self.assertEqual(env['a'].ty.latent_failures, INTEGER)
         self.assertEqual(env['b'].ty.latent_failures, FLOAT)
         for item in program.items[-2:]:
             self.assertEqual(effect_expr(item.expr, env, syms), EMPTY_FAILURES)
-        force = syms.funcs['inner'].body.stmts[0].expr
-        call = force.args[0].expr
-        self.assertEqual(syms.resolved_calls[id(call)].type_bindings, {'T': TypeRef('U')})
-        self.assertEqual(latent_contract(syms.expression_types[id(call)]), symbolic('U'))
-        local = {name: Binding(TypeRef('U'), False) for name in ('a', 'b')}
-        self.assertEqual(symbolic_effect_expr(force, local, syms), symbolic('U'))
         result = eval_program(program)
         self.assertEqual(result.environment['a'].value.potential_failure_contract, INTEGER)
         # The public upper bound includes underflow; addition's own contract does not.
         self.assertEqual(result.environment['b'].typ.latent_failures, FLOAT)
-        self.assertEqual(result.environment['b'].value.potential_failure_contract,
-                         frozenset({F.FloatOverflow}))
+        self.assertEqual(result.environment['b'].value.potential_failure_contract, FLOAT)
         self.assertFalse(result.failure_history)
 
     def test_registration_is_order_independent(self):
         registration = 'register BoundedArithmetic { Float, }\n'
-        use = 'sig f() -> Thunk[Float]<AddFailures(Float)> { failure { AddFailures(Float) } }\n'
+        use = 'sigtype DeferredFloatSum() -> Float { failure { AddFailures(Float) } }\nsig f() -> Thunk[DeferredFloatSum] { failure { AddFailures(Float) } }\n'
         for source in [registration + DEFINITION + use, use + DEFINITION + registration]:
             syms = build_symbols(parse(source))
             self.assertEqual(syms.sig_failures['f'], INTEGER | FLOAT)
             self.assertEqual(syms.sigs['f'].ret.latent_failures, INTEGER | FLOAT)
-        program, syms, _, _ = annotated(DEFINITION + DELAYED + INNER + registration +
-                                      'print(inner(1.0,2.0))')
+        program, syms, _, _ = annotated(DEFINITION + CALCULATE + INNER + registration +
+                                      'print[Float](inner[Float](1.0,2.0))')
         _, context, stdout = recorded(program)
         self.assertEqual(stdout, '3.0\n')
         self.assertFalse(context.failure_history)
@@ -154,6 +146,7 @@ print(outer(2.5,7.4))
 
     def test_forward_group_and_concrete_type_identity(self):
         syms = build_symbols(parse('''
+type Box[T]
 failureset Tagged(T) { IOErr when T in TaggedGroup }
 sig yes() -> Unit { failure { Tagged(Box[Int]) } }
 sig no() -> Unit { failure { Tagged(Box[Float]) } }
@@ -171,44 +164,40 @@ failureset Other(U) {
  FloatOverflow when U in FiniteArithmetic,
  FloatUnderflow when U in FiniteArithmetic,
 }
-sig f(T) -> T { failure { Basic, DivideByZero, AddFailures(T), Other(T) } }
+sig f[T](T) -> T { failure { Basic, DivideByZero, AddFailures(T), Other(T) } }
 func f(x: T) { return x }
 '''
         _, syms, _, _ = annotated(source)
         self.assertEqual(signature_contract(syms, 'f'),
                          FailureContract(frozenset({F.DivideByZero}), symbolic('T').conditional))
-        checked(DEFINITION + DELAYED.replace('AddFailures(T)', 'Other(T)') + source[len(DEFINITION):])
+        checked(DEFINITION + CALCULATE.replace('AddFailures(T)', 'Other(T)') + source[len(DEFINITION):])
 
     def test_thunk_parameter_contract_compared_after_type_binding(self):
-        checked(DEFINITION + DELAYED + '''
-sig run(U,Thunk[U]<AddFailures(U)>) -> U { failure { AddFailures(U) } }
-func run(x: U,t: Thunk[U]<AddFailures(U)>) { return force(t) }
-sig outer(T,T) -> T { require T guarantees Addable failure { AddFailures(T) } }
-func outer(a: T,b: T) { return run(a,delayed(a,b)) }
-print(outer(1,2))
-print(outer(1.0,2.0))
+        checked(DEFINITION + CALCULATE + '''
+sigtype Deferred() -> Int { failure { AddFailures(Int) } }
+sig run[U](U,Thunk[Deferred]) -> Int { failure { AddFailures(Int) } }
+func run(x: U,t: Thunk[Deferred]) { return force(t) }
+print[Int](run[Float](1.0,thunk(calculate[Int](1,2))))
 ''')
 
     def test_explicit_conditions_and_local_thunk_annotation(self):
         explicit = ("IntegerOverflow when U in BoundedArithmetic, "
                     "FloatOverflow when U in FiniteArithmetic, "
                     "FloatUnderflow when U in FiniteArithmetic")
-        source = DEFINITION + DELAYED + INNER.replace('AddFailures(U)', explicit).replace(
-            'return force(delayed(a,b))',
-            'let t: Thunk[U]<AddFailures(U)> = delayed(a,b)\nreturn force(t)')
-        program, syms, _, _ = annotated(source + 'print(inner(1,2))')
+        source = DEFINITION + CALCULATE + INNER.replace('AddFailures(U)', explicit)
+        program, syms, _, _ = annotated(source + 'print[Int](inner[Int](1,2))')
         self.assertEqual(signature_contract(syms, 'inner'), symbolic('U'))
         self.assertEqual(recorded(program)[2], '3\n')
 
     def test_unconditional_members_in_generic_definition(self):
         source = DEFINITION.replace('IntegerOverflow when', 'IOErr, IntegerOverflow when')
-        syms = build_symbols(parse(source + 'sig f(T) -> T { failure { AddFailures(T) } }'))
+        syms = build_symbols(parse(source + 'sig f[T](T) -> T { failure { AddFailures(T) } }'))
         self.assertEqual(signature_contract(syms, 'f'),
                          FailureContract(frozenset({F.IOErr}), symbolic('T').conditional))
 
     def test_force_is_delayed_and_nonmemoized(self):
-        source = DEFINITION + DELAYED + f"""
-var t: Thunk[Int]<AddFailures(Int)> = delayed({INT_MAX},1)
+        source = DEFINITION + CALCULATE + f"""sigtype DeferredIntSum() -> Int {{ failure {{ AddFailures(Int) }} }}\n
+var t: Thunk[DeferredIntSum] = thunk(calculate[Int]({INT_MAX},1))
 var first: Int = force(t)
 resolve first {{ IntegerOverflow {{ first = 0 }} }}
 var second: Int = force(t)
@@ -224,9 +213,9 @@ resolve second {{ IntegerOverflow {{ second = 1 }} }}
         self.assertTrue(all(e.status.value == 'resolved' for e in result.failure_history))
 
     def test_group_membership_does_not_supply_capabilities(self):
-        source = DEFINITION + DELAYED + 'register BoundedArithmetic { Int64 }\n'
+        source = DEFINITION + CALCULATE + 'register BoundedArithmetic { Int64 }\n'
         with self.assertRaisesRegex(TypecheckError, 'does not guarantee Addable'):
-            checked(source + 'delayed(1i64,2i64)')
+            checked(source + 'calculate[Int64](1i64,2i64)')
 
     def test_invalid_declarations(self):
         cases = [
@@ -252,16 +241,16 @@ resolve second {{ IntegerOverflow {{ second = 1 }} }}
         for ref in ['UnknownFailures(Int)', 'AddFailures', 'AddFailures(Int,Float)',
                     'AddFailures()', 'Basic(Int)', 'AddFailures(U)', 'AddFailures(Box[U])',
                     'AddFailures(T), Never', 'AddFailures(T), AddFailures(T)']:
-            for use in [f'sig f(T) -> T {{ failure {{ {ref} }} }}',
-                        f'sig f(T) -> Thunk[T]<{ref}> {{}}']:
+            for use in [f'sig f[T](T) -> T {{ failure {{ {ref} }} }}',
+                        f'sigtype D[T]() -> T {{ failure {{ {ref} }} }} sig f[T](T) -> Thunk[D[Int]] {{}}']:
                 with self.subTest(use=use), self.assertRaises((TypecheckError, SyntaxError)):
-                    checked(DEFINITION + 'failureset Basic { IOErr }\n' + use)
+                    checked(DEFINITION + 'type Box[T]\nfailureset Basic { IOErr }\n' + use)
         with self.assertRaisesRegex(TypecheckError, 'unknown type variable'):
-            checked(DEFINITION + 'var t: Thunk[Int]<AddFailures(T)> = thunk(1)')
+            checked(DEFINITION + 'sigtype DeferredIntAddFailuresT() -> Int { failure { AddFailures(T) } }\nvar t: Thunk[DeferredIntAddFailuresT] = thunk(1)')
 
     def test_existing_comma_and_never_rules(self):
         for source in ['failureset Bad(T) { IOErr PrintErr }',
-                       'sig f(T) -> T { failure { AddFailures(T) IOErr } }',
+                       'sig f[T](T) -> T { failure { AddFailures(T) IOErr } }',
                        'sig f() -> Int { failure {} }',
                        'sig f() -> Int { failure { Never, } }']:
             with self.subTest(source=source), self.assertRaises(SyntaxError):
@@ -270,28 +259,28 @@ resolve second {{ IntegerOverflow {{ second = 1 }} }}
 
     def test_incompatible_conditions_and_arguments_are_rejected(self):
         cases = [
-            DELAYED.replace('AddFailures(T)', 'Never'),
-            DELAYED + INNER.replace('AddFailures(U)', 'AddFailures(Int)'),
-            DELAYED + INNER.replace('AddFailures(U)', 'Never'),
-            DELAYED + 'var t: Thunk[Int]<AddFailures(Float)> = delayed(1,2)',
-            DELAYED + 'var t: Thunk[Float]<AddFailures(Int)> = delayed(1.0,2.0)',
-            DELAYED + '''sig wrong(T,U) -> T {
+            CALCULATE.replace('AddFailures(T)', 'Never'),
+            CALCULATE + INNER.replace('AddFailures(U)', 'AddFailures(Int)'),
+            CALCULATE + INNER.replace('AddFailures(U)', 'Never'),
+            CALCULATE + 'sigtype DeferredIntAddFailuresFloat() -> Int { failure { AddFailures(Float) } }\nvar t: Thunk[DeferredIntAddFailuresFloat] = thunk(calculate[Int](1,2))',
+            CALCULATE + 'sigtype DeferredFloatAddFailuresInt() -> Float { failure { AddFailures(Int) } }\nvar t: Thunk[DeferredFloatAddFailuresInt] = thunk(calculate[Float](1.0,2.0))',
+            CALCULATE + '''sig wrong[T,U](T,U) -> T {
                 require T guarantees Addable failure { AddFailures(U) }
-            } func wrong(a: T,b: U) { return force(delayed(a,a)) }''',
+            } func wrong(a: T,b: U) { return calculate[T](a,a) }''',
             '''failureset Wrong(T) { IntegerOverflow when T in FiniteArithmetic }
-            ''' + DELAYED.replace('AddFailures(T)', 'Wrong(T)'),
+            ''' + CALCULATE.replace('AddFailures(T)', 'Wrong(T)'),
         ]
         for source in cases:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 checked(DEFINITION + source)
 
     def test_resolved_failure_remains_static_and_runtime_ids_are_preserved(self):
-        source = DEFINITION + DELAYED + '''
-sig recovered(U,U) -> U { require U guarantees Addable failure { AddFailures(U) } }
+        source = DEFINITION + CALCULATE + '''
+sig recovered[U](U,U) -> U { require U guarantees Addable failure { AddFailures(U) } }
 func recovered(a: U,b: U) {
- return resolve force(delayed(a,b)) { IntegerOverflow { return a } }
+ return resolve calculate[U](a,b) { IntegerOverflow { return a } }
 }
-''' + f'var x: Int = recovered({INT_MAX},1)'
+''' + f'var x: Int = recovered[Int]({INT_MAX},1)'
         program, syms, env, _ = annotated(source)
         self.assertEqual(effect_expr(program.items[-1].expr, env, syms), INTEGER)
         result = eval_program(program)

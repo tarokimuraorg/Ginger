@@ -10,11 +10,11 @@
 // none
 // Expected fatal:
 // TypecheckError
-// cannot reconcile
+// type mismatch
 // Expected completion: stops at TypecheckError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig first(T,T) -> T {}
+sig first[T](T,T) -> T {}
 func first(a: T,b: T) { return a }
-print(first(1i64,2.0))
+print[Float](first[Float](1i64,2.0))

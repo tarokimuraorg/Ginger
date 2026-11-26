@@ -16,13 +16,13 @@ class ResolveExpressionTests(unittest.TestCase):
     def test_success_skips_handler_and_recovery_reads_old_value(self):
         for operand, expected in [('div(4.0,2.0)', '2.0'), ('div(1.0,0.0)', '8.0')]:
             env, context, out = self.run_source('var x: Float = 8.0\nx = resolve ' + operand +
-                ' { DivideByZero { return x\nprint(999) } }\nprint(x)')
+                ' { DivideByZero { return x\nprint[Int](999) } }\nprint[Float](x)')
             self.assertEqual(out, expected + '\n')
             self.assertTrue(all(e.status is FailureStatus.RESOLVED for e in context.failure_history))
             self.assertEqual(len(context.failure_history), int(expected == '8.0'))
 
     def test_no_return_continues_then_read_is_fatal(self):
-        source = 'var x: Float = 8.0\nx = resolve div(1.0,0.0) { DivideByZero { print(3) } }\nprint(4)'
+        source = 'var x: Float = 8.0\nx = resolve div(1.0,0.0) { DivideByZero { print[Int](3) } }\nprint[Int](4)'
         env, context, out = self.run_source(source)
         self.assertEqual(out, '3\n4\n')
         self.assertIsInstance(env['x'], UninitializedBinding)
@@ -30,12 +30,12 @@ class ResolveExpressionTests(unittest.TestCase):
         self.assertEqual(context.get_event(1).status, FailureStatus.UNRESOLVED)
         context, env, stream = RuntimeContext(), {}, io.StringIO()
         with redirect_stdout(stream), self.assertRaisesRegex(EvalError, r'cause event IDs: \(1,\)'):
-            _eval_program_with_context(checked(source + '\nprint(x)\nprint(999)')[0], context, env)
+            _eval_program_with_context(checked(source + '\nprint[Float](x)\nprint[Int](999)')[0], context, env)
         self.assertEqual(stream.getvalue(), '3\n4\n')
 
     def test_failed_return_preserves_both_events(self):
         env, context, out = self.run_source('var x: Float = resolve div(1.0,0.0) {\n'
-            'DivideByZero { return div(2.0,0.0)\nprint(999) } }\nprint(4)')
+            'DivideByZero { return div(2.0,0.0)\nprint[Int](999) } }\nprint[Int](4)')
         self.assertEqual(out, '4\n')
         self.assertEqual(env['x'].related_event_ids, (1, 2))
         self.assertEqual(env['x'].cause_event_id, 2)
@@ -52,14 +52,14 @@ class ResolveExpressionTests(unittest.TestCase):
 func calculate() {
     let x: Float = resolve div(1.0,0.0) { DivideByZero {
         let y: Float = resolve div(2.0,0.0) { DivideByZero { return 2.0 } }
-        print(3)
+        print[Int](3)
         return y
-        print(999)
+        print[Int](999)
     } }
-    print(4)
+    print[Int](4)
     return resolve div(x,0.0) { DivideByZero { return x } }
 }
-print(add(calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
+print[Float](add[Float](calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
         _, context, out = self.run_source(source)
         self.assertEqual(out, '3\n4\n3.0\n')
         self.assertEqual(len(context.failure_history), 4)
@@ -67,14 +67,14 @@ print(add(calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
 
     def test_wrong_replacement_type_and_existing_widening(self):
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked('let x: Float = resolve div(1.0,0.0) { DivideByZero { return eq(1,1) } }')
-        _, _, out = self.run_source('print(resolve div(1.0,0.0) { DivideByZero { return 2 } })')
+            checked('let x: Float = resolve div(1.0,0.0) { DivideByZero { return eq[Int](1,1) } }')
+        _, _, out = self.run_source('print[Float](resolve div(1.0,0.0) { DivideByZero { return 2 } })')
         self.assertEqual(out, '2.0\n')
 
     def test_recovered_and_handler_failures_require_contract(self):
         for body, missing in [
             ('return resolve div(1.0,0.0) { DivideByZero { return 0.0 } }', 'DivideByZero'),
-            ('return resolve div(1.0,0.0) { DivideByZero { print(add(1,2))\nreturn 0.0 } }', 'IntegerOverflow'),
+            ('return resolve div(1.0,0.0) { DivideByZero { print[Int](add[Int](1,2))\nreturn 0.0 } }', 'IntegerOverflow'),
         ]:
             failures = 'Never' if missing == 'DivideByZero' else 'DivideByZero, FloatOverflow, FloatUnderflow'
             with self.assertRaisesRegex(TypecheckError, missing):
@@ -86,16 +86,16 @@ print(add(calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
                 'let y: Float = resolve x { DivideByZero { return 0.0 } }')
 
     def test_thunk_and_function_return_in_handler(self):
-        _, context, out = self.run_source('sig f() -> Float { failure { Never } }\n'
+        _, context, out = self.run_source('sigtype DeferredDivision() -> Float { failure { DivideByZero,FloatOverflow,FloatUnderflow } }\nsig f() -> Float { failure { Never } }\n'
             'func f() { return 7.0 }\n'
-            'let t: Thunk[Float]<DivideByZero,FloatOverflow,FloatUnderflow> = '
-            'thunk(resolve div(1.0,0.0) { DivideByZero { return f() } })\nprint(force(t))')
+            'let t: Thunk[DeferredDivision] = '
+            'thunk(resolve div(1.0,0.0) { DivideByZero { return f() } })\nprint[Float](force(t))')
         self.assertEqual(out, '7.0\n')
         self.assertEqual(context.get_event(1).status, FailureStatus.RESOLVED)
 
     def test_independent_handler_failure_does_not_prevent_recovery(self):
-        _, context, out = self.run_source('print(resolve div(1.0,0.0) { DivideByZero {\n'
-            'print(div(2.0,0.0))\nreturn 5.0 } })')
+        _, context, out = self.run_source('print[Float](resolve div(1.0,0.0) { DivideByZero {\n'
+            'print[Float](div(2.0,0.0))\nreturn 5.0 } })')
         self.assertEqual(out, '5.0\n')
         self.assertEqual([e.status for e in context.failure_history],
                          [FailureStatus.RESOLVED, FailureStatus.UNRESOLVED])
@@ -103,17 +103,17 @@ print(add(calculate(), resolve div(1.0,0.0) { DivideByZero { return 1.0 } }))'''
 
     def test_prior_pending_is_not_resolved(self):
         _, context, out = self.run_source('sig f() -> Float { failure { DivideByZero,FloatOverflow,FloatUnderflow } }\n'
-            'func f() { print(div(2.0,0.0))\nreturn 1.0 }\n'
-            'print(resolve div(f(),0.0) { DivideByZero { return 9.0 } })')
+            'func f() { print[Float](div(2.0,0.0))\nreturn 1.0 }\n'
+            'print[Float](resolve div(f(),0.0) { DivideByZero { return 9.0 } })')
         self.assertEqual(out, '9.0\n')
         self.assertEqual([e.status for e in context.failure_history],
                          [FailureStatus.UNRESOLVED, FailureStatus.RESOLVED])
 
     def test_generic_return(self):
-        _, context, out = self.run_source('sig f(T,T) -> T { require T guarantees Addable '
+        _, context, out = self.run_source('sig f[T](T,T) -> T { require T guarantees Addable '
             'failure { IntegerOverflow when T in BoundedArithmetic, FloatOverflow when T in FiniteArithmetic } }\n'
-            'func f(a: T,b: T) { return resolve add(a,b) { IntegerOverflow { return a } FloatOverflow { return b } } }\n'
-            'print(f(9007199254740991,1))')
+            'func f(a: T,b: T) { return resolve add[T](a,b) { IntegerOverflow { return a } FloatOverflow { return b } } }\n'
+            'print[Int](f[Int](9007199254740991,1))')
         self.assertEqual(out, '9007199254740991\n')
         self.assertEqual(context.get_event(1).status, FailureStatus.RESOLVED)
 

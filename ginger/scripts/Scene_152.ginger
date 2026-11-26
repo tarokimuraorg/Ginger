@@ -16,6 +16,6 @@
 
 guarantee G { op(self: Self, other: Self) -> Float }
 impl Int guarantees G { op = builtin core.int.add }
-sig op(T) -> T { require T guarantees G }
+sig op[T](T) -> T { require T guarantees G }
 func op(x: T) { return x }
-print(op(1))
+print[Float](op[Int](1))

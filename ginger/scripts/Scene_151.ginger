@@ -20,18 +20,24 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+
+sigtype Checked() -> Int { failure { Overflow } }
+sigtype Outer() -> Thunk[Checked] { failure { Never } }
+
+type Box[T]
+
 failureset Overflow { IntegerOverflow }
 guarantee Projection {
-    project(self: Self, other: Thunk[Thunk[Self]<IntegerOverflow>]<Never>) -> Thunk[Thunk[Self]<IntegerOverflow>]<Never>
+    project(self: Self, other: Thunk[Outer]) -> Thunk[Outer]
 }
-sig project(T,Thunk[Thunk[T]<Overflow>]<Never>) -> Thunk[Thunk[T]<Overflow>]<Never> { require T guarantees Projection }
-sig unused(Box[Box[T]]) -> T { require T guarantees Mark }
+sig project[T](T,Thunk[Outer]) -> Thunk[Outer] { require T guarantees Projection }
+sig unused[T](Box[Box[T]]) -> T { require T guarantees Mark }
 guarantee Mark { witness(self: Self) -> Self }
-sig make() -> T {}
+sig make[T]() -> T {}
 sig recur() -> Unit {}
 func recur() { recur() }
 sig pure() -> Unit { failure { Never } }
 func pure() {}
 sig spare() -> Unit { failure { IOErr } }
 func spare() {}
-print(1)
+print[Int](1)

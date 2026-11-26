@@ -27,7 +27,7 @@ class FunctionLocalTests(unittest.TestCase):
         self.assertIsInstance(body[1], VarDecl)
         self.assertTrue(body[1].mutable)
         self.assertIsInstance(body[2], AssignStmt)
-        program, _ = checked(source + 'print(f())')
+        program, _ = checked(source + 'print[Int](f())')
         self.assertIsInstance(program.items[1].body.stmts[1].expr, CallExpr)
         self.assertIsInstance(program.items[1].body.stmts[2].expr, CallExpr)
         self.assertEqual(output(program), '4\n')
@@ -35,7 +35,7 @@ class FunctionLocalTests(unittest.TestCase):
     def test_parameters_locals_and_return(self):
         source = function('let a: Int = x\nvar b: Int = a\nb = 3\nreturn b',
                           params='x: Int', sig_params='Int')
-        self.assertEqual(output(checked(source + 'print(f(1))')[0]), '3\n')
+        self.assertEqual(output(checked(source + 'print[Int](f(1))')[0]), '3\n')
         self.assertEqual(output(checked(function('var x: Int = 1\nx = 2', ret='Unit') + 'f()')[0]), '')
 
     def test_immutable_let_and_parameter_assignment(self):
@@ -65,13 +65,13 @@ class FunctionLocalTests(unittest.TestCase):
             checked(source)
 
     def test_generic_duplicate_parameter_rejected(self):
-        source = 'sig first(T, T) -> T {}\nfunc first(a: T, a: T) { return a }'
+        source = 'sig first[T](T, T) -> T {}\nfunc first(a: T, a: T) { return a }'
         with self.assertRaisesRegex(TypecheckError, "duplicate parameter name: 'a'"):
             checked(source)
 
     def test_distinct_parameter_names_remain_valid(self):
         source = function('return x', params='x: Int, y: Int', sig_params='Int, Int')
-        self.assertEqual(output(checked(source + 'print(f(1, 2))')[0]), '1\n')
+        self.assertEqual(output(checked(source + 'print[Int](f(1, 2))')[0]), '1\n')
 
     def test_duplicate_parameter_with_different_types_rejected(self):
         source = function('return x', ret='Float', params='x: Int, x: Float',
@@ -89,7 +89,7 @@ class FunctionLocalTests(unittest.TestCase):
             with self.assertRaisesRegex(TypecheckError, 'unknown identifier'):
                 checked('var x: Int = 10\n' + function(body))
         with self.assertRaisesRegex(TypecheckError, 'unknown identifier'):
-            checked(function('let y: Int = 20\nreturn y') + 'var answer: Int = f()\nprint(y)')
+            checked(function('let y: Int = 20\nreturn y') + 'var answer: Int = f()\nprint[Int](y)')
         program, _ = checked(function('let y: Int = 20\nreturn y') + 'var answer: Int = f()')
         self.assertNotIn('y', eval_program(program).environment)
 
@@ -100,7 +100,7 @@ class FunctionLocalTests(unittest.TestCase):
             environments.append(env)
             return eval_block(block, env, syms, outer)
         with patch('ginger.eval.eval_block', side_effect=observe):
-            self.assertEqual(output(checked(source + 'print(f())\nprint(f())')[0]), '1\n1\n')
+            self.assertEqual(output(checked(source + 'print[Int](f())\nprint[Int](f())')[0]), '1\n1\n')
         self.assertEqual(len(environments), 2)
         self.assertIsNot(environments[0], environments[1])
         self.assertIsNot(environments[0]['x'], environments[1]['x'])
@@ -146,21 +146,21 @@ class FunctionLocalTests(unittest.TestCase):
                     checked(function(body, ret='Unit'))
 
     def test_integer_overflow_acceptance_and_upper_bounds(self):
-        body = 'return add(x,1)'
+        body = 'return add[Int](x,1)'
         source = function(body, params='x: Int', sig_params='Int', contract='failure { IntegerOverflow }')
         program, diags = checked(source + f'var x: Int = f({INT_MAX})\n'
-            'resolve x { IntegerOverflow { x = 999 } }\nprint(x)')
+            'resolve x { IntegerOverflow { x = 999 } }\nprint[Int](x)')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '999\n')
-        self.assertEqual(output(checked(source + 'print(f(1))')[0]), '2\n')
-        for body in ['let y: Int = add(x,1)\nreturn y',
-                     'var y: Int = 0\ny = mul(x,2)\nreturn y']:
+        self.assertEqual(output(checked(source + 'print[Int](f(1))')[0]), '2\n')
+        for body in ['let y: Int = add[Int](x,1)\nreturn y',
+                     'var y: Int = 0\ny = mul[Int](x,2)\nreturn y']:
             with self.subTest(body=body), self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
                 checked(function(body, params='x: Int', sig_params='Int', contract='failure { Never }'))
 
     def test_failed_initializer_and_assignment_store_failure_state(self):
-        for body in ['var y: Int = add(x,1)\nreturn y',
-                     'var y: Int = 5\ny = add(x,1)\nreturn y']:
+        for body in ['var y: Int = add[Int](x,1)\nreturn y',
+                     'var y: Int = 5\ny = add[Int](x,1)\nreturn y']:
             source = function(body, params='x: Int', sig_params='Int', contract='failure { IntegerOverflow }')
             program, _ = checked(source + f'var result: Int = f({INT_MAX})')
             environments = []
@@ -173,35 +173,36 @@ class FunctionLocalTests(unittest.TestCase):
             self.assertIsInstance(environments[0]['y'], UninitializedBinding)
 
     def test_return_context_is_not_reintroduced(self):
-        with self.assertRaisesRegex(TypecheckError, 'cannot determine type variable'):
-            checked('sig make() -> T {}\n' + function('return make()'))
-        program, _ = checked(function('let x: Int = add(1,2)\nreturn x', contract='failure { IntegerOverflow }') + 'print(f())')
+        with self.assertRaisesRegex(TypecheckError, 'explicit type arguments'):
+            checked('sig make[T]() -> T {}\n' + function('return make()'))
+        program, _ = checked(function('let x: Int = add[Int](1,2)\nreturn x', contract='failure { IntegerOverflow }') + 'print[Int](f())')
         self.assertEqual(output(program), '3\n')
 
     def test_local_thunk_storage_snapshot_and_force(self):
         for keyword in ['let', 'var']:
-            source = function(f'var x: Int = 1\n{keyword} t: Thunk[Int]<Never> = thunk(x)\nx = 2\nreturn force(t)')
-            self.assertEqual(output(checked(source + 'print(f())')[0]), '1\n')
-        source = function('var t: Thunk[Int]<Never> = thunk(1)\nt = thunk(2)\nreturn force(t)')
-        self.assertEqual(output(checked(source + 'print(f())')[0]), '2\n')
+            source = 'sigtype DeferredInt() -> Int {}\n' + function(f'var x: Int = 1\n{keyword} t: Thunk[DeferredInt] = thunk(x)\nx = 2\nreturn force(t)')
+            self.assertEqual(output(checked(source + 'print[Int](f())')[0]), '1\n')
+        source = 'sigtype DeferredInt() -> Int {}\n' + function('var t: Thunk[DeferredInt] = thunk(1)\nt = thunk(2)\nreturn force(t)')
+        self.assertEqual(output(checked(source + 'print[Int](f())')[0]), '2\n')
 
     def test_local_thunk_latent_failure_and_function_contract(self):
-        body = f'let t: Thunk[Int]<IntegerOverflow> = thunk(add({INT_MAX},1))\n'
-        program, diags = checked(function(body, ret='Unit') + 'f()')
+        declaration = 'sigtype CheckedInt() -> Int { failure { IntegerOverflow } }\n'
+        body = f'let t: Thunk[CheckedInt] = thunk(add[Int]({INT_MAX},1))\n'
+        program, diags = checked(declaration + function(body, ret='Unit') + 'f()')
         self.assertEqual(diags.items, [])
         self.assertEqual(output(program), '')
         with self.assertRaisesRegex(TypecheckError, 'undeclared failures: IntegerOverflow'):
-            checked(function(body + 'return force(t)'))
-        source = function(body + 'return force(t)', contract='failure { IntegerOverflow }')
+            checked(declaration + function(body + 'return force(t)'))
+        source = declaration + function(body + 'return force(t)', contract='failure { IntegerOverflow }')
         self.assertEqual(output(checked(source + 'var x: Int = f()\n'
-            'resolve x { IntegerOverflow { x = 7 } }\nprint(x)')[0]), '7\n')
+            'resolve x { IntegerOverflow { x = 7 } }\nprint[Int](x)')[0]), '7\n')
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(function(body.replace('Thunk[Int]<IntegerOverflow>', 'Thunk[Int]<Never>'), ret='Unit'))
+            checked('sigtype Pure() -> Int {}\n' + function(body.replace('Thunk[CheckedInt]', 'Thunk[Pure]'), ret='Unit'))
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
-            checked(function('let t: Thunk[Int64]<Never> = thunk(1)', ret='Unit'))
+            checked('sigtype DeferredInt64() -> Int64 {}\n' + function('let t: Thunk[DeferredInt64] = thunk(1)', ret='Unit'))
 
     def test_unreachable_statements_still_checked_but_not_effectful(self):
-        checked(function('return 1\nlet later: Int = add(1,2)'))
+        checked(function('return 1\nlet later: Int = add[Int](1,2)'))
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             checked(function('return 1\nlet later: Int = 1i64'))
         with self.assertRaisesRegex(TypecheckError, 'unknown identifier'):

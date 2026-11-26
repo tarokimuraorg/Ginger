@@ -29,7 +29,7 @@ class ThunkValueContractTests(unittest.TestCase):
             return evaluator.eval_program(lower_program(parse(source)))
 
     def source(self, typ='Float', contract='Never', tail=None):
-        return (f'sig make() -> Thunk[{typ}]<{contract}> {{ builtin test.make }}\n' +
+        return (f'sigtype Made() -> {typ} {{ failure {{ {contract} }} }}\nsig make() -> Thunk[Made] {{ builtin test.make }}\n' +
                 (tail if tail is not None else f'var x: {typ} = force(make())'))
 
     def test_return_shape_and_safe_diagnostic(self):
@@ -55,7 +55,7 @@ class ThunkValueContractTests(unittest.TestCase):
                 ('Never', overflow, False), ('FloatOverflow', divide, False)]:
             with self.subTest(public=public, saved=saved):
                 source = 'failureset Calculation { FloatOverflow, FloatUnderflow, DivideByZero }\n'
-                source += self.source(contract=public, tail=f'var t: Thunk[Float]<{public}> = make()')
+                source += self.source(contract=public, tail=f'var t: Thunk[Made] = make()')
                 result = self.run_source(source, self.thunk(1.0, saved))
                 self.assertEqual(result.value_contract_violation is None, valid)
                 if not valid:
@@ -64,7 +64,7 @@ class ThunkValueContractTests(unittest.TestCase):
 
     def test_return_does_not_evaluate_expression(self):
         thunk = ThunkValue(IdentExpr('missing'), {}, None, EMPTY_FAILURES)
-        result = self.run_source(self.source(tail='var t: Thunk[Float]<Never> = make()'), thunk)
+        result = self.run_source(self.source(tail='var t: Thunk[Made] = make()'), thunk)
         self.assertIsNone(result.value_contract_violation)
         self.assertIs(result.environment['t'].value, thunk)
 
@@ -112,7 +112,7 @@ class ThunkValueContractTests(unittest.TestCase):
         for payload in [1.0, float('nan'), float('inf')]:
             inner = self.thunk(payload)
             outer = self.thunk(inner)
-            prefix = self.source('Thunk[Float]<Never>', tail='var t: Thunk[Float]<Never> = force(make())')
+            prefix = self.source('Thunk[DeferredFloat]', tail='sigtype DeferredFloat() -> Float { failure { Never } }\nvar t: Thunk[DeferredFloat] = force(make())')
             result = self.run_source(prefix, outer)
             self.assertIsNone(result.value_contract_violation)
             self.assertIs(result.environment['t'].value, inner)
@@ -125,14 +125,14 @@ class ThunkValueContractTests(unittest.TestCase):
             self.assertEqual(result.value_contract_violation.boundary_kind, 'thunk')
 
     def test_generic_concrete_result(self):
-        generic = ('sig use(Thunk[T]<Never>) -> T {}\n'
-                   'func use(t: Thunk[T]<Never>) { return force(t) }\n')
+        generic = ('sig use(Thunk[Made]) -> RESULT {}\n'
+                   'func use(t: Thunk[Made]) { return force(t) }\n')
         for typ, value, valid in [('Int', 1, True), ('Float', 1.0, True),
                                    ('Int', 1.0, False), ('Float', 1, False),
                                    ('Float', float('nan'), False), ('Float', 5e-324, True),
                                    ('Float', -5e-324, True)]:
             with self.subTest(typ=typ, value=value):
-                result = self.run_source(generic + self.source(typ, tail=f'var x: {typ} = use(make())'),
+                result = self.run_source(generic.replace("RESULT", typ) + self.source(typ, tail=f'var x: {typ} = use(make())'),
                                          self.thunk(value))
                 self.assertEqual(result.value_contract_violation is None, valid)
                 if not valid:
@@ -143,19 +143,19 @@ class ThunkValueContractTests(unittest.TestCase):
         for typ in ['Box[Int]', 'Box[Float]', 'Box[Box[Int]]', 'Pair[Int, Float]',
                     'MissingType', 'Box[MissingType]']:
             with self.subTest(typ=typ):
-                result = self.run_source(self.source(typ), self.thunk(payload))
+                result = self.run_source('type Box[T]\ntype Pair[T, U]\ntype MissingType\n' + self.source(typ), self.thunk(payload))
                 self.assertIsNone(result.value_contract_violation)
                 self.assertIs(result.environment['x'].value, payload)
-                self.assertIsNotNone(self.run_source(self.source(typ), payload).value_contract_violation)
+                self.assertIsNotNone(self.run_source('type Box[T]\ntype Pair[T, U]\ntype MissingType\n' + self.source(typ), payload).value_contract_violation)
 
     def test_fatal_prevents_assignment_resolve_and_continuation(self):
         for statement in ['var x: Float = force(make())', 'var x: Float = 7.0\nx = force(make())',
-                          'var x: Float = add(force(make()), 1.0)']:
+                          'var x: Float = add[Float](force(make()), 1.0)']:
             later = Mock()
             source = self.source(contract='FloatOverflow', tail=statement)
             if '= 7.0' not in statement:
                 source += '\nresolve x { FloatOverflow { x = 0.0 } }'
-            source += '\nprint(3)'
+            source += '\nprint[Int](3)'
             with patch.dict(BUILTINS, {'core.int.print': later, 'core.float.add': later}):
                 result = self.run_source(source, self.thunk(float('nan')))
             later.assert_not_called()
@@ -169,7 +169,7 @@ class ThunkValueContractTests(unittest.TestCase):
     def test_standard_thunk_success_and_no_value(self):
         for expr in ['1.5', 'div(1.0, 0.0)']:
             result = evaluator.eval_program(lower_program(parse(
-                f'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk({expr})\n'
+                f'sigtype DeferredDivision() -> Float {{ failure {{ DivideByZero, FloatOverflow, FloatUnderflow }} }}\nvar t: Thunk[DeferredDivision] = thunk({expr})\n'
                 'var x: Float = force(t)')))
             self.assertIsNone(result.value_contract_violation)
             self.assertIsNone(result.contract_violation)
@@ -191,7 +191,7 @@ class ThunkValueContractTests(unittest.TestCase):
 
         with patch('ginger.eval.expression_type', side_effect=narrow_public):
             result = evaluator.eval_program(lower_program(parse(
-                'var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0, 0.0))\n'
+                'sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }\nvar t: Thunk[DeferredDivision] = thunk(div(1.0, 0.0))\n'
                 'var x: Float = force(t)')))
         self.assertIsNone(result.contract_violation)
         self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')

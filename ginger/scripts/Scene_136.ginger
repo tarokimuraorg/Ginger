@@ -10,7 +10,7 @@
 // none
 // Expected fatal:
 // SyntaxError
-// Expected IDENT but got SYM('>')
+// legacy Thunk syntax but got SYM('>')
 // Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.

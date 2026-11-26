@@ -15,5 +15,7 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-sig f(Thunk[Float]<Never>) -> Int {}
-func f(t: Thunk[Float]<Never>) { return force(t) }
+sigtype DeferredFloat() -> Float { failure { Never } }
+
+sig f(Thunk[DeferredFloat]) -> Int {}
+func f(t: Thunk[DeferredFloat]) { return force(t) }

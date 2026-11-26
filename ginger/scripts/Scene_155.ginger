@@ -1,5 +1,6 @@
 // Purpose:
-// specialized impl は別の型引数へ流用されない
+// 公開ソースから builtin を割り当てる impl 宣言を書くと構文エラーになる。
+// Box[Int] の実装が Box[Float] に適用されないことは、下記の内部 AST テストで検証する。
 // Based on tests (source-visible behavior; host/internal assertions remain unit tests):
 // tests/test_parameterized_type_identity.py::test_specialized_impl_rejects_other_types_direct_and_deferred
 // Expected stdout (ordered):
@@ -9,14 +10,15 @@
 // Expected normal failure:
 // none
 // Expected fatal:
-// TypecheckError
-// does not guarantee G
-// Expected completion: stops at TypecheckError
+// SyntaxError
+// builtin is internal to the Ginger implementation
+// Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
+type Box[T]
 guarantee G { op(self: Self) -> Self }
 impl Box[Int] guarantees G { op = builtin core.int.neg }
-sig op(T) -> T { require T guarantees G }
+sig op[T](T) -> T { require T guarantees G }
 sig invalid(Box[Float]) -> Box[Float] {}
-func invalid(x: Box[Float]) { return op(x) }
+func invalid(x: Box[Float]) { return op[Box[Float]](x) }

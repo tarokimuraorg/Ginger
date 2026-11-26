@@ -1,5 +1,5 @@
 // Purpose:
-// nested generic Thunk は force ごとに一層だけ評価
+// nested Thunk は force ごとに一層だけ評価
 // Based on tests (source-visible behavior; host/internal assertions remain unit tests):
 // tests/test_call_inference.py::test_nested_calls_and_symbolic_user_function_frames
 // tests/test_call_inference.py::test_recursive_typeref_and_thunk_runtime
@@ -24,30 +24,31 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig capture(T) -> Thunk[Thunk[T]<Never>]<Never> {}
+sigtype DeferredInt() -> Int { failure { Never } }
+sigtype OuterInt() -> Thunk[DeferredInt] { failure { Never } }
+sig captureInt(Int) -> Thunk[OuterInt] {}
+func captureInt(a: Int) { return thunk(thunk(a)) }
+print[Int](force(force(captureInt(1))))
+sigtype DeferredFloat() -> Float { failure { Never } }
+sigtype OuterFloat() -> Thunk[DeferredFloat] { failure { Never } }
+sig captureFloat(Float) -> Thunk[OuterFloat] {}
+func captureFloat(a: Float) { return thunk(thunk(a)) }
+print[Float](force(force(captureFloat(2.0))))
+sigtype DeferredInt64() -> Int64 { failure { Never } }
+sigtype OuterInt64() -> Thunk[DeferredInt64] { failure { Never } }
+sig captureInt64(Int64) -> Thunk[OuterInt64] {}
+func captureInt64(a: Int64) { return thunk(thunk(a)) }
+print[Int64](force(force(captureInt64(3i64))))
 
-func capture(a: T) { 
-    return thunk(thunk(a)) 
-}
-
-sig unwrap(Thunk[T]<Never>) -> T {}
-
-func unwrap(t: Thunk[T]<Never>) { 
-    return force(t) 
-}
-
-print(unwrap(unwrap(capture(1))))
-print(unwrap(unwrap(capture(2.0))))
-print(unwrap(unwrap(capture(3i64))))
-
-// 外側のThunkを生成する。この時点ではdivは実行されない。
-var outer: Thunk[Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow>]<Never> = thunk(thunk(div(1.0,0.0)))
+sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
+sigtype DeferredDivisionThunk() -> Thunk[DeferredDivision] { failure { Never } }
+var outer: Thunk[DeferredDivisionThunk] = thunk(thunk(div(1.0,0.0)))
 
 // 外側を評価して内側のThunkを取得する。
 // divはまだ実行されないため、ここではfailureは発生しない。
-var inner: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = force(outer)
+var inner: Thunk[DeferredDivision] = force(outer)
 
-print(4)
+print[Int](4)
 
 // 内側を評価する。ここで初めてdivが実行され、DivideByZeroが発生する。
 // xは正常値を取得できず、失敗状態になる。
@@ -64,4 +65,4 @@ resolve x {
 }
 
 // DivideByZeroが解決されたため、xを正常に読み出せる。
-print(x)
+print[Float](x)

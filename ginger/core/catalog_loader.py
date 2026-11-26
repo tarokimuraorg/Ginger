@@ -4,6 +4,7 @@ from typing import Any, List, Union
 
 from ginger.ast import (
     GuaranteeDecl,
+    TypeDecl,
     TypeGroupDecl,
     FuncSig,
     Param,
@@ -23,6 +24,8 @@ def _type_ref(obj: Any) -> TypeRef:
 
     if isinstance(obj, dict) and "ref" in obj and isinstance(obj["ref"], str):
         name = obj["ref"]
+        if name == "Thunk" and isinstance(obj.get("sigtype"), str) and not ({"args", "failures"} & obj.keys()):
+            return TypeRef(name, sigtype_name=obj["sigtype"])
         args = [_type_ref(a) for a in obj.get("args", [])]
         return TypeRef(name, tuple(args),
                        tuple(obj["failures"]) if "failures" in obj else None)
@@ -88,6 +91,11 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
 
     out: List[Any] = []
 
+    for typ in data.get("types", []):
+        if not isinstance(typ, dict) or not isinstance(typ.get("name"), str):
+            raise ValueError(f"Invalid type declaration: {typ!r}")
+        out.append(TypeDecl(typ["name"], catalog=p.name, special=typ.get("special")))
+
     # --- guarantees ---
     for g in data.get("guarantees", []):
         if not isinstance(g, dict):
@@ -151,10 +159,15 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
     for s in data.get("sigs", []):
         if not isinstance(s, dict):
             raise ValueError(f"Invalid sig: {s!r}")
+        if "attrs" in s:
+            raise ValueError("Catalog sig field 'attrs' has been removed")
         sname = s.get("name")
         if not isinstance(sname, str):
             raise ValueError(f"Sig.name must be str: {s!r}")
 
+        type_params = s.get("type_params", [])
+        if not isinstance(type_params, list) or not all(isinstance(p, str) and p.isidentifier() for p in type_params):
+            raise ValueError(f"Sig '{sname}' type_params must be an array of identifiers")
         params = [_type_ref(x) for x in s.get("params", [])]
         ret = _type_ref(s.get("ret"))
         requires = [_require(x) for x in s.get("requires", [])]
@@ -162,7 +175,6 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         if not isinstance(failure_entries, list):
             raise ValueError(f"Sig '{sname}' failures must be an array")
         failures = [_failure(entry) for entry in failure_entries]
-        attrs = s.get("attrs", [])
         builtin = s.get("builtin")
         if builtin is not None and not isinstance(builtin, str):
             raise ValueError(
@@ -173,11 +185,11 @@ def load_core_catalog_json(path: Union[str, Path]) -> List[Any]:
         out.append(
             SigDecl(
                 name=sname,
+                type_params=tuple(type_params),
                 params=params,
                 ret=ret,
                 requires=requires,
                 failures=failures,
-                attrs=attrs,
                 builtin=builtin,
             )
         )

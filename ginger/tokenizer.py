@@ -8,7 +8,7 @@ class Token:
     pos: int
 
 KEYWORDS = {
-    "guarantee", "typegroup", "register", "impl",
+    "guarantee", "type", "typegroup", "register", "impl",
     "failureset", "func", "sig", "require","failure", "return",
     "guarantees", "in", "when",
     "builtin",
@@ -17,7 +17,7 @@ KEYWORDS = {
     "let","var",
 }
 
-SYMBOLS_1 = set("{}():,=@.+-*/[]<>")  # one-char
+SYMBOLS_1 = set("{}():,=.+-*/[]<>")  # one-char
 # special: "->" and "|"
 
 def tokenize(src: str) -> List[Token]:

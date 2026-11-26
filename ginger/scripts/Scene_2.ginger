@@ -23,4 +23,4 @@ func convert(value: Int) {
 }
 
 var result: Float = convert(2)
-print(result)
+print[Float](result)

@@ -20,32 +20,32 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var a: Int = 9007199254740991
-a = add(a, 0)
+a = add[Int](a, 0)
 
-print(a)
+print[Int](a)
 
-var overflow: Int = add(a, 1)
+var overflow: Int = add[Int](a, 1)
 resolve overflow {
     IntegerOverflow {
         overflow = 999
     }
 }
 
-print(overflow)
+print[Int](overflow)
 
 // Float initializer には IntegerOverflow がないため、次の resolve は静的エラー。
-//var normal: Float = add(1.0, 2.0)
+//var normal: Float = add[Float](1.0, 2.0)
 //resolve normal {
 //    IntegerOverflow {
 //        normal = 999
 //    }
 //}
 
-//print(normal)
+//print[Float](normal)
 
 var d: Int64 = 9007199254740992i64
-print(d)
+print[Int64](d)
 
 // Int64の四則演算は未実装
-//var e: Int64 = add(1i64,2i64)
-//print(e)
+//var e: Int64 = add[Int64](1i64,2i64)
+//print[Bool](e)

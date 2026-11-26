@@ -16,9 +16,9 @@ from ginger.typecheck import collect_type_evidence, effect_expr, typecheck_progr
 
 
 CAPABILITY = '''guarantee Tagged { op(self: Self) -> Self }
-sig op(T) -> T { require T guarantees Tagged }
-sig relay(U) -> U { require U guarantees Tagged }
-func relay(x: U) { return op(x) }
+sig op[T](T) -> T { require T guarantees Tagged }
+sig relay[U](U) -> U { require U guarantees Tagged }
+func relay(x: U) { return op[U](x) }
 '''
 
 
@@ -28,11 +28,11 @@ def implementation(typ, builtin='test.box_int_op'):
 
 def use(typ, call='op'):
     return (f'sig make() -> {typ} {{ builtin test.make }}\n'
-            f'var result: {typ} = {call}(make())')
+            f'var result: {typ} = {call}[{typ}](make())')
 
 
 def annotated(source):
-    program = lower_program(parse(source))
+    program = lower_program(parse('type Box[T]\ntype Pair[T, U]\ntype MissingType\n' + source))
     symbols = build_symbols(program)
     program = normalize_types(program, symbols.failuresets)
     bindings = typecheck_program(program, Diagnostics(), syms=symbols)
@@ -85,13 +85,13 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         self.assertFalse(_same_type(integer, floating))
         self.assertEqual({integer: 'int', floating: 'float'}[integer], 'int')
         evidence = {}
-        collect_type_evidence(normalized_type('Box[T]'), integer, evidence)
+        collect_type_evidence(TypeRef('Box', (TypeRef('T', declared_variable=True),)), integer, evidence)
         self.assertEqual(evidence, {'T': [TypeRef('Int')]})
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             collect_type_evidence(integer, floating, {})
         with self.assertRaisesRegex(TypecheckError, 'type mismatch'):
             annotated('sig take(Box[Int]) -> Box[Int] { builtin test.box_int_op }\n'
-                      + use('Box[Float]', 'take'))
+                      + use('Box[Float]', 'take').replace('take[Box[Float]]', 'take'))
 
     def test_specialized_direct_success_and_self_projection(self):
         program, symbols, _ = annotated(CAPABILITY + implementation('Box[Int]') + use('Box[Int]'))
@@ -106,7 +106,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
         self.assertEqual(self.seen, ['Int'])
 
     def test_specialized_impl_rejects_other_types_direct_and_deferred(self):
-        for typ in ['Box[Float]', 'Box[MissingType]', 'Box']:
+        for typ in ['Box[Float]', 'Box[MissingType]', 'MissingType']:
             for call in ['op', 'relay']:
                 with self.subTest(typ=typ, call=call), self.assertRaisesRegex(
                         TypecheckError, 'does not guarantee Tagged'):
@@ -155,11 +155,11 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
 
     def test_register_isolation(self):
         prefix = ('typegroup Marker {}\nregister Marker { Box[Int] }\n'
-                  'sig take(T) -> T { require T in Marker }\n'
+                  'sig take[T](T) -> T { require T in Marker }\n'
                   'func take(x: T) { return x }\n')
         program, _, _ = annotated(prefix + use('Box[Int]', 'take'))
         self.assertIs(eval_program(program).environment['result'].value, self.payload)
-        for typ in ['Box[Float]', 'Box[MissingType]', 'Box']:
+        for typ in ['Box[Float]', 'Box[MissingType]', 'MissingType']:
             with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
                 annotated(prefix + use(typ, 'take'))
 
@@ -173,11 +173,11 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
 
     def test_typegroup_isolation(self):
         prefix = ('typegroup Boxes { Box[Int] }\n'
-                  'sig take(T) -> T { require T in Boxes }\n'
+                  'sig take[T](T) -> T { require T in Boxes }\n'
                   'func take(x: T) { return x }\n')
         program, _, _ = annotated(prefix + use('Box[Int]', 'take'))
         self.assertIs(eval_program(program).environment['result'].value, self.payload)
-        for typ in ['Box[Float]', 'Box[MissingType]', 'Box']:
+        for typ in ['Box[Float]', 'Box[MissingType]', 'MissingType']:
             with self.subTest(typ=typ), self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
                 annotated(prefix + use(typ, 'take'))
         program, symbols, _ = annotated(prefix.replace('{ Box[Int] }', '{ Box[Int], Box[Float] }') +
@@ -197,7 +197,7 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
                         declaration, requirement = (
                             (f'typegroup Marker {{}}\nregister Marker {{ {target} }}', 'T in Marker')
                             if kind == 'register' else (f'typegroup Boxes {{ {target} }}', 'T in Boxes'))
-                        prefix = (declaration + f'\nsig take(T) -> T {{ require {requirement} }}\n'
+                        prefix = (declaration + f'\nsig take[T](T) -> T {{ require {requirement} }}\n'
                                   'func take(x: T) { return x }\n')
                         calls = ['take']
                     for call in calls:
@@ -206,52 +206,41 @@ class ParameterizedTypeIdentityTests(unittest.TestCase):
                         with self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
                             annotated(prefix + use(other, call))
 
-    def test_open_world_exact_registration_and_unregistered_plain_values(self):
+    def test_registered_opaque_values_with_and_without_capability(self):
         for typ in ['MissingType', 'Box[MissingType]']:
             for call in ['op', 'relay']:
                 program, _, _ = annotated(CAPABILITY + implementation(typ) + use(typ, call))
                 self.assertIs(eval_program(program).environment['result'].value, self.payload)
-            program, _, _ = annotated(use(typ).replace('op(make())', 'make()'))
+            program, _, _ = annotated(use(typ).replace(f'op[{typ}](make())', 'make()'))
             self.assertIs(eval_program(program).environment['result'].value, self.payload)
 
     def test_thunk_result_identity_and_existing_effect_independence(self):
         for declaration, requirement, call in [
-            (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'op'),
-            (CAPABILITY + implementation('Thunk[Int]<Never>'), '', 'relay'),
-            ('typegroup Marker {}\nregister Marker { Thunk[Int]<Never> }\n',
+            ('sigtype DeferredInt() -> Int {}\n' + CAPABILITY + implementation('Thunk[DeferredInt]'), '', 'op'),
+            ('sigtype DeferredInt() -> Int {}\n' + CAPABILITY + implementation('Thunk[DeferredInt]'), '', 'relay'),
+            ('sigtype DeferredInt() -> Int { failure { Never } }\ntypegroup Marker {}\nregister Marker { Thunk[DeferredInt] }\n',
              'T in Marker', 'take'),
-            ('typegroup Boxes { Thunk[Int]<Never> }\n', 'T in Boxes', 'take'),
+            ('sigtype DeferredInt() -> Int { failure { Never } }\ntypegroup Boxes { Thunk[DeferredInt] }\n', 'T in Boxes', 'take'),
         ]:
             prefix = declaration
             if requirement:
-                prefix += (f'sig take(T) -> T {{ require {requirement} }}\n'
+                prefix += (f'sig take[T](T) -> T {{ require {requirement} }}\n'
                            'func take(x: T) { return x }\n')
-            for spelling, expression in [('Thunk[Int]<Never>', 'thunk(1)'),
-                                         ('Thunk[Int]<IntegerOverflow>', 'thunk(add(1,2))')]:
-                with self.subTest(call=call, spelling=spelling):
-                    program, _, _ = annotated(prefix + f'var result: {spelling} = {call}({expression})')
-                    self.assertIsNone(eval_program(program).contract_violation)
+            program, _, _ = annotated(prefix + f'var t: Thunk[DeferredInt] = thunk(1) var result: Thunk[DeferredInt] = {call}[Thunk[DeferredInt]](t)')
+            self.assertIsNone(eval_program(program).contract_violation)
             with self.assertRaisesRegex(TypecheckError, 'requirement not satisfied'):
-                annotated(prefix + f'var result: Thunk[Float]<Never> = {call}(thunk(1.0))')
+                annotated(prefix + f'sigtype Checked() -> Int {{ failure {{ IntegerOverflow }} }} '
+                          f'var t: Thunk[Checked] = thunk(1) var result: Thunk[Checked] = {call}[Thunk[Checked]](t)')
 
-    def test_metadata_remains_outside_capability_identity(self):
-        pure = normalized_type('Thunk[Int]<Never>')
-        effectful = normalized_type('Thunk[Int]<IntegerOverflow>')
-        self.assertNotEqual(type_identity_key(pure),
-                            type_identity_key(normalized_type('Thunk[Float]<Never>')))
-        conditional = TypeRef('Thunk', (TypeRef('Int'),), latent_failures=EMPTY_FAILURES,
-                              latent_conditions=frozenset({ConditionalFailure(
-                                  FailureId.IntegerOverflow, 'T', 'Marker')}))
-        raw = TypeRef('Thunk', (TypeRef('Int'),), failure_specs=('Never',))
-        for other in [effectful, conditional, raw]:
-            self.assertNotEqual(pure, other)
-            self.assertEqual(type_identity_key(pure), type_identity_key(other))
-        self.assertFalse(_same_type(pure, effectful))
-        self.assertFalse(_same_type(pure, conditional))
+    def test_contract_name_selects_capability_identity(self):
+        pure = TypeRef('Thunk', sigtype_name='Pure')
+        checked = TypeRef('Thunk', sigtype_name='Checked')
+        self.assertNotEqual(type_identity_key(pure), type_identity_key(checked))
+        self.assertFalse(_same_type(pure, checked))
 
     def test_conditional_failure_uses_exact_registration(self):
         prefix = ('typegroup Marker {}\nregister Marker { Box[Int] }\n'
-                  'sig keep(T) -> T { failure { IntegerOverflow when T in Marker } }\n'
+                  'sig keep[T](T) -> T { failure { IntegerOverflow when T in Marker } }\n'
                   'func keep(x: T) { return x }\n')
         for typ, expected in [('Box[Int]', failures(FailureId.IntegerOverflow)),
                               ('Box[Float]', EMPTY_FAILURES), ('Box[MissingType]', EMPTY_FAILURES)]:

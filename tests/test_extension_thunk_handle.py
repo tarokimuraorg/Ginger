@@ -40,7 +40,7 @@ class ExtensionThunkHandleTests(unittest.TestCase):
                 self.assertFalse(hasattr(handle, name), name)
             self.assertEqual(repr(handle), '<ThunkHandle>')
         result = self.evaluate(
-            'sig accept(Thunk[Int]<Never>) -> Unit { builtin test.accept }\n'
+            'sigtype DeferredInt() -> Int { failure { Never } }\nsig accept(Thunk[DeferredInt]) -> Unit { builtin test.accept }\n'
             'accept(thunk(1))', {'test.accept': accept})
         self.assertIsNone(result.value_contract_violation)
         self.assertEqual(seen[0], seen[0])
@@ -57,13 +57,13 @@ class ExtensionThunkHandleTests(unittest.TestCase):
         for typ, literal, expected in [('Int', '1', 1), ('Float', '1.5', 1.5)]:
             with patch.object(RuntimeContext, '_issue_thunk_handle', observe):
                 result = self.evaluate(
-                    'sig identity(Thunk[T]<Never>) -> Thunk[T]<Never> { builtin test.id }\n'
-                    'sig relay(T) -> Thunk[T]<Never> {}\n'
-                    'func relay(a: T) { return identity(thunk(a)) }\n'
-                    f'var t: Thunk[{typ}]<Never> = relay({literal})\n'
+                    f'sigtype Deferred() -> {typ} {{}}\nsig identity(Thunk[Deferred]) -> Thunk[Deferred] {{ builtin test.id }}\n'
+                    f'sig relay({typ}) -> Thunk[Deferred] {{}}\n'
+                    f'func relay(a: {typ}) {{ return identity(thunk(a)) }}\n'
+                    f'var t: Thunk[Deferred] = relay({literal})\n'
                     f'var x: {typ} = force(t)', {'test.id': lambda t: t})
             self.assertIsNone(result.value_contract_violation)
-            self.assertEqual(entries[-1].public_type.args, (TypeRef(typ),))
+            self.assertEqual(entries[-1].public_type.sigtype_name, 'Deferred')
             self.assertIs(entries[-1].thunk, result.environment['t'].value)
             self.assertEqual(result.environment['x'].value, expected)
             with self.assertRaises(FrozenInstanceError):
@@ -72,9 +72,9 @@ class ExtensionThunkHandleTests(unittest.TestCase):
     def test_store_load_and_foreign_execution(self):
         saved = []
         implementations = {'test.store': lambda t: saved.append(t), 'test.load': lambda: saved[-1]}
-        declarations = ('sig store(Thunk[Int]<Never>) -> Unit { builtin test.store }\n'
-                        'sig load() -> Thunk[Int]<Never> { builtin test.load }\n')
-        tail = 'var t: Thunk[Int]<Never> = load()\nvar x: Int = force(t)\nvar later: Int = 1'
+        declarations = ('sigtype DeferredInt() -> Int { failure { Never } }\nsig store(Thunk[DeferredInt]) -> Unit { builtin test.store }\n'
+                        'sig load() -> Thunk[DeferredInt] { builtin test.load }\n')
+        tail = 'var t: Thunk[DeferredInt] = load()\nvar x: Int = force(t)\nvar later: Int = 1'
         result = self.evaluate(declarations + 'store(thunk(7))\n' + tail, implementations)
         self.assertEqual(result.environment['x'].value, 7)
         self.assert_rejected(self.evaluate(declarations + tail, implementations), 'invalid_extension_handle')
@@ -85,8 +85,8 @@ class ExtensionThunkHandleTests(unittest.TestCase):
         for value in [ThunkHandle(), raw, 1, None, object()]:
             called = Mock(return_value=value)
             result = self.evaluate(
-                'sig load() -> Thunk[Int]<Never> { builtin test.load }\n'
-                'var t: Thunk[Int]<Never> = load()\nvar x: Int = force(t)\nvar later: Int = 1',
+                'sigtype DeferredInt() -> Int { failure { Never } }\nsig load() -> Thunk[DeferredInt] { builtin test.load }\n'
+                'var t: Thunk[DeferredInt] = load()\nvar x: Int = force(t)\nvar later: Int = 1',
                 {'test.load': called})
             self.assert_rejected(result, 'invalid_extension_handle' if isinstance(value, ThunkHandle)
                                  else 'wrong_python_type')
@@ -97,18 +97,21 @@ class ExtensionThunkHandleTests(unittest.TestCase):
     def test_issued_result_type_and_latent_compatibility(self):
         for source_type, target_type, valid in [
                 ('Int]<Never>', 'Float]<Never>', False),
-                ('Int]<Never>', 'Int]<IntegerOverflow>', True),
+                ('Int]<Never>', 'Int]<IntegerOverflow>', False),
                 ('Int]<IntegerOverflow>', 'Int]<Never>', False),
                 ('Box[Int]]<Never>', 'Box[Float]]<Never>', False)]:
             saved = []
-            source_type, target_type = 'Thunk[' + source_type, 'Thunk[' + target_type
+            source_ret, source_failure = source_type[:-1].split(']<')
+            target_ret, target_failure = target_type[:-1].split(']<')
             # Box payload is deliberately opaque; only issued TypeRef identity matters.
-            source_expr = 'make()' if 'Box' in source_type else '1'
+            source_expr = 'make()' if 'Box' in source_ret else '1'
             result = self.evaluate(
-                'sig make() -> Box[Int] { builtin test.make }\n'
-                f'sig store({source_type}) -> Unit {{ builtin test.store }}\n'
-                f'sig load() -> {target_type} {{ builtin test.load }}\n'
-                f'store(thunk({source_expr}))\nvar t: {target_type} = load()\nvar later: Int = 1',
+                'type Box[T]\nsig make() -> Box[Int] { builtin test.make }\n'
+                f'sigtype Source() -> {source_ret} {{ failure {{ {source_failure} }} }}\n'
+                f'sigtype Target() -> {target_ret} {{ failure {{ {target_failure} }} }}\n'
+                f'sig store(Thunk[Source]) -> Unit {{ builtin test.store }}\n'
+                f'sig load() -> Thunk[Target] {{ builtin test.load }}\n'
+                f'store(thunk({source_expr}))\nvar t: Thunk[Target] = load()\nvar later: Int = 1',
                 {'test.make': lambda: {}, 'test.store': lambda t: saved.append(t),
                  'test.load': lambda: saved[-1]})
             if valid:
@@ -123,8 +126,8 @@ class ExtensionThunkHandleTests(unittest.TestCase):
             return issue(context, replace(thunk, potential_failure_contract={FailureId.FloatOverflow}), typ)
         with patch.object(RuntimeContext, '_issue_thunk_handle', corrupt):
             result = self.evaluate(
-                'sig identity(Thunk[Int]<Never>) -> Thunk[Int]<Never> { builtin test.id }\n'
-                'var t: Thunk[Int]<Never> = identity(thunk(1))', {'test.id': lambda t: t})
+                'sigtype DeferredInt() -> Int { failure { Never } }\nsig identity(Thunk[DeferredInt]) -> Thunk[DeferredInt] { builtin test.id }\n'
+                'var t: Thunk[DeferredInt] = identity(thunk(1))', {'test.id': lambda t: t})
         self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')
         self.assertEqual(result.value_contract_violation.boundary_kind, 'builtin')
         self.assertEqual(result.failure_history, ())
@@ -132,10 +135,10 @@ class ExtensionThunkHandleTests(unittest.TestCase):
     def test_nested_and_nonmemoized(self):
         effect = Mock(return_value=3)
         result = self.evaluate(
-            'sig effect() -> Int { builtin test.effect }\n'
-            'sig identity(Thunk[T]<Never>) -> Thunk[T]<Never> { builtin test.id }\n'
-            'var outer: Thunk[Thunk[Int]<Never>]<Never> = identity(thunk(thunk(effect())))\n'
-            'var inner: Thunk[Int]<Never> = force(outer)\n'
+            'sigtype DeferredInt() -> Int { failure { Never } }\nsigtype NestedInt() -> Thunk[DeferredInt] { failure { Never } }\nsig effect() -> Int { builtin test.effect }\n'
+            'sig identity(Thunk[NestedInt]) -> Thunk[NestedInt] { builtin test.id }\n'
+            'var outer: Thunk[NestedInt] = identity(thunk(thunk(effect())))\n'
+            'var inner: Thunk[DeferredInt] = force(outer)\n'
             'var x: Int = force(inner)\nvar y: Int = force(inner)',
             {'test.effect': effect, 'test.id': lambda t: t})
         self.assertEqual(result.environment['x'].value, 3)
@@ -149,11 +152,11 @@ class ExtensionThunkHandleTests(unittest.TestCase):
             payload.append(handle)
             return payload
         result = self.evaluate(
-            'sig box(Thunk[Int]<Never>) -> Box[Thunk[Int]<Never>] { builtin test.box }\n'
-            'sig alias(Box[Thunk[Int]<Never>]) -> Box[Thunk[Int]<Never>] { builtin test.alias }\n'
-            'sig extract(Box[Thunk[Int]<Never>]) -> Thunk[Int]<Never> { builtin test.extract }\n'
-            'var a: Box[Thunk[Int]<Never>] = box(thunk(5))\n'
-            'var b: Box[Thunk[Int]<Never>] = alias(a)\nvar x: Int = force(extract(b))',
+            'sigtype DeferredInt() -> Int { failure { Never } }\ntype Box[T]\nsig box(Thunk[DeferredInt]) -> Box[Thunk[DeferredInt]] { builtin test.box }\n'
+            'sig alias(Box[Thunk[DeferredInt]]) -> Box[Thunk[DeferredInt]] { builtin test.alias }\n'
+            'sig extract(Box[Thunk[DeferredInt]]) -> Thunk[DeferredInt] { builtin test.extract }\n'
+            'var a: Box[Thunk[DeferredInt]] = box(thunk(5))\n'
+            'var b: Box[Thunk[DeferredInt]] = alias(a)\nvar x: Int = force(extract(b))',
             {'test.box': box, 'test.alias': lambda v: v, 'test.extract': lambda v: v[-1]})
         self.assertEqual(result.environment['x'].value, 5)
         self.assertIs(result.environment['a'].value, payload)
@@ -164,8 +167,8 @@ class ExtensionThunkHandleTests(unittest.TestCase):
         def fail():
             raise RaisedFailure(FailureId.IOErr)
         result = self.evaluate(
-            'sig load() -> Thunk[Int]<Never> { failure { IOErr } builtin test.load }\n'
-            'var t: Thunk[Int]<Never> = load()\nvar later: Int = 1', {'test.load': fail})
+            'sigtype DeferredInt() -> Int { failure { Never } }\nsig load() -> Thunk[DeferredInt] { failure { IOErr } builtin test.load }\n'
+            'var t: Thunk[DeferredInt] = load()\nvar later: Int = 1', {'test.load': fail})
         self.assertIsNone(result.value_contract_violation)
         self.assertEqual(len(result.failure_history), 1)
         self.assertEqual(result.environment['later'].value, 1)

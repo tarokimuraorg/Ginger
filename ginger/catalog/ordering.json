@@ -45,68 +45,68 @@
   "sigs": [
     {
       "name": "cmp",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Ordering" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "eq",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Bool" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "lt",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Bool" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "balance",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Ordering" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "slope",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Slope" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "gt",
+      "type_params": ["T"],
       "params": [{ "ref": "T" }, { "ref": "T" }],
       "ret": { "ref": "Bool" },
       "requires": [
         { "kind": "guarantees", "type_var": "T", "guarantee": "Ord" }
       ],
       "failures": [],
-      "attrs": [],
       "builtin": null
     }
   ]

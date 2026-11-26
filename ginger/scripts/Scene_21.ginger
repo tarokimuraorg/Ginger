@@ -15,11 +15,13 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig good(Thunk[Int]<Never>) -> Int {
+sigtype DeferredInt() -> Int { failure { Never } }
+
+sig good(Thunk[DeferredInt]) -> Int {
 }
 
-func good(t: Thunk[Int]<Never>) {
+func good(t: Thunk[DeferredInt]) {
     return force(t)
 }
 
-print(good(thunk(0)))
+print[Int](good(thunk(0)))

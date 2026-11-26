@@ -16,8 +16,10 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
+type Box[T]
+
 typegroup Boxes { Box[Int] }
-sig keep(T) -> T { require T in Boxes }
+sig keep[T](T) -> T { require T in Boxes }
 func keep(x: T) { return x }
 sig invalid(Box[Float]) -> Box[Float] {}
-func invalid(x: Box[Float]) { return keep(x) }
+func invalid(x: Box[Float]) { return keep[Box[Float]](x) }

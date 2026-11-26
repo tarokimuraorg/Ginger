@@ -39,9 +39,9 @@ class ConsumerValueContractTests(unittest.TestCase):
             cell = t.env['x']
             live_env['x'] = evaluator.Cell(payload, cell.mutable,
                 TypeRef('Box', (TypeRef('Float'),)) if metadata else cell.typ)
-        source = (f'sig corrupt(Thunk[{typ}]<Never>) -> Unit {{ builtin test.corrupt }}\n'
+        source = (f'sigtype Captured() -> {typ} {{}}\nsig corrupt(Thunk[Captured]) -> Unit {{ builtin test.corrupt }}\n'
                   f'var x: {typ} = {initial}\n'
-                  f'var captured: Thunk[{typ}]<Never> = thunk(x)\n'
+                  f'var captured: Thunk[Captured] = thunk(x)\n'
                   'corrupt(captured)\n' + extra + tail + '\nvar later: Int = 1')
         original = evaluator.eval_expr
         live_env = None
@@ -61,9 +61,9 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_nonfinite_consumers_and_no_side_effects(self):
         for payload in [float('nan'), float('inf'), float('-inf')]:
-            for tail in ['var y: Bool = eq(x,1.0)', 'var y: Bool = lt(x,1.0)',
-                         'var y: Ordering = cmp(x,1.0)', 'print(x)',
-                         'var y: Float = neg(x)', 'var y: Float = add(x,1.0)',
+            for tail in ['var y: Bool = eq[Float](x,1.0)', 'var y: Bool = lt[Float](x,1.0)',
+                         'var y: Ordering = cmp[Float](x,1.0)', 'print[Float](x)',
+                         'var y: Float = neg[Float](x)', 'var y: Float = add[Float](x,1.0)',
                          'var y: Float = div(1.0,x)', 'var y: Float = x',
                          'var y: Float = 2.0\ny = x',
                          'var y: Float = identity(x)', 'observe(x)']:
@@ -83,15 +83,15 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_invalid_int_before_arithmetic_conversion_and_widening(self):
         for payload in [INT_MAX + 1, True, NoValue()]:
-            for tail in ['var y: Int = add(x,(-1))', 'var y: Float = toFloat(x)',
+            for tail in ['var y: Int = add[Int](x,(-1))', 'var y: Float = toFloat(x)',
                          'var y: Float = x', 'var y: Int64 = x',
-                         'var y: Bool = eq(x,1)', 'print(x)']:
+                         'var y: Bool = eq[Int](x,1)', 'print[Float](x)']:
                 with self.subTest(payload=payload, tail=tail):
                     self.assert_read(self.corrupt('Int', '1', payload, tail), 'Int')
 
     def test_other_standard_types(self):
-        for typ, initial, payload in [('Bool', 'eq(1,1)', 1),
-                                      ('Ordering', 'cmp(1,1)', ('Other','Bad')),
+        for typ, initial, payload in [('Bool', 'eq[Int](1,1)', 1),
+                                      ('Ordering', 'cmp[Int](1,1)', ('Other','Bad')),
                                       ('Unit', 'seed()', 1)]:
             observer = Mock(return_value=None)
             extra = f'sig observe({typ}) -> Unit {{ builtin test.observe }}\n'
@@ -102,17 +102,17 @@ class ConsumerValueContractTests(unittest.TestCase):
             observer.assert_not_called()
 
     def test_captured_comparison_print_and_returned_thunk(self):
-        for body, typ in [('eq(x,1.0)', 'Bool'), ('print(x)', 'Unit')]:
+        for body, typ in [('eq[Float](x,1.0)', 'Bool'), ('print[Float](x)', 'Unit')]:
             for returned in [False, True]:
                 with self.subTest(body=body, returned=returned):
                     def mutate(t):
                         t.env['x'] = replace(t.env['x'], value=float('nan'))
                         return t if returned else None
-                    ret = f'Thunk[{typ}]<Never>' if returned else 'Unit'
+                    ret = f'Thunk[Captured]' if returned else 'Unit'
                     tail = 'var u: ' + ret + ' = mutate(t)' if returned else 'mutate(t)'
-                    source = (f'sig mutate(Thunk[{typ}]<Never>) -> {ret} {{ builtin test.mutate }}\n'
+                    source = (f'sigtype Captured() -> {typ} {{}}\nsig mutate(Thunk[Captured]) -> {ret} {{ builtin test.mutate }}\n'
                               'var x: Float = 1.0\n'
-                              f'var t: Thunk[{typ}]<Never> = thunk({body})\n' + tail +
+                              f'var t: Thunk[Captured] = thunk({body})\n' + tail +
                               f'\nvar y: {typ} = force(' + ('u' if returned else 't') + ')')
                     result = self.run_source(source, {'test.mutate': mutate})
                     self.assert_read(result, 'Float')
@@ -132,8 +132,8 @@ class ConsumerValueContractTests(unittest.TestCase):
         for tail, boundary in [('var y: Int = force(t)', 'force_argument'),
                                ('observe(t)', 'call_argument')]:
             observer = Mock(return_value=None)
-            source = ('sig observe(Thunk[Int]<Never>) -> Unit { builtin test.observe }\n'
-                      'var t: Thunk[Int]<Never> = thunk(1)\n' + tail)
+            source = ('sigtype DeferredInt() -> Int { failure { Never } }\nsig observe(Thunk[DeferredInt]) -> Unit { builtin test.observe }\n'
+                      'var t: Thunk[DeferredInt] = thunk(1)\n' + tail)
             with patch('ginger.eval.eval_expr', side_effect=injected):
                 result = self.run_source(source, {'test.observe': observer})
             self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')
@@ -146,15 +146,15 @@ class ConsumerValueContractTests(unittest.TestCase):
             for nested in [False, True]:
                 def mutate(t):
                     t.env['a'] = replace(t.env['a'], value=payload)
-                source = (f'sig mutate(Thunk[Thunk[{typ}]<Never>]<Never>) -> Unit {{ builtin test.mutate }}\n'
-                          'sig capture(T) -> Thunk[Thunk[T]<Never>]<Never> {}\n'
-                          'func capture(a: T) { return thunk(thunk(a)) }\n'
-                          f'var t: Thunk[Thunk[{typ}]<Never>]<Never> = capture({initial})\n'
+                source = (f'sigtype Captured() -> {typ} {{}}\nsigtype Outer() -> Thunk[Captured] {{}}\nsig mutate(Thunk[Outer]) -> Unit {{ builtin test.mutate }}\n'
+                          f'sig capture({typ}) -> Thunk[Outer] {{}}\n'
+                          f'func capture(a: {typ}) {{ return thunk(thunk(a)) }}\n'
+                          f'var t: Thunk[Outer] = capture({initial})\n'
                           'mutate(t)\n'
-                          f'var inner: Thunk[{typ}]<Never> = force(t)\n'
+                          f'var inner: Thunk[Captured] = force(t)\n'
                           f'var y: {typ} = force(inner)')
                 if not nested:
-                    source = source.replace('Thunk[Thunk[', 'Thunk[').replace(']<Never>]<Never>', ']<Never>')
+                    source = source.replace('Thunk[Outer]', 'Thunk[Captured]')
                     source = source.replace('thunk(thunk(a))', 'thunk(a)')
                     source = source[:source.index('var inner:')] + f'var y: {typ} = force(t)'
                 result = self.run_source(source, {'test.mutate': mutate})
@@ -177,13 +177,14 @@ class ConsumerValueContractTests(unittest.TestCase):
 
     def test_open_world_remains_opaque_through_function_binding_and_argument(self):
         for typ in ['Box[Int]', 'Box[Float]', 'Pair[Int,Float]', 'MissingType',
-                    'Box[MissingType]', 'Float[Int]']:
+                    'Box[MissingType]', 'Box[Box[Int]]']:
             payload = {'invalid': float('nan')}
             observer = Mock(return_value=None)
-            source = (f'sig make() -> {typ} {{ builtin test.make }}\n'
-                      'sig identity(T) -> T {}\nfunc identity(a: T) { return a }\n'
+            source = ('type Box[T]\ntype Pair[T, U]\ntype MissingType\n'
+                      f'sig make() -> {typ} {{ builtin test.make }}\n'
+                      'sig identity[T](T) -> T {}\nfunc identity(a: T) { return a }\n'
                       f'sig observe({typ}) -> Unit {{ builtin test.observe }}\n'
-                      f'var x: {typ} = identity(make())\nx = identity(x)\nobserve(x)')
+                      f'var x: {typ} = identity[{typ}](make())\nx = identity[{typ}](x)\nobserve(x)')
             result = self.run_source(source, {'test.make': lambda: payload, 'test.observe': observer})
             self.assertIsNone(result.value_contract_violation)
             observer.assert_called_once_with(payload)
@@ -204,13 +205,13 @@ class ConsumerValueContractTests(unittest.TestCase):
         for user_function in [False, True]:
             observer = Mock(return_value=None)
             later.reset_mock()
-            declaration = ('sig observe(Thunk[Int]<Never>,Unit) -> Unit {}\n'
-                           'func observe(a: Thunk[Int]<Never>, b: Unit) { effect() }'
+            declaration = ('sigtype DeferredInt() -> Int { failure { Never } }\nsig observe(Thunk[DeferredInt],Unit) -> Unit {}\n'
+                           'func observe(a: Thunk[DeferredInt], b: Unit) { effect() }'
                            if user_function else
-                           'sig observe(Thunk[Int]<Never>,Unit) -> Unit { builtin test.observe }')
+                           'sigtype DeferredInt() -> Int { failure { Never } }\nsig observe(Thunk[DeferredInt],Unit) -> Unit { builtin test.observe }')
             source = (declaration + '\nsig effect() -> Unit { builtin test.observe }\n'
                       'sig later() -> Unit { builtin test.later }\n'
-                      'var t: Thunk[Int]<Never> = thunk(1)\nobserve(t,later())')
+                      'var t: Thunk[DeferredInt] = thunk(1)\nobserve(t,later())')
             with patch('ginger.eval.eval_expr', side_effect=injected):
                 result = self.run_source(source, {'test.later': later, 'test.observe': observer})
             self.assertEqual(result.value_contract_violation.boundary_kind, 'call_argument')
@@ -230,7 +231,7 @@ class ConsumerValueContractTests(unittest.TestCase):
         cases = [
             ('var y: Float = 42', 'binding_write'),
             ('var y: Int64 = 42', 'binding_write'),
-            ('var y: Bool = eq(42,1)', 'call_argument'),
+            ('var y: Bool = eq[Int](42,1)', 'call_argument'),
             ('sig observe(Float) -> Unit { builtin test.observe }\nobserve(42)', 'call_argument'),
             ('sig f(Float) -> Float {}\nfunc f(a: Float) { return a }\nvar y: Float = f(42)', 'call_argument'),
             ('sig f() -> Float {}\nfunc f() { return 42 }\nvar y: Float = f()', 'function_return'),
@@ -246,11 +247,11 @@ class ConsumerValueContractTests(unittest.TestCase):
             observer.assert_not_called()
 
     def test_force_entry_checks_before_saved_expression(self):
-        from ginger.ast import CallExpr
+        from ginger.ast import IdentExpr
         original = evaluator.eval_expr
         def injected(expr, *args, **kwargs):
             result = original(expr, *args, **kwargs)
-            if isinstance(expr, CallExpr) and expr.callee == 'thunk':
+            if isinstance(expr, IdentExpr) and expr.name == 't':
                 from ginger.runtime.results import Value
                 result = replace(result, value_result=Value(replace(
                     result.value_result.value,
@@ -258,7 +259,7 @@ class ConsumerValueContractTests(unittest.TestCase):
             return result
         effect = Mock(return_value=None)
         with patch('ginger.eval.eval_expr', side_effect=injected):
-            result = self.run_source('sig effect() -> Unit { builtin test.effect }\nforce(thunk(effect()))',
+            result = self.run_source('sig effect() -> Unit { builtin test.effect }\nsigtype Deferred() -> Unit {}\nvar t: Thunk[Deferred] = thunk(effect())\nforce(t)',
                                      {'test.effect': effect})
         self.assertEqual(result.value_contract_violation.boundary_kind, 'force_argument')
         self.assertEqual(result.value_contract_violation.reason, 'contract_mismatch')
@@ -268,17 +269,17 @@ class ConsumerValueContractTests(unittest.TestCase):
         def mutate(t):
             t.env['x'] = replace(t.env['x'], value=float('nan'))
         result = self.run_source(
-            'sig mutate(Thunk[Thunk[Bool]<Never>]<Never>) -> Unit { builtin test.mutate }\n'
+            'sigtype DeferredBool() -> Bool { failure { Never } }\nsigtype NestedBool() -> Thunk[DeferredBool] { failure { Never } }\nsig mutate(Thunk[NestedBool]) -> Unit { builtin test.mutate }\n'
             'var x: Float = 1.0\n'
-            'var t: Thunk[Thunk[Bool]<Never>]<Never> = thunk(thunk(eq(x,1.0)))\n'
-            'mutate(t)\nvar inner: Thunk[Bool]<Never> = force(t)\n'
+            'var t: Thunk[NestedBool] = thunk(thunk(eq[Float](x,1.0)))\n'
+            'mutate(t)\nvar inner: Thunk[DeferredBool] = force(t)\n'
             'var y: Bool = force(inner)', {'test.mutate': mutate})
         self.assertIn('inner', result.environment)
         self.assertNotIn('y', result.environment)
         self.assert_read(result, 'Float')
 
     def test_opaque_to_standard_return_remains_checked(self):
-        source = ('sig make() -> Box[Float] { builtin test.make }\n'
+        source = ('type Box[T]\nsig make() -> Box[Float] { builtin test.make }\n'
                   'sig extract(Box[Float]) -> Float { builtin test.extract }\n'
                   'var y: Float = extract(make())')
         result = self.run_source(source, {'test.make': lambda: [float('nan')],

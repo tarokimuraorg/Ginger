@@ -7,7 +7,7 @@ def _core_items(name: str):
     return load_core_catalog_json(catalog)
 
 def prelude_items():
-    items = []
+    items = _core_items("types")
     items += _core_items("math")
     items += _core_items("cast")
     items += _core_items("ordering")

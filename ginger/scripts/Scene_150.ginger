@@ -18,7 +18,9 @@
 // Expected completion: stops at FailureContractViolation
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+sigtype DeferredFloat() -> Float { failure { Never } }
+
 sig raw(Float,Float) -> Float { builtin core.float.div }
-var t: Thunk[Float]<Never> = thunk(raw(1.0,0.0))
-print(force(t))
-print(99)
+var t: Thunk[DeferredFloat] = thunk(raw(1.0,0.0))
+print[Float](force(t))
+print[Int](99)

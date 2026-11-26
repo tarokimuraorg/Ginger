@@ -26,45 +26,45 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var lo: Int = (-9007199254740991)
-print(lo)
-print(neg(lo))
+print[Int](lo)
+print[Int](neg[Int](lo))
 var low: Int64 = (-9223372036854775807i64)
-print(low)
-print(neg(low))
-print(001i64)
+print[Int64](low)
+print[Int64](neg[Int64](low))
+print[Int64](001i64)
 
-print(eq(low,neg(low)))
-print(lt(low,neg(low)))
+print[Bool](eq[Int64](low,neg[Int64](low)))
+print[Bool](lt[Int64](low,neg[Int64](low)))
 
-// cmp(a,b)の時、 a < b => Right
-print(cmp(low,neg(low)))
+// cmp[T](a,b)の時、 a < b => Right
+print[Ordering](cmp[Int64](low,neg[Int64](low)))
 
-// cmp(a,b)の時、 a = b => Flat
-print(cmp(1,1))
+// cmp[T](a,b)の時、 a = b => Flat
+print[Ordering](cmp[Int](1,1))
 
-// cmp(a,b)の時、 a > b => Left
-print(cmp(2.0,1.0))
+// cmp[T](a,b)の時、 a > b => Left
+print[Ordering](cmp[Float](2.0,1.0))
 
-// balance(a,b)の時、 a < b => Right
-print(balance(1,2))
+// balance[T](a,b)の時、 a < b => Right
+print[Ordering](balance[Int](1,2))
 
-// balance(a,b)の時、 a = b => Flat
-print(balance(1,1))
+// balance[T](a,b)の時、 a = b => Flat
+print[Ordering](balance[Int](1,1))
 
-// balance(a,b)の時、 a > b => Left
-print(balance(2,1))
+// balance[T](a,b)の時、 a > b => Left
+print[Ordering](balance[Int](2,1))
 
-// slope(a,b)の時、 a < b => Rising
-print(slope(1,2))
+// slope[T](a,b)の時、 a < b => Rising
+print[Slope](slope[Int](1,2))
 
-// slope(a,b)の時、 a = b => Flat
-print(slope(1,1))
+// slope[T](a,b)の時、 a = b => Flat
+print[Slope](slope[Int](1,1))
 
-// slope(a,b)の時、 a > b => Falling
-print(slope(2,1))
+// slope[T](a,b)の時、 a > b => Falling
+print[Slope](slope[Int](2,1))
 
 // Float有限精度範囲外のため、true
-print(eq(0.99999999999999999, 1.0))
+print[Bool](eq[Float](0.99999999999999999, 1.0))
 
 // Floatの有限精度範囲内のため、false
-print(eq(0.9999999999999999, 1.0))
+print[Bool](eq[Float](0.9999999999999999, 1.0))

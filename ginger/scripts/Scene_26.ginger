@@ -22,15 +22,15 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-print(add(9007199254740991,0))
-print(sub((-9007199254740991),0))
-print(mul((-9007199254740991),1))
-var a: Int = add(9007199254740991,1)
+print[Int](add[Int](9007199254740991,0))
+print[Int](sub[Int]((-9007199254740991),0))
+print[Int](mul[Int]((-9007199254740991),1))
+var a: Int = add[Int](9007199254740991,1)
 resolve a { IntegerOverflow { a = 10 } }
-var b: Int = sub((-9007199254740991),1)
+var b: Int = sub[Int]((-9007199254740991),1)
 resolve b { IntegerOverflow { b = 20 } }
-var c: Int = mul(9007199254740991,(-2))
+var c: Int = mul[Int](9007199254740991,(-2))
 resolve c { IntegerOverflow { c = 30 } }
-print(a)
-print(b)
-print(c)
+print[Int](a)
+print[Int](b)
+print[Int](c)

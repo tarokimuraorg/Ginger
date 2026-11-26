@@ -46,9 +46,9 @@ class RegisterBlockTests(unittest.TestCase):
         for blocks in ['register Mark { Int, Int }',
                        'register Mark { Int, Float }\nregister Mark { Int }',
                        'register Mark { Box[Int], Box[Int] }',
-                       'register Mark { Thunk[Int]<Never>, Thunk[Int]<IntegerOverflow> }']:
+                       'sigtype DeferredInt() -> Int { failure { Never } }\nsigtype CheckedInt() -> Int { failure { IntegerOverflow } }\nregister Mark { Thunk[DeferredInt], Thunk[DeferredInt] }']:
             with self.subTest(blocks=blocks), self.assertRaisesRegex(TypecheckError, 'duplicate register'):
-                compile('typegroup Mark {}\n' + blocks)
+                compile('type Box[T]\ntypegroup Mark {}\n' + blocks)
 
     def test_unknown_destination(self):
         with self.assertRaisesRegex(TypecheckError, "unknown register target 'Missing'"):
@@ -95,7 +95,7 @@ class RegisterBlockTests(unittest.TestCase):
         group = 'typegroup Numbers { Int, Float }\n'
         registration = 'typegroup Mark {}\nregister Mark { Numbers }\n'
         for source in [group + registration, registration + group]:
-            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, 'not a concrete register target'):
+            with self.subTest(source=source), self.assertRaisesRegex(TypecheckError, "unknown type 'Numbers'"):
                 compile(source)
 
     def test_existing_catalog_format_and_duplicate_with_source(self):
@@ -114,7 +114,7 @@ class RegisterBlockTests(unittest.TestCase):
             compile('register FiniteArithmetic { Float }')
 
     def test_generic_require_and_typegroup(self):
-        source = '''sig keep(T) -> T {
+        source = '''sig keep[T](T) -> T {
     require T in Mark
     require T in Numbers
 }
@@ -122,15 +122,15 @@ func keep(x: T) { return x }
 typegroup Mark {}
 register Mark { Int, Float }
 typegroup Numbers { Int, Float }
-print(keep(1))
-print(keep(2.0))
+print[Int](keep[Int](1))
+print[Float](keep[Float](2.0))
 '''
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             run(source)
         self.assertEqual(stdout.getvalue(), '1\n2.0\n')
         with self.assertRaisesRegex(TypecheckError, 'T in Mark required'):
-            compile(source + 'keep(1i64)')
+            compile(source + 'keep[Int64](1i64)')
 
 
 if __name__ == '__main__':

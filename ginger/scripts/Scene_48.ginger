@@ -1,5 +1,5 @@
 // Purpose:
-// generic dispatch を捕捉する Thunk と transitive conditional failure
+// 具体型ごとの Thunk と条件付き FailureSet の伝播
 // Based on tests (source-visible behavior; host/internal assertions remain unit tests):
 // tests/test_conditional_failures.py::test_generic_force_thunk_preserves_symbolic_and_runtime_contracts
 // tests/test_conditional_failures.py::test_nested_generic_condition_substitutes_u_to_t
@@ -24,62 +24,84 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 failureset AddFailures(T) {
-    IntegerOverflow when T in BoundedArithmetic, 
-    FloatOverflow when T in FiniteArithmetic, 
-    FloatUnderflow when T in FiniteArithmetic 
+    IntegerOverflow when T in BoundedArithmetic,
+    FloatOverflow when T in FiniteArithmetic,
+    FloatUnderflow when T in FiniteArithmetic
 }
 
-sig delayed(T,T) -> Thunk[T]<AddFailures(T)> { 
-    require T guarantees Addable 
+sigtype DeferredInt() -> Int { failure { AddFailures(Int) } }
+sig delayedInt(Int,Int) -> Thunk[DeferredInt] {}
+
+func delayedInt(a: Int,b: Int) {
+    return thunk(a + b)
 }
 
-func delayed(a: T,b: T) { 
-    return thunk(a + b) 
+sig innerInt(Int,Int) -> Int {
+    failure {
+        AddFailures(Int)
+    }
 }
 
-print(force(delayed(1,2)))
-print(force(delayed(1.0,2.0)))
-
-sig inner(U,U) -> U { 
-    require U guarantees Addable 
-    failure { 
-        AddFailures(U)
-    } 
+func innerInt(a:Int, b:Int) {
+    return force(delayedInt(a,b))
 }
 
-func inner(a:U, b:U) {
-    return force(delayed(a,b))
+sig outerInt(Int,Int) -> Int {
+    failure {
+        AddFailures(Int)
+    }
 }
 
-sig outer(T,T) -> T { 
-    require T guarantees Addable 
-    failure { 
-        AddFailures(T)
-    } 
+func outerInt(a: Int,b: Int) {
+    return innerInt(a,b)
 }
 
-func outer(a: T,b: T) { 
-    return inner(a,b)
+sigtype DeferredFloat() -> Float { failure { AddFailures(Float) } }
+sig delayedFloat(Float,Float) -> Thunk[DeferredFloat] {}
+
+func delayedFloat(a: Float,b: Float) {
+    return thunk(a + b)
 }
 
-print(outer(6,4))
-print(outer(2.5,7.4))
-
-var i: Int = outer(9007199254740991,1)
-
-resolve i { 
-    IntegerOverflow { 
-        i = 7 
-    } 
+sig innerFloat(Float,Float) -> Float {
+    failure {
+        AddFailures(Float)
+    }
 }
 
-var f: Float = outer(179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0,179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0)
-
-resolve f { 
-    FloatOverflow { 
-        f = 8 
-    } 
+func innerFloat(a:Float, b:Float) {
+    return force(delayedFloat(a,b))
 }
 
-print(i)
-print(f)
+sig outerFloat(Float,Float) -> Float {
+    failure {
+        AddFailures(Float)
+    }
+}
+
+func outerFloat(a: Float,b: Float) {
+    return innerFloat(a,b)
+}
+
+print[Int](force(delayedInt(1,2)))
+print[Float](force(delayedFloat(1.0,2.0)))
+print[Int](outerInt(6,4))
+print[Float](outerFloat(2.5,7.4))
+var i: Int = outerInt(9007199254740991,1)
+
+resolve i {
+    IntegerOverflow {
+        i = 7
+    }
+}
+
+var f: Float = outerFloat(179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0,179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0)
+
+resolve f {
+    FloatOverflow {
+        f = 8
+    }
+}
+
+print[Int](i)
+print[Float](f)

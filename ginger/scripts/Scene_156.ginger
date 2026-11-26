@@ -15,9 +15,11 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
+type Pair[T, U]
+
 typegroup Mark {}
 register Mark { Pair[Int,Float] }
-sig keep(T) -> T { require T in Mark }
+sig keep[T](T) -> T { require T in Mark }
 func keep(x: T) { return x }
 sig invalid(Pair[Float,Int]) -> Pair[Float,Int] {}
-func invalid(x: Pair[Float,Int]) { return keep(x) }
+func invalid(x: Pair[Float,Int]) { return keep[Pair[Float, Int]](x) }

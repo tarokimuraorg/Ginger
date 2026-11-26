@@ -13,8 +13,10 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
+
 sig h(Float) -> Unit { failure { IOErr } }
 func h(x: Float) {}
-var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
+var t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))
 var x: Unit = h(force(t))
-resolve x { DivideByZero { x = print(8) } }
+resolve x { DivideByZero { x = print[Int](8) } }

@@ -19,5 +19,8 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-var t: Thunk[Int]<IntegerOverflow> = thunk(add(1,2))
-var pure: Thunk[Int]<Never> = t
+sigtype CheckedInt() -> Int { failure { IntegerOverflow } }
+sigtype DeferredInt() -> Int { failure { Never } }
+
+var t: Thunk[CheckedInt] = thunk(add[Int](1,2))
+var pure: Thunk[DeferredInt] = t

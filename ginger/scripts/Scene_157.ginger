@@ -16,8 +16,8 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 sig early() -> Int {}
-func early() { return 1 let later: Int = add(1,2) }
-print(early())
+func early() { return 1 let later: Int = add[Int](1,2) }
+print[Int](early())
 sig earlyUnit() -> Unit {}
-func earlyUnit() { return print(2) print(div(1.0,0.0)) }
+func earlyUnit() { return print[Int](2) print[Float](div(1.0,0.0)) }
 earlyUnit()

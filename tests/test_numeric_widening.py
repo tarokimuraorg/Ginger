@@ -32,12 +32,12 @@ class NumericWideningTests(unittest.TestCase):
         for source in ['var x: Int = 1.5', 'var x: Int = 0\nx = 1.5',
                        'sig f(Int) -> Int {}\nfunc f(x: Int) { return x }\nvar x: Int = f(1.5)',
                        'sig f() -> Int {}\nfunc f() { return 1.5 }',
-                       'var x: Float = eq(1,1)',
-                       'var x: Float = 0.0\nx = eq(1,1)',
-                       'var x: Float = div(eq(1,1),2)',
+                       'var x: Float = eq[Int](1,1)',
+                       'var x: Float = 0.0\nx = eq[Int](1,1)',
+                       'var x: Float = div(eq[Int](1,1),2)',
                        'var x: Float = toFloat(1.5)',
-                       'sig f(Float) -> Float {}\nfunc f(x: Float) { return x }\nvar x: Float = f(eq(1,1))',
-                       'sig f() -> Float {}\nfunc f() { return eq(1,1) }']:
+                       'sig f(Float) -> Float {}\nfunc f(x: Float) { return x }\nvar x: Float = f(eq[Int](1,1))',
+                       'sig f() -> Float {}\nfunc f() { return eq[Int](1,1) }']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 checked(source)
         self.assertIs(widen_value(True, TypeRef('Bool'), TypeRef('Float')), True)
@@ -69,7 +69,7 @@ class NumericWideningTests(unittest.TestCase):
 
     def test_return_converts_before_caller_uses_value(self):
         for body in ['return 1', 'return 1\nreturn 2.0', 'return 2.0\nreturn 1']:
-            source = f'sig f() -> Float {{}}\nfunc f() {{ {body} }}\nprint(f())'
+            source = f'sig f() -> Float {{}}\nfunc f() {{ {body} }}\nprint[Float](f())'
             seen = []
             with patch.dict(BUILTINS, {'core.float.print': lambda x: seen.append(x)}):
                 self.values(source)
@@ -93,13 +93,13 @@ class NumericWideningTests(unittest.TestCase):
     def test_declarations_thunks_and_generics_remain_strict(self):
         for source in ['sig f(Float) -> Unit {}\nfunc f(x: Int) {}',
                        'sig f(Int) -> Unit {}\nfunc f(x: Float) {}',
-                       'var t: Thunk[Float]<Never> = thunk(1)',
-                       'var t: Thunk[Int]<Never> = thunk(1)\nvar u: Thunk[Float]<Never> = t',
-                       'var x: Int = add(1,2.0)']:
+                       'sigtype DeferredFloat() -> Float { failure { Never } }\nvar t: Thunk[DeferredFloat] = thunk(1)',
+                       'sigtype DeferredInt() -> Int { failure { Never } }\nsigtype DeferredFloat() -> Float { failure { Never } }\nvar t: Thunk[DeferredInt] = thunk(1)\nvar u: Thunk[DeferredFloat] = t',
+                       'var x: Int = add[Float](1,2.0)']:
             with self.subTest(source=source), self.assertRaises(TypecheckError):
                 checked(source)
-        self.assertEqual(self.values('var x: Float = add(1,2.0)')['x'].value, 3.0)
-        env = self.values('var t: Thunk[Int]<Never> = thunk(1)\nvar x: Float = force(t)')
+        self.assertEqual(self.values('var x: Float = add[Float](1,2.0)')['x'].value, 3.0)
+        env = self.values('sigtype DeferredInt() -> Int { failure { Never } }\nvar t: Thunk[DeferredInt] = thunk(1)\nvar x: Float = force(t)')
         self.assertIs(type(env['x'].value), float)
 
     def test_bounded_int_converts_exactly(self):

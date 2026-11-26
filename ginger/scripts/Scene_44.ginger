@@ -20,18 +20,20 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
+sigtype DeferredInt() -> Int { failure { Never } }
+
 sig effect() -> Int {}
 
 func effect() { 
-    print(7) 
+    print[Int](7)
     return 3 
 }
 
-var t: Thunk[Int]<Never> = thunk(effect())
+var t: Thunk[DeferredInt] = thunk(effect())
 
-print(0)
-print(force(t))
-print(force(t))
+print[Int](0)
+print[Int](force(t))
+print[Int](force(t))
 
 sig snapshot() -> Int {}
 
@@ -41,20 +43,20 @@ func snapshot() {
 
     // thunk(x) は生成時点の値を保持するため、
     // x を再代入しても force(saved) は 1 を返す
-    let saved: Thunk[Int]<Never> = thunk(x)
+    let saved: Thunk[DeferredInt] = thunk(x)
 
     // xは2に更新されるが、savedは1を保持する
     x = 2
 
-    print(x)
+    print[Int](x)
     return force(saved)
 
 }
 
-print(snapshot())
+print[Int](snapshot())
 
-var replaceable: Thunk[Int]<Never> = thunk(1)
+var replaceable: Thunk[DeferredInt] = thunk(1)
 
 replaceable = thunk(2)
 
-print(force(replaceable))
+print[Int](force(replaceable))

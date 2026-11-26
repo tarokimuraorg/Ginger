@@ -19,5 +19,5 @@
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
 var a: Float = div(1.0,0.0)
-print(999)
-//print(a)
+print[Int](999)
+//print[Int](a)

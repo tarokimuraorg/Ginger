@@ -4,10 +4,10 @@ from .ast import (
     ResolveExpr, HandlerReturnStmt,
     Program, TopLevel,
     TypeRef, Param, FuncSig,
-    FailureSetDecl, FailureSetRef, GuaranteeDecl, TypeGroupDecl, RegisterDecl,
+    FailureSetDecl, FailureSetRef, GuaranteeDecl, TypeDecl, TypeGroupDecl, RegisterDecl,
     ImplDecl, ImplMethod,
     RequireClause, RequireIn, RequireGuarantees,
-    ConditionalFailureDecl, SigDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
+    ConditionalFailureDecl, SigDecl, SigRefDecl, SigTypeDecl, FuncDecl, VarDecl,AssignStmt,BinaryExpr, UnaryMinusExpr,
     BlockStmt, ReturnStmt, Stmt,
     Expr, CallExpr, IdentExpr, IntLit, Int64Lit, FloatLit,
     Arg, PosArg, NamedArg,
@@ -58,49 +58,6 @@ class Parser:
         if self.match("KW", "try") or self.match("KW", "catch"):
             raise SyntaxError("try/catch has been removed; use resolve <binding>")
     
-    def parse_attrs(self) -> List[str]:
-        """
-        Parse attribute lines preceding a sig or func declaration.
-        
-        Syntax:
-            @attr.<name>
-        
-        Returns:
-            ["io", ...] (the <name> part only)
-        """     
-        attrs: List[str] = []
-        
-        while self.match("SYM", "@"):
-
-            self.eat("SYM", "@")
-
-            # must be: attr . NAME
-            ns = self.eat("IDENT").text
-
-            if ns != "attr":
-                raise SyntaxError(f"unknown attribute namespace '@{ns}' (did you mean @attr.<name>?)")
-            
-            # @attr.<name>の'.'がない場合：落とす
-            if not self.match("SYM", "."):
-                t = self.cur()
-                raise SyntaxError(
-                    f"expected '.' after '@attr' (use @attr.<name>), got {t.kind}('{t.text}') at {t.pos}"
-                )
-
-            self.eat("SYM", ".")
-
-            if not self.match("IDENT"):
-                t = self.cur()
-                raise SyntaxError(
-                    f"expected attribute name after '@attr.', got {t.kind}('{t.text}') at {t.pos}"
-                )
-            
-            aname = self.eat("IDENT").text
-            attrs.append(aname)
-            self.skip_newlines()
-
-        return attrs
-
     # ---- program ----
 
     def parse_program(self) -> Program:
@@ -126,17 +83,19 @@ class Parser:
 
         self.reject_removed_syntax()
         
-        # 先頭の @attr を回収
-        attrs = self.parse_attrs()
-        if attrs and not (self.match("KW", "sig") or self.match("KW", "func")):
-            raise SyntaxError("attributes must precede a sig or func declaration")
-        
         if self.match("KW", "failureset"):
             return self.parse_failureset()
 
         # --- catalog/decl ---
         if self.match("KW", "guarantee"):
             return self.parse_guarantee()
+        if self.match("KW", "type"):
+            self.eat("KW", "type")
+            name = self.eat("IDENT").text
+            params = self.parse_type_params()
+            if not (self.match("NEWLINE") or self.match("EOF")):
+                raise SyntaxError("unexpected token after type declaration")
+            return TypeDecl(name, type_params=params)
         if self.match("KW", "typegroup"):
             return self.parse_typegroup()
         if self.match("KW", "register"):
@@ -144,9 +103,11 @@ class Parser:
         if self.match("KW", "impl"):
             return self.parse_impl()
         if self.match("KW", "func"):
-            return self.parse_func(attrs=attrs)
+            return self.parse_func()
         if self.match("KW", "sig"):
-            return self.parse_sig(attrs=attrs)
+            return self.parse_sig()
+        if self.match("IDENT", "sigtype") and self.toks[self.i + 1].kind == "IDENT":
+            return self.parse_sig(named_contract=True)
         
         # --- let/var (toplevel statement) ---
         if self.match("KW", "let"):
@@ -164,7 +125,7 @@ class Parser:
         # --- ExprStmt ---
         if (self.match("SYM", "-") or self.match("SYM", "(")
                 or (self.match("IDENT") and self.toks[self.i + 1].kind == "SYM"
-                    and self.toks[self.i + 1].text == "(")):
+                    and self.toks[self.i + 1].text in ("(", "["))):
             expr = self.parse_expr()
             return ExprStmt(expr=expr)
         
@@ -181,8 +142,32 @@ class Parser:
             name += "." + self.eat("IDENT").text
         return name
     
+    def parse_type_params(self):
+        params = []
+        if self.match("SYM", "["):
+            self.eat("SYM", "[")
+            params.append(self.eat("IDENT").text)
+            while self.match("SYM", ","):
+                self.eat("SYM", ",")
+                params.append(self.eat("IDENT").text)
+            self.eat("SYM", "]")
+        return tuple(params)
+
     def parse_type(self) -> TypeRef:
         name = self.eat("IDENT").text
+        if name == "Thunk":
+            self.eat("SYM", "[")
+            contract = self.eat("IDENT").text
+            arguments = self.parse_type_arguments()
+            self.eat("SYM", "]")
+            if self.match("SYM", "<"):
+                raise SyntaxError("legacy Thunk syntax: use Thunk[SigTypeName]")
+            return TypeRef(name, sigtype_name=contract, sigtype_args=arguments)
+        args = self.parse_type_arguments()
+        specs = self.parse_failure_contract() if self.match("SYM", "<") else None
+        return TypeRef(name, args, specs)
+
+    def parse_type_arguments(self):
         args = []
         if self.match("SYM", "["):
             self.eat("SYM", "[")
@@ -194,8 +179,7 @@ class Parser:
                 break
             self.eat("SYM", "]")
 
-        specs = self.parse_failure_contract() if self.match("SYM", "<") else None
-        return TypeRef(name, tuple(args), specs)
+        return tuple(args)
 
     def parse_failure_reference(self) -> str | FailureSetRef:
         name = self.eat("IDENT").text
@@ -385,10 +369,17 @@ class Parser:
 
     # ---- sig ----
 
-    def parse_sig(self, attrs: Optional[List[str]] = None) -> SigDecl:
+    def parse_sig(self, named_contract: bool = False) -> SigDecl | SigRefDecl | SigTypeDecl:
 
-        self.eat("KW", "sig")
+        if named_contract:
+            self.eat("IDENT", "sigtype")
+        else:
+            self.eat("KW", "sig")
         name = self.eat("IDENT").text
+        type_params = self.parse_type_params()
+        if not named_contract and self.match("SYM", ":"):
+            self.eat("SYM", ":")
+            return SigRefDecl(name, self.eat("IDENT").text, type_params, self.parse_type_arguments())
         self.eat("SYM", "(")
         params = self.parse_sig_param_types()
         self.eat("SYM", ")")
@@ -457,7 +448,7 @@ class Parser:
                 self.eat("SYM", "}")
                 continue
 
-            if self.match("KW", "builtin"):
+            if self.match("KW", "builtin") and not named_contract:
                 self.reject_source_builtin()
 
                 self.eat("KW", "builtin")
@@ -473,19 +464,21 @@ class Parser:
 
         self.eat("SYM", "}")
 
+        if named_contract:
+            return SigTypeDecl(name, params, ret, requires, failures, type_params)
         return SigDecl(
             name=name,
             params=params,
             ret=ret,
             requires=requires,
             failures=failures,
-            attrs=list(attrs or []),
             builtin=builtin,
+            type_params=type_params,
         )
 
     # ---- func ----
 
-    def parse_func(self, attrs: Optional[List[str]] = None) -> FuncDecl:
+    def parse_func(self) -> FuncDecl:
         # func add(a: Int, b: Int) { return a + b }
         self.eat("KW", "func")
         name = self.eat("IDENT").text
@@ -499,7 +492,6 @@ class Parser:
             name=name, 
             params=params,
             body=body, 
-            attrs=list(attrs or []),
             )
 
     def parse_require_clause(self) -> RequireClause:
@@ -666,11 +658,12 @@ class Parser:
 
         if self.match("IDENT"):
             ident = self.eat("IDENT").text
-            if self.match("SYM", "("):
+            type_args = self.parse_type_arguments() if self.match("SYM", "[") else None
+            if type_args is not None or self.match("SYM", "("):
                 self.eat("SYM", "(")
                 args, style = self.parse_args()
                 self.eat("SYM", ")")
-                return CallExpr(callee=ident, args=args, arg_style=style)
+                return CallExpr(callee=ident, args=args, arg_style=style, type_args=type_args)
             return IdentExpr(ident)
 
         if self.match("INT"):

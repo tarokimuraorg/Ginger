@@ -30,11 +30,11 @@ func local(seed: Int) {
     var x: Int = initial
     x = 21
     return x
-    print(999)
+    print[Int](999)
 }
-print(local(1))
-print(local(2))
-print(x)
+print[Int](local(1))
+print[Int](local(2))
+print[Int](x)
 sig fresh() -> Int {}
 func fresh() { var a: Int = 1 let before: Int = a a = 2 return before }
-print(fresh())
+print[Int](fresh())

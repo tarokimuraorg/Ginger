@@ -22,7 +22,9 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig keep(T) -> T { 
+type Box[T]
+
+sig keep[T](T) -> T {
     require T in Mark
     require T in Mark
     require T in Numbers
@@ -37,11 +39,11 @@ typegroup Mark {}
 
 typegroup Numbers { Int, Float }
 
-sig unused(Box[Box[T]]) -> T { 
+sig unused[T](Box[Box[T]]) -> T {
     require T in Mark
 }
 
 sig missing(Int) -> Int {}
 
-print(keep(1))
-print(keep(2.0))
+print[Int](keep[Int](1))
+print[Float](keep[Float](2.0))

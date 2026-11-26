@@ -16,8 +16,8 @@ class ContractViolationTests(unittest.TestCase):
         return evaluator._eval_program_with_context(checked(source)[0], context)
 
     def test_function_boundary_checks_value_unit_and_no_value(self):
-        for typ, body in [('Int', 'print(div(1.0,0.0))\nreturn 3'),
-                          ('Unit', 'print(div(1.0,0.0))'),
+        for typ, body in [('Int', 'print[Float](div(1.0,0.0))\nreturn 3'),
+                          ('Unit', 'print[Float](div(1.0,0.0))'),
                           ('Float', 'return div(1.0,0.0)')]:
             with self.subTest(typ=typ):
                 context = RuntimeContext()
@@ -29,7 +29,7 @@ class ContractViolationTests(unittest.TestCase):
                     return original(name, args, syms, env, resolved)
                 with patch('ginger.eval.eval_user_func', side_effect=stale), self.assertRaises(FailureContractViolation) as caught:
                     self.execute(f'sig f() -> {typ} {{ failure {{ DivideByZero, FloatOverflow, FloatUnderflow }} }}\n'
-                                 f'func f() {{ {body} }}\nlet result: {typ} = f()\nprint(99)', context)
+                                 f'func f() {{ {body} }}\nlet result: {typ} = f()\nprint[Int](99)', context)
                 v = caught.exception
                 self.assertEqual((v.event_id, v.violating_call_id, v.violating_function_or_builtin), (1, 2, 'f'))
                 self.assertEqual(v.declared_contract, EMPTY_FAILURES)
@@ -76,7 +76,7 @@ class ContractViolationTests(unittest.TestCase):
         context = RuntimeContext()
         printer = Mock(side_effect=RaisedFailure(FailureId.IOErr))
         with patch.dict(BUILTINS, {'core.int.print': printer}), self.assertRaises(FailureContractViolation) as caught:
-            self.execute('print(1)\nprint(3)', context)
+            self.execute('print[Int](1)\nprint[Int](3)', context)
         v = caught.exception
         self.assertEqual((v.failure_id, v.origin, v.violating_call_id, v.event_id),
                          (FailureId.IOErr, 'core.int.print', 1, None))
@@ -91,7 +91,7 @@ class ContractViolationTests(unittest.TestCase):
         context = RuntimeContext()
         stream = io.StringIO()
         with redirect_stdout(stream):
-            self.execute('print(div(1.0,0.0))\nprint(3)', context)
+            self.execute('print[Float](div(1.0,0.0))\nprint[Int](3)', context)
         self.assertEqual(stream.getvalue(), '3\n')
         self.assertIsNone(context.last_contract_violation)
         self.assertEqual(context.unresolved_pending(1), (1,))

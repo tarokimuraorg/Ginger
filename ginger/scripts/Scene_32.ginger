@@ -22,19 +22,19 @@
 //impl Int guarantees Opposite { flip = builtin core.int.neg }
 //impl Float guarantees Opposite { flip = builtin core.float.neg }
 
-sig flip(T) -> T { require T guarantees Negatable }
+sig flip[T](T) -> T { require T guarantees Negatable }
 
 func flip(a: T) {
     return -a
 }
 
-print(flip(2))
-print(flip(2.5))
+print[Int](flip[Int](2))
+print[Float](flip[Float](2.5))
 
-sig relay(U) -> U { require U guarantees Negatable }
-func relay(x: U) { return neg(x) }
+sig relay[U](U) -> U { require U guarantees Negatable }
+func relay(x: U) { return neg[U](x) }
 
-print(relay(3))
-print(relay(3.5))
+print[Int](relay[Int](3))
+print[Float](relay[Float](3.5))
 
-print(add(1,2))
+print[Int](add[Int](1,2))

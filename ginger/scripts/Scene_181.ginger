@@ -1,6 +1,6 @@
 var x: Int = 2
-print(-x)
-print(neg(x))
-print(-x * 3)
-print(-(-x))
-print(8.0 / (-2.0))
+print[Int](-x)
+print[Int](neg[Int](x))
+print[Int](-x * 3)
+print[Int](-(-x))
+print[Float](8.0 / (-2.0))

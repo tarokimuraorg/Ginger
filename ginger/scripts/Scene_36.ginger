@@ -15,7 +15,7 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-sig addBoth(T,T) -> T {
+sig addBoth[T](T,T) -> T {
     require T guarantees Addable
     failure { 
         IntegerOverflow,
@@ -24,12 +24,12 @@ sig addBoth(T,T) -> T {
     }
 }
 func addBoth(a: T,b: T) { return a + b }
-print(addBoth(1.0,2.0))
+print[Float](addBoth[Float](1.0,2.0))
 
 typegroup Mark {}
 register Mark { Float }
 
-sig check(T) -> T {
+sig check[T](T) -> T {
     failure {
         IntegerOverflow when T in BoundedArithmetic,
         IOErr when T in Mark
@@ -40,5 +40,5 @@ func check(x: T) {
     return x
 }
 
-print(check(1))
-print(check(1.0))
+print[Int](check[Int](1))
+print[Float](check[Float](1.0))

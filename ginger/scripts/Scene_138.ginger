@@ -10,10 +10,12 @@
 // Expected normal failure:
 // none
 // Expected fatal:
-// TypecheckError
+// SyntaxError
 // duplicate failure
-// Expected completion: stops at TypecheckError
+// Expected completion: stops at SyntaxError
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 // The public API raises this expected exception; subsequent source is not executed.
 
-var t: Thunk[Int]<IntegerOverflow,IntegerOverflow> = thunk(1)
+sigtype InvalidDuplicate() -> Int { failure { IntegerOverflow,IntegerOverflow } }
+
+var t: Thunk[InvalidDuplicate] = thunk(1)

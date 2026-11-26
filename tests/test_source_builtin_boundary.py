@@ -21,7 +21,7 @@ class SourceBuiltinBoundaryTests(unittest.TestCase):
             'impl Int guarantees Addable {}',
             'sig alias(Int) -> Int { builtin core.int.neg }',
             'sig alias(Int) -> Int {\n failure { IntegerOverflow }\n builtin core.int.neg\n}',
-            '@attr.io\nsig alias(Int) -> Unit { builtin core.int.print }',
+            'sig alias(Int) -> Unit { builtin core.int.print }',
         ]
         for source in declarations:
             for entry in (parse, compile, run):
@@ -59,8 +59,8 @@ class SourceBuiltinBoundaryTests(unittest.TestCase):
             path.write_text(json.dumps(catalog))
             declarations = load_core_catalog_json(path)
         program = parse('guarantee Opposite { flip(self: Self) -> Self }\n'
-                        'sig flip(T) -> T { require T guarantees Opposite }\n'
-                        'var x: Int = flip(2)\nvar y: Int = alias(3)')
+                        'sig flip[T](T) -> T { require T guarantees Opposite }\n'
+                        'var x: Int = flip[Int](2)\nvar y: Int = alias(3)')
         program.items[1:1] = declarations
         symbols = build_symbols(program)
         self.assertEqual(symbols.impls[(type_identity_key(TypeRef('Int')), 'Opposite', 'flip')],
@@ -78,12 +78,12 @@ class SourceBuiltinBoundaryTests(unittest.TestCase):
                       build_symbols(program).impls)
 
     def test_standard_catalog_and_generic_dispatch_through_public_source(self):
-        result = run('sig twice(T) -> T { require T guarantees Addable\n'
+        result = run('sig twice[T](T) -> T { require T guarantees Addable\n'
                      'failure { IntegerOverflow when T in BoundedArithmetic }\n'
                      'failure { FloatOverflow when T in FiniteArithmetic } }\n'
-                     'func twice(x: T) { return add(x,x) }\n'
-                     'var a: Int = add(1,2)\nvar b: Float = add(1.0,2.0)\n'
-                     'var c: Int = sub(7,2)\nvar d: Int = mul(3,4)\n'
-                     'var e: Int = neg(5)\nvar f: Int = twice(6)')
+                     'func twice(x: T) { return add[T](x,x) }\n'
+                     'var a: Int = add[Int](1,2)\nvar b: Float = add[Float](1.0,2.0)\n'
+                     'var c: Int = sub[Int](7,2)\nvar d: Int = mul[Int](3,4)\n'
+                     'var e: Int = neg[Int](5)\nvar f: Int = twice[Int](6)')
         self.assertEqual([result.environment[k].value for k in 'abcdef'],
                          [3, 3.0, 5, 12, -5, 12])

@@ -2,6 +2,7 @@
   "sigs": [
     {
       "name": "thunk",
+      "type_params": ["T"],
       "params": [
         {
           "ref": "T"
@@ -12,11 +13,11 @@
       },
       "requires": [],
       "failures": [],
-      "attrs": [],
       "builtin": null
     },
     {
       "name": "force",
+      "type_params": ["T"],
       "params": [
         {
           "ref": "T"
@@ -27,7 +28,6 @@
       },
       "requires": [],
       "failures": [],
-      "attrs": [],
       "builtin": null
     }
   ]

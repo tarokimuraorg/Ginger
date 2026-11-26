@@ -28,7 +28,7 @@ sig failed() -> Float {
 }
 
 func failed() { 
-    print(add(9007199254740991,1))
+    print[Int](add[Int](9007199254740991,1))
     return div(1.0,0.0)
 }
 
@@ -36,7 +36,7 @@ var x: Float = failed()
 
 resolve x { 
     IntegerOverflow { 
-        print(999) 
+        print[Int](999)
         x = 9 
     } 
     DivideByZero { 
@@ -44,7 +44,7 @@ resolve x {
     } 
 }
 
-print(x)
+print[Float](x)
 
 sig value() -> Int { 
     failure { 
@@ -55,15 +55,15 @@ sig value() -> Int {
 }
 
 func value() { 
-    print(div(1.0,0.0)) 
+    print[Float](div(1.0,0.0))
     return 3 
 }
 
-var y: Int = add(value(),add(9007199254740991,1))
+var y: Int = add[Int](value(),add[Int](9007199254740991,1))
 
 resolve y { 
     DivideByZero { 
-        print(999) 
+        print[Int](999)
         y = 9 
     } 
     IntegerOverflow { 
@@ -71,4 +71,4 @@ resolve y {
     } 
 }
 
-print(y)
+print[Int](y)

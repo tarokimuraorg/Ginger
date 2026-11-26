@@ -24,8 +24,8 @@ resolve a {
     }
 }
 
-print(a)
+print[Float](a)
 
-var b: Float = add(a,1.0)
+var b: Float = add[Float](a,1.0)
 
-print(b)
+print[Float](b)

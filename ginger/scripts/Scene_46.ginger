@@ -22,7 +22,9 @@
 // Expected completion: normal; report_result returns 0
 // Run with the README pipeline.run API; main.report_result displays unresolved/fatal results.
 
-var t: Thunk[Float]<DivideByZero, FloatOverflow, FloatUnderflow> = thunk(div(1.0,0.0))
+sigtype DeferredDivision() -> Float { failure { DivideByZero, FloatOverflow, FloatUnderflow } }
+
+var t: Thunk[DeferredDivision] = thunk(div(1.0,0.0))
 var x: Float = force(t)
 var y: Float = force(t)
 
@@ -32,7 +34,7 @@ resolve x {
     } 
 }
 
-print(x)
+print[Float](x)
 
 resolve y {
 
@@ -53,5 +55,5 @@ resolve y {
     }
 }
 
-print(y)
-print(3)
+print[Float](y)
+print[Int](3)

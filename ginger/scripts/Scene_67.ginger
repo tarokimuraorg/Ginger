@@ -16,4 +16,4 @@
 // The public API raises this expected exception; subsequent source is not executed.
 
 sig missing(Int) -> Int {}
-print(missing(1))
+print[Int](missing(1))
